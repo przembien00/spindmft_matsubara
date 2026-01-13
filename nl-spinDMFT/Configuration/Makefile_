@@ -1,0 +1,20 @@
+cppOptions 	=	-std=c++17 \
+				-O3 \
+				-pipe \
+				-Wall \
+				
+#-lhdf5
+libOptions 	=	-I /usr/include/hdf5/serial \
+				-lhdf5_serial \
+				-I ../../cpp_libs \
+
+all: build
+
+%: %.cpp header.h ../Algorithm/Parameter_Space/Parameter_Space.h | build 
+	g++ $(cppOptions) $< -o $<.out $(libOptions); ./$<.out; rm $<.out
+
+build:
+	mkdir -p ../Configuration_Data/
+
+#clean:
+#	rm -rf $(OUT); rm $(EXECUTABLE)

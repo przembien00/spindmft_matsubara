@@ -1,0 +1,25 @@
+# do not upload data
+nl-spinDMFT/Data/*
+CspinDMFT/Data/*
+p-spinDMFT/Data/*
+ExactDiagonalization/Data/*
+
+#do not upload plots
+spinDMFT/Plots/*
+
+# do not upload CMakeLists.txt
+CMakeLists.txt
+
+# do not upload Makefile
+Makefile
+
+# do not upload executables
+*executable*
+
+
+# do not upload build directories
+build/
+
+# do not upload cache
+__pycache__/
+

@@ -1,0 +1,23 @@
+font.family : serif
+
+# fontsize
+font.size : 13.2
+legend.fontsize : small
+xtick.labelsize : 11
+ytick.labelsize : 11
+
+# linestyle
+lines.linewidth : 1.3
+lines.markersize: 6
+lines.markeredgewidth: 0.9
+lines.markerfacecolor: none
+axes.prop_cycle : cycler('color',['blue', 'darkorange', 'blueviolet','green', 'red', 'gold', 'indigo', 'fuchsia'])
+# axes
+axes.grid : True
+grid.alpha : 0.5
+legend.framealpha : 0.9
+figure.autolayout: True
+xtick.direction: in
+ytick.direction: in
+xtick.minor.visible: True
+ytick.minor.visible: True

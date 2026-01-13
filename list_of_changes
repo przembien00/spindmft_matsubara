@@ -1,0 +1,13 @@
+transferred to cmake
+
+HDF5_Routines.h: renaming of string storing functions, added some more functions
+File_Management.h: several changes
+Physical_Models/CFET.h: changed sinc function
+Physical_Models/Physical_Models.h: included static cast to eliminate warning, changed the layout
+renaming Physical_Models -> Physics, Physical_Models.h -> Physics.h, pm -> ph
+spinDMFT/Storage_Concept.h and cpp: several changes
+Random/Random.h: static cast added 
+Standard_Algorithms/Standard_Algorithms.h: added argsort routines and include numeric
+Standard_Algorithms/Print_Routines.h: added matrix print routines
+Standard_Algorithms/Numerics.h: added is_equal routines
+spinDMFT/Functions/Functions.cpp, .h and spinDMFT/main.cpp : renamed S -> sigma

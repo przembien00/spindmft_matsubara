@@ -1,0 +1,224 @@
+// =================== CLASS IMPLEMENTATION OF DERIVED CLASS ISO DISORDERED MODEL ===================
+// CONSTRUCTOR
+ISO_Disordered_Blockwise_Model::ISO_Disordered_Blockwise_Model( const ps::ParameterSpace& pspace ):
+    Model( "ISO_Disordered_Blockwise", 'a', 'A', pspace, true ),
+    num_blocks(pspace.num_Spins+1),
+    half_blocks(std::ceil(static_cast<double>(num_blocks)/2.))
+{} 
+
+// generate string with compact info, e.g., for filenames
+std::string ISO_Disordered_Blockwise_Model::compact_info( const uint num_Digits ) const
+{
+    return "ISO_Disordered_Blockwise";
+}
+
+// generate string with compact info about the initial state
+std::string ISO_Disordered_Blockwise_Model::init_state_info( const uint num_Digits ) const
+{
+    return "Disordered";
+}
+
+// return vector of Parameters
+std::vector<Parameter> ISO_Disordered_Blockwise_Model::return_params() const
+{
+    std::vector<Parameter> p{};
+    return p;
+}
+
+// compute the model specific Hamiltonian
+void ISO_Disordered_Blockwise_Model::compute_Hamiltonian()
+{
+    H.reserve(half_blocks);
+    H.resize(half_blocks);
+    states.resize(half_blocks);
+
+    for(uint block=0; block<half_blocks; ++block)
+    {
+        std::vector<uint> sites(num_Spins);
+        for(uint i=0; i<num_Spins; ++i){sites[i] = i;}
+        auto states_for_block = Numerics::possibilities(sites,block); // block = num_up_spins
+        uint num_states_for_block = states_for_block.size();
+        H[block] = blaze::ZeroMatrix<RealType,blaze::rowMajor>(num_states_for_block,num_states_for_block);
+
+        auto it1 = states_for_block.cbegin();
+        uint i=0;
+        for(;it1 != states_for_block.cend(); ++it1)
+        {
+            // diagonal entry (SzSz):
+            std::vector<RealType> state_srep(num_Spins,-0.5); // state in sign representation
+            for(auto up: *it1){ state_srep[up] = 0.5; }
+            for(uint s1=0; s1<num_Spins; ++s1) // sum over all Jij Siz Sjz
+            {
+                for(uint s2=s1+1; s2<num_Spins; ++s2) // (i<j)
+                {
+                    H[block](i,i) += state_srep[s1]*state_srep[s2]*J(s1,s2);
+                }
+            }
+
+            // nondiagonal entries (S+S-):
+            uint j=i+1;
+            for(auto it2=it1+1; it2 != states_for_block.cend(); ++it2)
+            {
+                // compare states -> are they distinguished by flipping exactly one spin?
+                auto psi_i = *it1;
+                auto psi_j = *it2;
+                uint up=0;
+                while(true) // is safe because the states must be different 
+                {
+                    if(psi_i[up]!=psi_j[up]){ break; } // first difference between both states found
+                    ++up;
+                }
+                bool flipflop = false;
+                uint s1,s2;
+                if(up==psi_i.size()-1) // last up spin is different => flipflop possible
+                {
+                    s1 = psi_i.back();
+                    s2 = psi_j.back();
+                    flipflop = true;
+                }
+                else if(psi_i[up]<psi_j[up])
+                {
+                    s1 = psi_i[up];
+                    while(true)
+                    {
+                        if(up+1==psi_i.size()) // second difference between both states found at the end
+                        {
+                            s2 = psi_j.back();
+                            flipflop = true;
+                            break; 
+                        } 
+                        else if( psi_i[up+1]!=psi_j[up])  // second difference between both states found (not at the end)
+                        {
+                            if(psi_i[up+1]>psi_j[up]) // otherwise two flipflops would be required
+                            {
+                                s2 = psi_j[up];
+                                flipflop = std::equal(psi_i.begin()+up+1,psi_i.end(),psi_j.begin()+up+1); // check, whether rest of the up-spin sequence matches
+                            }
+                            break; 
+                        }
+                        ++up;
+                    }
+                }
+                else
+                {
+                    s1 = psi_j[up];
+                    while(true)
+                    {
+                        if(up+1==psi_i.size()) // second difference between both states found at the end
+                        {
+                            s2 = psi_i.back();
+                            flipflop = true;
+                            break; 
+                        } 
+                        else if( psi_j[up+1]!=psi_i[up])  // second difference between both states found (not at the end)
+                        {
+                            if(psi_j[up+1]>psi_i[up]) // otherwise two flipflops would be required
+                            {
+                                s2 = psi_i[up];
+                                flipflop = std::equal(psi_i.begin()+up+1,psi_i.end(),psi_j.begin()+up+1); // check, whether rest of the up-spin sequence matches
+                            }
+                            break; 
+                        }
+                        ++up;
+                    }
+                }
+                if( flipflop ) // if the states differ by one flipflop process (Si+Sj-), add Jij/2 to the Hamiltonian (Jij may be zero)
+                {
+                    H[block](i,j) += 0.5 * J(s1,s2);
+                }
+                ++j;
+            }
+            ++i;
+        }
+
+        states[block] = states_for_block;
+    }
+}
+
+// compute the density operator rho = 1/d
+void ISO_Disordered_Blockwise_Model::compute_density_operator()
+{
+    rho = RealType{1.} / static_cast<RealType>( num_HilbertSpaceDimension );
+}
+
+/* diagonalize H (which is real) */
+void ISO_Disordered_Blockwise_Model::diagonalize()
+{
+    omega.resize(half_blocks);
+    K.resize(half_blocks);
+    for(uint block=0; block<half_blocks; ++block)
+    {
+        std::cout << "size of block no. " << block << ": " << H[block].rows() << "\n";
+        std::cout << "starting diagonalization...\n";
+        func::diagonalize_real(H[block], omega[block], K[block]);
+    }
+}
+
+/* transform any relevant matrices to the diagonal basis 
+all calculations can be done with real numbers */
+void ISO_Disordered_Blockwise_Model::transform_to_diagonal_basis()
+{
+    for(uint block=0; block<half_blocks; ++block)
+    {
+        // create Sz:
+        SparseRealOperator Sz_block_SPARSE(H[block].rows(),H[block].rows());
+        uint i=0;
+        for(const auto& state : states[block]) // only diagonal entries (Sz)
+        {
+            if(state.size() == 0)
+            {
+                Sz_block_SPARSE(i,i) = -0.5;
+            }
+            else
+            {
+                Sz_block_SPARSE(i,i) = (state[0] == 0) ? 0.5 : -0.5 ;
+            }
+            ++i;
+        }
+
+        // make trafo sparse:
+        SparseRealOperator K_block_SPARSE{K[block]};
+        //RealType truncation = RealType{0.001}/std::sqrt( static_cast<RealType>( num_HilbertSpaceDimension ) );
+        //func::truncate_sparse( K_block_SPARSE, truncation );
+
+        // transform
+        auto Sz_D_block = blaze::declsym(  blaze::trans( K_block_SPARSE ) * Sz_block_SPARSE * K_block_SPARSE );
+        Sz_D.emplace_back(Sz_D_block);
+
+        // create diagonal Hamiltonian
+        RealDiagonalOperator H_D_block{};
+        func::write_to_diagonal( H_D_block, omega[block] );
+        H_D.emplace_back(H_D_block);
+    }
+}
+
+/* compute the relevant autocorrelations at a specific time
+the required matrices need to be complex here */
+void ISO_Disordered_Blockwise_Model::compute_means_and_autocorrelations_at( const RealType& time )
+{
+    // compute <Sz(t)Sz(0)>
+    RealType SzSz{};
+    for(uint block=0; block<half_blocks; ++block)
+    {
+        SparseOperator H_D_CPLX_block{Operator{H_D[block]}};
+        SparseOperator Uplus_block  = func::exponentiate_gen( ComplexType{0., time}, H_D_CPLX_block );
+        SparseOperator Uminus_block = func::exponentiate_gen( ComplexType{0.,-time}, H_D_CPLX_block );
+        Operator L_block = Uplus_block  * Observable{Sz_D[block]};
+        Operator R_block = Uminus_block * Observable{Sz_D[block]};
+        ComplexType c_block = blaze::trace( L_block * R_block );
+        RealType SzSz_block = rho * std::real( c_block );
+
+        if( num_Spins%2==0 && block==num_Spins/2 )
+        {
+            SzSz += SzSz_block;
+        }
+        else
+        {
+            SzSz += 2*SzSz_block;
+        }
+    }
+    m_correlations.get_zz().emplace_back( SzSz );
+
+    // insert <Sz(t)>
+    m_means.get_z().emplace_back( 0. );
+}

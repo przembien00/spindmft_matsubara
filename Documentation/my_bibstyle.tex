@@ -1,0 +1,156 @@
+%\usepackage[authoryear]{natbib}
+\usepackage[
+    backend=biber,    % use modern biber backend
+    style=alphabetic,
+    autolang=hyphen,
+    doi=false,
+]{biblatex}
+% url=false, natbib=true, style=phys,
+
+\addbibresource{References/references.bib}  % the bib file to use
+\DefineBibliographyStrings{english}{andothers = {{et\,al}}}  % replace "u.a." with "et al."
+
+
+% ==== Custom citation styles ====
+% article:
+\DeclareFieldFormat[article]{title}{\enquote{#1\adddot}\space}
+\DeclareFieldFormat[article]{journaltitle}{#1}
+\DeclareFieldFormat[article]{volume}{\mkbibbold{#1}}
+\DeclareFieldFormat[article]{year}{(#1)\adddot}
+
+% misc:
+\DeclareFieldFormat[misc]{title}{\enquote{#1\adddot}\space}
+\DeclareFieldFormat[misc]{year}{(#1)\adddot}
+\DeclareFieldFormat[misc]{eprint}{#1}
+
+% thesis:
+\DeclareFieldFormat[thesis]{title}{\mkbibitalic{#1\adddot}\space}
+\DeclareFieldFormat[thesis]{year}{#1}
+\DeclareFieldFormat[thesis]{month}{#1} % field actually used as university
+
+% data:
+\DeclareFieldFormat[data]{title}{#1\adddot}
+
+% book:
+\DeclareFieldFormat[book]{publisher}{#1}
+\DeclareFieldFormat[book]{year}{#1\adddot}
+\DeclareFieldFormat[book]{eprint}{#1}
+
+
+% general:
+\DeclareFieldFormat{pages}{#1}
+\renewcommand*{\bibpagespunct}{\addcomma\space}
+
+
+% ==== New bibliography drivers ====
+% articles:
+\DeclareBibliographyDriver{article}{%
+    \usebibmacro{bibindex}%
+    \usebibmacro{begentry}%
+    \usebibmacro{author}%
+    \setunit{\adddot\addspace}%
+    \usebibmacro{title}%
+    \setunit{\!\!}%
+    \href{\thefield{url}}
+    {
+    %\color{tumed}%
+    \printfield{journaltitle}%
+    \setunit{\addspace}%
+    \printfield{volume}%
+    \setunit{\addcomma\space}%
+    \printfield{pages}%
+    \setunit{\space}%
+    \printfield{year}%
+    }
+    \usebibmacro{finentry}%
+}
+
+% misc:
+\DeclareBibliographyDriver{misc}{%
+    \usebibmacro{bibindex}%
+    \usebibmacro{begentry}%
+    \usebibmacro{author}%
+    \setunit{\adddot\addspace}%
+    \usebibmacro{title}%
+    \setunit{\!\!}%
+    \href{\thefield{url}}
+    {
+    %\color{tumed}%
+    \printfield{eprint}%
+    \setunit{\space}%
+    \printfield{year}%
+    }
+    \usebibmacro{finentry}%
+}
+
+% phdtheses:
+\DeclareBibliographyDriver{thesis}{%
+    \usebibmacro{bibindex}%
+    \usebibmacro{begentry}%
+    \usebibmacro{author}%
+    \setunit{\adddot\addspace}%
+    \usebibmacro{title}%
+    \setunit{\!\!}%
+    \href{\thefield{url}}
+    {
+    %\color{tumed}%
+    \printfield{type}%
+    \setunit{\addspace}
+    \mkbibparens
+    {
+    \setunit{\!\!}%
+    \printfield{month}% field used as university
+    \setunit{\addcomma\addspace}%
+    \printfield{year}%
+    }%
+    }%
+    \usebibmacro{finentry}%
+}
+
+% data:
+\DeclareBibliographyDriver{data}{%
+    \usebibmacro{bibindex}%
+    \usebibmacro{begentry}%
+    \printfield{title}%
+    \usebibmacro{finentry}%
+}
+
+
+% books:
+%\DeclareBibliographyDriver{book}{%
+%    \usebibmacro{bibindex}%
+%    \usebibmacro{begentry}%
+%    \usebibmacro{author}%
+%    \setunit{\adddot\addspace}%
+%    \usebibmacro{title}%
+%    \setunit{\!\!}%
+%    %\color{tumed}%
+%    \printfield{publisher}%
+%    \setunit{\addcomma\space}%
+%    \printfield{year}%
+%    \setunit{\adddot}%
+%    \usebibmacro{finentry}%
+%}
+
+%    {
+%    \setunit{\!\!}%
+%    \printfield{month}%
+%    \setunit{\addcomma\addspace}%
+%    \printfield{year}%
+%    }%
+
+
+
+
+
+
+% remove stuff
+%\AtEveryBibitem{\clearfield{day}}
+%\AtEveryCitekey{\clearfield{day}}
+%\AtEveryBibitem{\clearfield{month}}
+%\AtEveryCitekey{\clearfield{month}}
+%\AtEveryBibitem{\clearfield{issue}}
+%\AtEveryCitekey{\clearfield{issue}}
+%\AtEveryBibitem{\clearfield{note}}
+%\AtEveryCitekey{\clearfield{note}}
+%\renewbibmacro{in:}{} % remove "In"

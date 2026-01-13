@@ -1,0 +1,27 @@
+% show always short version of acronyms and change link box color:
+\newcommand{\acn}[2][tulight]{%
+  \hypersetup{linkbordercolor=#1}%
+  \glslink{#2}{\glsentryshort{#2}}%
+  \hypersetup{linkbordercolor=tugreen}%
+}
+\newcommand{\Acn}[2][tulight]{%
+  \hypersetup{linkbordercolor=#1}%
+  \glslink{#2}{\Glsentryshort{#2}}%
+  \hypersetup{linkbordercolor=tugreen}%
+}
+\newcommand{\acpn}[2][tulight]{%
+  \hypersetup{linkbordercolor=#1}%
+  \glslink{#2}{\glsentryshortpl{#2}}%
+  \hypersetup{linkbordercolor=tugreen}%
+}
+\newcommand{\acnsubst}[3][tulight]{% for substitutional acronyms
+  \hypersetup{linkbordercolor=#1}% Change link box color for acronyms
+  \glslink{#2}{#3}% Insert the acronym
+  \hypersetup{linkbordercolor=tugreen}% Reset to default color after the acronym link
+}
+
+% ==============================
+% List of acronyms
+% ==============================
+
+%\newacronym{NN}{NN}{nearest-neighbor}

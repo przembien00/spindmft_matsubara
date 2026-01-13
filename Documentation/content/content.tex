@@ -1,0 +1,718 @@
+% ==========================================================================================
+\chapter{Documentation of spinDMFT}
+\label{ch:spinDMFT}
+% ==========================================================================================
+
+Before trying to understand the code in detail, one should understand how the method itself works. Therefore, we refer the reader to the open access article in \refcite{graes21} and/or dissertation in \refcite{Graesser_PhD} (Chapter 4). 
+
+The \file{Algorithm} directory includes five different sub-directories: \file{Functions}, \file{Parameter\ubar{}Space}, \file{Run\ubar{}Time\ubar{}Data}, \file{Storage\ubar{}Concept} and \file{Time\ubar{}Measure}, each containing up to three files: a header file (.h) a cpp file (.cpp) and an error handling file (.h). The main code \file{main.cpp} is located in the directory \file{spinDMFT/Algorithm} and contains the essential steps done during a simulation. The functions and classes defined in the header files of the different directories are included in the main through \file{main\ubar{}header.h}. Further required header files can be found in the directory \file{cpp\ubar{}libs}, which is documented in \cref{ch:cpplibs}.
+
+\section{matrices.h}
+
+
+
+
+\section{Parameter\ubar{}Space}
+\label{sec:spinDMFT:parameterspace}
+\contains{Parameter\ubar{}Space.h, Parameter\ubar{}Space.cpp, PS\ubar{}Error\ubar{}Handling.h}
+
+This directory contains the class \cpp{ParameterSpace}, which is responsible for the handling of parameters. The class is initialized with the help of boost program options allowing to access all adjustable parameters at runtime. The parameters are set in the constructor of the class, which also contains their default values and a brief explanation within the bpo::options\ubar{}description. 
+
+The parameters can be divided into three different categories: \enquote{model and physical parameters}, \enquote{general numerical parameters} and \enquote{storing and naming}. Model and physical parameters include for example the employed \parameter{spinmodel}, which determines the underlying spin-spin coupling of the considered system, e.g., Ising or Heisenberg. An example for a numerical parameter is the sample size \cpp{num\ubar{}SamplesPerCore} per core, which is crucial for the Monte-Carlo simulation. The category storing and naming includes for example the \cpp{project\ubar{}name}, which is used to subdivide data sets into different projects. To get an overview of the parameters, as well as their default values and a short explanation, one can use the help command 
+\begin{terminal}
+    mpirun executable_XXX.out --help
+\end{terminal}
+with XXX replaced by DOUBLE or FLOAT in the terminal.
+
+Any spinDMFT simulation requires some initial guess for the spin correlations. This guess is usually an analytic function, which can be set using the parameters \parameter{initdcorr} and \parameter{initdcorr}. Via the option \parameter{loadinit} and the parameters \parameter{initcorrsrc} and \parameter{initcorrfile}, the initial correlations can also be imported from a file. This can be helpful, for example, to efficiently redo a simulation with higher precision. Starting the simulation with some converged lower-precision correlations leads to a more rapid convergence. The importing is performed in the method \cpp{read\ubar{}initial\ubar{}correlations\ubar{}from\ubar{}file}. Note that several constraints need to be fulfilled, e.g., the imported data need to have the same symmetry type and the same floating-point data type as the current simulation. The imported correlations are stored linearly in the \cpp{ParameterSpace}. They are transformed to a \cpp{CorrelationTensor<Correlation>} (see \cref{subsec:cpplibs:observables:tensors}) and potentially extrapolated via the function \cpp{generate\ubar{}initial\ubar{}spin\ubar{}correlations} (see \cref{sec:spinDMFT:functions}).
+
+The class method \cpp{create\ubar{}essentials\ubar{}string} is called at the start of a simulation and prints some crucial parameters to the terminal. 
+
+%and a potential external field \parameter{Bname} or noise \parameter{Cname}. Important numeric parameters include the symmetry type \parameter{cstype} (this aspect will be explained under \file{...}), the sample size \parameter{numSamplesPerCore}, the step width \parameter{dt} and number of time steps \parameter{numTimeSteps} and 
+
+adjust spinDMFT help command again
+
+\section{Run\ubar{}Time\ubar{}Data}
+\label{sec:spinDMFT:runtimedata}
+\contains{Run\ubar{}Time\ubar{}Data.h, Run\ubar{}Time\ubar{}Data.cpp, RTD\ubar{}Error\ubar{}Handling.h}
+
+This directory contains the class \cpp{RunTimeData}, which is responsible for several numerical data generated in the process of the simulation. It analyzes and processes negative eigenvalues as well as the statistical error and the iteration error. The constructor initializes an instance of RunTimeData by importing some crucial numerical parameters from the ParameterSpace. 
+
+The constructor also initializes the truncation scheme \cpp{truncate\ubar{}if\ubar{}negative} for negative eigenvalues that potentially arise during the diagonalization of the mean-field covariance matrix. Generated eigenvalues can be handed over to the method \cpp{process\ubar{}and\ubar{}check\ubar{}eigenvalues}, which searches for negative eigenvalues and truncates them. This method also computes the ratio of the sum of all negative eigenvalues with respect to the sum of all positive eigenvalues and terminates the simulation if the threshold value \cpp{critical\ubar{}eigenvalue\ubar{}ratio} is exceeded. 
+
+The constructor also initializes the single-sample square sum \cpp{sample\ubar{}sqsum} $\sum_i x_i^2$ and the single-sample standard deviations \cpp{sample\ubar{}stds}. The method \cpp{compute\ubar{}sample\ubar{}stds} obtains the Monte-Carlo sample sum $\sum_i x_i$ and employs it together with the \cpp{sample\ubar{}sqsum} to compute the single-sample standard deviations $\frac1{M} \sum_i (x_i - \mu)^2$, where $M$ is the sample size and $\mu$ is the average.
+
+The method \cpp{compute\ubar{}iteration\ubar{}error} obtains the results of the current and previous iteration step and computes the iteration error as the maximum (over different directions) of the time average of the deviation between the inputs.
+
+The method \cpp{terminate} returns true, if the simulation has converged, i.e., if the iteration error is below the value of \cpp{absolute\ubar{}iteration\ubar{}error\ubar{}threshold}. Convergence is the regular scenario. The method also returns true, if the \cpp{Iteration\ubar{}Limit} has been reached, or if not self-consistent iteration should be performed (bpo-option \parameter{noselfcons}).
+
+mention the statistical error as a measure for the iteration error
+
+\section{Time\ubar{}Measure}
+\label{sec:spinDMFT:timemeasure}
+\contains{Time\ubar{}Measure.h, Time\ubar{}Measure.cpp}
+
+This directory contains the class \cpp{DerivedTimeMeasure}, which is responsible for measuring the duration of different steps of the simulation. Measures are performed in the main programm by calling the method \cpp{measure} providing the name of the measurement and a bool value to decide whether the result of the measurement should be directly printed to the terminal. The method \cpp{measure} is implemented in the base class \cpp{TimeMeasure}, which can be found in the directory \file{cpp\ubar{}libs}, and essentially calls the method \cpp{internal\ubar{}measure}, which is implemented locally in \file{Time\ubar{}Measure.cpp}. 
+
+An important aspect complicating the time measurement is the occurrence of nested loops. To ensure that \cpp{DerivedTimeMeasure} works properly, an instance of this class needs to recognize, when it enters and when it leaves a loop (at least, if time measurements are performed within the loop). This is done using the methods \cpp{enter\ubar{}loop} and \cpp{leave\ubar{}loop} right before and right after the loop. 
+
+\section{Functions}
+\label{sec:spinDMFT:functions}
+\contains{Functions.h, Functions.cpp, Error\ubar{}Handling.h}
+
+This directory contains a collection of functions used in \file{main.cpp}. Amongst others, it includes \cpp{generate\ubar{}initial\ubar{}spin\ubar{}correlations}, which generates the initial spin correlations by some predefined functions (bpo-options \parameter{initdcorr} and \parameter{initdcorrsrc}) or by imported data (bpo-option \parameter{loadinit}). 
+
+The method \cpp{self\ubar{}consistent\ubar{}equations} performs the self consistency, i.e., it transforms the spin correlations into mean-field correlations. This involves a transformation depending on the underlying spin model, a prefactor $\JQ^2$ (quadratic coupling constant) and an optional external noise. The spin-model transformation
+\begin{align}
+    R^{\alpha\beta}(t,0) \coloneqq \expval{\dul{D} \vS(t) \left(\dul{D}\vS(0)\right)^\top}_{\alpha\beta} =  \sum_{\rho\gamma} D^{\alpha\rho} D^{\beta\gamma} \expval{\op{S}^{\rho}(t) \op{S}^{\gamma}(0)}
+\end{align}
+is performed to capture the correct spin-spin coupling in the mean-fields. Here, $\dul{D}$ is the matrix coupling one spin to another, i.e.,
+the considered coupling is of the form $\vSi^{\top} \dul{D} \vSj^{\top}$. E.g., in case of a Heisenberg coupling, $\dul{D}=\onematrix$, i.e., each spin correlation $\expval{\Sa(t)\Sb(0)}$ is equivalent to $R^{\alpha\beta}(t,0)$ and transforms directly into the corresponding mean-field correlation $\mfav{\cVa(t)\cVb(0)}$. But, for example, in case of an Ising coupling, $\expval{\Sz(t)\Sz(0)}$ transforms to $\mfav{\cVz(t)\cVz(0)}$, while the other mean-field correlations strictly vanish. The spin model is implemented as a struct in \file{cpp\ubar{}libs} under \file{Physics/Physics.h} and essentially contains the corresponding transformation matrix. 
+
+Besides the self consistency, the \file{Functions} directory also contains the essential steps of the time evolution such as the computation of propagators, the computation of $\vS(t)$ as well as the computation of the spin correlations. The propagators are 
+divided into short-step propagators according to 
+\begin{align}
+    \oU(n\delta t,0) &= \prod_{k=1}^{n} \oU(k\delta t, (k-1)\delta t).
+\end{align}
+Since $\delta t$ is small, the short-step propagators can be approximated using CFETS (commutator-free exponential time propagators). This is performed by the functions \cpp{CFET4opt\ubar{}for\ubar{}single\ubar{}spin\ubar{}one\ubar{}half} and \cpp{CFET}, which are briefly explained in \cref{subsec:CFET}. The results of the Monte-Carlo simulation are shared among the cores via \cpp{MPI\ubar{}share\ubar{}results}. More details on the parallelization can be found in \cref{sec:spinDMFT:main}. The method \cpp{normalize} normalizes the spin correlations with respect to the number of samples. 
+
+\section{Storage\ubar{}Concept}
+\label{sec:spinDMFT:storageconcept}
+\contains{Storage\ubar{}Concept.h, Storage\ubar{}Concept.cpp, STOC\ubar{}Error\ubar{}Handling.h}
+
+This directory contains the class \cpp{StorageConcept}, which is responsible for storing the simulation results and any attached meta data in hdf5-format. The constructor creates any required directories via \cpp{create\ubar{}folder\ubar{}branch} and opens a new hdf5-file via \cpp{create\ubar{}file}. The parameter \cpp{m\ubar{}storing\ubar{}permission} ensures that only a single core (my\ubar{}rank=0) operates on the file. 
+
+The method \cpp{store\ubar{}main} stores the parameters, runtime data and results each in a separate group. Many of the employed storing routines are implemented in \file{cpp\ubar{}libs} in the header \file{HDF5/HDF5\ubar{}Routines.h}. The method \cpp{store\ubar{}time} stores the time measurement performed by an instance of the class \cpp{DerivedTimeMeasure}.
+
+\section{main.cpp and main\ubar{}header.h}
+\label{sec:spinDMFT:main}
+
+The main code \file{main.cpp} includes the previously mentioned functions and classes through the header file \file{main\ubar{}header.h}, which imports several header files and defines shorthands for certain namespaces. The main code is carried out on several cores simultaneously using MPI (message passing interface). It begins with initializing MPI and defining the integers \cpp{my\ubar{}rank}, which numbers the cores, and \cpp{world\ubar{}size}, which corresponds to the total number of cores. Subsequently, the time measurement, the parameter space, the initial spin correlations, the run time data and the duration estimator are initialized. The latter estimates the duration of the Monte-Carlo simulation based on the duration of processing the first sample. The class \cpp{DurationEstimator} is implemented in a header file in \file{cpp\ubar{}libs} and will be discussed in \cref{subsec:cpplibs:time_measure}. The tensor of spin correlations is stored using the class \cpp{CorrelationTensor<Correlation>}, which is explained in \cref{sec:cpplibs:observables_tensors}.
+
+The self-consistent iteration starts right after the initialization. Each iteration step starts with initializing the new spin correlations to be calculated (\cpp{my\ubar{}new\ubar{}spin\ubar{}correlations}) and generating the mean-field distribution. The latter is done by calculating the second mean-field moments self-consistently from the previously computed spin autocorrelations (\cpp{my\ubar{}spin\ubar{}correlations}) employing the function \cpp{self\ubar{}consistent\ubar{}equations}. The latter returns the mean-field covariance matrix, which is then diagonalized to obtain the eigenvalues and the orthogonal transformation matrix. The eigenvalues are truncated and checked by the runtimedata class method \cpp{process\ubar{}and\ubar{}check\ubar{}eigenvalues} and then used to create the mean-field normal distributions in the diagonal (non-correlated) basis. Subsequently, an instance of the class \cpp{std::mt19937} (Mersenne Twister random number generator) is initialized by providing an iteration and rank-dependent seed. 
+
+This is where the Monte-Carlo simulation starts. The operations in this part of the code are dependent on the core, since the random number generator is initialized with a unique rank-dependent seed. The Monte-Carlo samples are drawn in sets of the size \cpp{num\ubar{}SamplesPerSet} (bpo-option \parameter{numSamplesPerSet}). This is more efficient because performing the transformation to the non-diagonal basis for several samples at once is more cache coherent. However, for memory reasons, the size of a set of samples can be limited. The noise samples are created as an instance of the class \cpp{GaussianNoiseVectorsBlocks}, which is implemented in \file{cpp\ubar{}libs} and will be discussed in \cref{subsec:cpplibs:multivariate_gaussian_blocks}. The sampling in the diagonal basis as well as the transformation to the non-diagonal basis both happens in the initialization of the class instance. The class \cpp{NoiseTensorReaderScheme} allows for efficiently accessing the created noise. 
+
+Next, the results are computed for each drawn sample. The time propagators are computed using CFETs as explained in \cref{subsec:CFET}.  Subsequently, the time-evolved Pauli matrices are computed, which are then used to calculate the desired spin correlations. The single-sample results are simply added up in \cpp{my\ubar{}new\ubar{}spin\ubar{}correlations}, which is later normalized. Note that also the squared sum of the single-sample results is computed. This is required for the computation of the standard deviation.
+
+After the Monte-Carlo simulation is finished, the results are shared among the cores via \cpp{MPI\ubar{}share\ubar{}results}. The finalization of the iteration step includes computing the Monte-Carlo standard deviation, normalizing the spin correlations with respect to the sample size, computing the iteration error and printing some details. The iteration is terminated if the method \cpp{terminate} of the instance \cpp{my\ubar{}rtdata} returns true as explained in \cref{sec:spinDMFT:runtimedata}.
+
+Once the iteration is finished, the data are stored using the class \cpp{HDF5\ubar{}Storage}. At last, MPI is finalized.
+
+
+% ==========================================================================================
+\chapter{Documentation of CspinDMFT}
+\label{ch:CspinDMFT}
+% ==========================================================================================
+
+Before trying to understand the code in detail, one should understand how the method itself works. Therefore, we refer the reader to the open access article in \refcite{graes23} and/or dissertation in \refcite{Graesser_PhD} (Chapter 5). 
+
+The \file{Algorithm} directory is structured very similar as the one for spinDMFT. In addition to the five sub-directories \file{Functions}, \file{Parameter\ubar{}Space}, \file{Run\ubar{}Time\ubar{}Data}, \file{Storage\ubar{}Concept} and \file{Time\ubar{}Measure}, it also contains the directory \file{Mean\ubar{}Field\ubar{}Models}. As before, the main code \file{main.cpp} and its header \file{main\ubar{}header.h} as well as \file{matrices.h} are located in the main directory \file{Algorithm}. Further required header files can be found in the directory \file{cpp\ubar{}libs}, which is documented in \cref{ch:cpplibs}.
+
+As the method CspinDMFT is an extension of spinDMFT to multiple local sites, this also applies to the code. Several objects that represented a quantity related to spin or mean-field are now obtaining one or two additional tensor dimensions representing the site indices. For example, the spin correlations stored as a \cpp{CorrelationTensor<Correlation>} in spinDMFT, are now stored as a \cpp{CorrelationCluster} of a \cpp{CorrelationTensor}, short \cpp{ClusterCorrelationTensor} or \cpp{CluCorrTen} in CspinDMFT. More information on this can be found in \cref{subsec:cpplibs:observables:clusters}.
+
+
+\section{matrices.h}
+\label{sec:CspinDMFT:matrices}
+
+This header file defines several global blaze matrix types as well as some global matrix instances. The latter are available in most of the code and written in the beginning of the \file{main.cpp} using functions implemented in \cref{sec:CspinDMFT:functions}.
+
+
+\section{Parameter\ubar{}Space}
+\label{sec:CspinDMFT:parameterspace}
+\contains{Parameter\ubar{}Space.h, Parameter\ubar{}Space.cpp, Error\ubar{}Handling.h}
+
+This directory contains the class \cpp{ParameterSpace}, which is responsible for the handling of parameters. The class works in the same way as the one for spinDMFT, which is explained in \cref{sec:spinDMFT:parameterspace}.
+
+A crucial difference to spinDMFT is the requirement for a configuration file, which is selected by the parameter \parameter{config}. The configuration file contains several important parameters such as the cluster size \cpp{num\ubar{}Spins} or the local spin-spin couplings \cpp{J}. The importing of the file happens within an instance of the abstract class \cpp{MeanFieldModel}, which is generated in the constructor of \cpp{ParameterSpace}. More information on this will be provided in \cref{sec:CspinDMFT:meanfieldmodels}. It needs to be emphasized that the specification of the configuration file is mandatory. If not provided, the simulation cannot be started.
+
+The class methods \cpp{read\ubar{}initial\ubar{}correlations\ubar{}from\ubar{}file} and \cpp{create\ubar{}essentials\ubar{}string} work very similar as for spinDMFT, see \cref{sec:spinDMFT:parameterspace}.
+
+adjust CspinDMFT help command again
+
+
+\section{Run\ubar{}Time\ubar{}Data}
+\label{sec:CspinDMFT:runtimedata}
+\contains{Run\ubar{}Time\ubar{}Data.h, Run\ubar{}Time\ubar{}Data.cpp, Error\ubar{}Handling.h}
+
+This directory contains the class \cpp{RunTimeData}, which is responsible for several numerical data generated in the process of the simulation. It works very similar to the one for spinDMFT, which is explained in \cref{sec:spinDMFT:runtimedata}. An obvious difference is the extension to additional tensor dimensions for the sites. For example, the standard deviations due to the Monte-Carlo simulation are now stored as a \cpp{CluCorrTen} instead of a \cpp{CorrTen}. 
+
+An additional feature of \cpp{RunTimeData} in CspinDMFT is the possibility to determine the sample size adaptively, if this is provided via the bpo-option \parameter{adaptive} at the start of the simulation. This procedure is based on an error tolerance provided by the bpo-parameter \parameter{staterrtolerance}, which is compared to the maximum standard deviation $\sigma_{\max} = \max_{ij} \max_{\alpha\beta} \max_{t} \sigma^{\alpha\beta}_{ij}(t,0)$. If the tolerance is violated, the sample size is updated to an appropriate larger value in the next iteration step. Determining the sample size adaptively is especially useful in CspinDMFT because the single-sample standard deviations cannot be accessed reliably beforehand. Indeed, as explained in \refcite{Graesser_PhD} (Appendix C.2), their long-time limit can be determined beforehand from the cluster size. However, in contrast to spinDMFT, this long-time limit is often considerably exceeded at short times so that it is not really useful in practice. 
+
+Aside from the statistics, also the computation of the iteration error via the method \cpp{compute\ubar{}iteration\ubar{}error} is adapted. The definitions of the absolute iteration error and the relative iteration error (relative with regard to the single-sample standard deviation) read
+\begin{subequations} 
+\begin{align}
+    \Delta I_\text{rel} &\coloneqq \sqrt{M} \max_{ij} \, \max_{\alpha\beta} \, \frac{ \overline{\Delta I^{\alpha\beta}_{ij}}^{\text{time}} }{ \overline{\sigma^{\alpha\beta}_{ij}}^{\text{time}}}, \\
+    \Delta I_\text{abs} &\coloneqq \max_{ij} \, \max_{\alpha\beta} \, \overline{\Delta I^{\alpha\beta}_{ij}}^{\text{time}}.
+\end{align}
+\end{subequations}
+The error to be regarded is selected via the bpo-parameter \parameter{itermode} and the compared threshold is set via \parameter{absiterror} and \parameter{reliterror}.
+
+The method \cpp{terminate} considers an additional condition, which is checked via the method \cpp{signal\ubar{}file\ubar{}exists}. The latter checks, whether a specific signal file with name \file{terminate\ubar{}<Run\ubar{}ID>} exists in the directory of the executable. The \cpp{run\ubar{}ID} of a simulation is either set manually (bpo-parameter \parameter{runID}) or randomly generated. In the latter case one may read it from the terminal output at the start of the simulation. If the signal file exists, the simulation is terminated after the current iteration step. However, the results of the current iteration step are regularly stored and may be fed into a new simulation. This can be useful if a job takes an unexpectedly long time and exceeds the time limit of the employed computing resource.
+
+
+\section{Time\ubar{}Measure}
+\label{sec:CspinDMFT:timemeasure}
+\contains{Time\ubar{}Measure.h, Time\ubar{}Measure.cpp}
+
+This directory contains the class \cpp{DerivedTimeMeasure}, which is responsible for measuring the duration of different steps of the simulation. It is essentially equivalent to the one for spinDMFT, which is explained in \cref{sec:spinDMFT:timemeasure}.
+
+
+\section{Mean\ubar{}Field\ubar{}Models}
+\label{sec:CspinDMFT:meanfieldmodels}
+\contains{Mean\ubar{}Field\ubar{}Models.h, Mean\ubar{}Field\ubar{}Models.cpp, Error\ubar{}Handling.h}
+
+This directory contains the header and implementation of the abstract class \cpp{MeanFieldModel}, the derived abstract class \cpp{MultiModel} and the further derived class \cpp{CorrelationReplicaModel}. These classes are mainly responsible to handle the couplings between the spins and mean-fields as well as the self-consistency conditions. The reason for having this specific class structure and not a single class is to allow for considering different kinds of mean-field models in future implementations. The class \cpp{CorrelationReplicaModel} considers individual potentially correlated mean-fields for each spin. Other models may for example consider some or all spins to couple to the same mean-field. 
+
+The constructor of \cpp{MeanFieldModel} is called within the constructor of \cpp{ParameterSpace} and obtains several parameters from the latter including the mean-field model to consider (only one available currently) and the name of the configuration file. The latter is read out in \cpp{read\ubar{}configuration\ubar{}from\ubar{}file} obtaining important parameters such as the cluster size \cpp{num\ubar{}Spins}, the spin lengths \cpp{spin\ubar{}float\ubar{}list}, the spin-spin couplings \cpp{J\ubar{}linearized}, the spin-mean-field couplings \cpp{Jsq\ubar{}linearized} and, if provided, also the \cpp{correlation\ubar{}categories} to be considered for the self consistency. The specification of \cpp{correlation\ubar{}categories} is necessary if one intends to use only a subset of the correlations, that are available on the cluster, for the self consistency. In this case, only this subset is computed and superposed within the self-consistency conditions in each iteration step. The remaining correlations are completely ignored. At the end of the constructor, several parameters that have been read from the configuration file are handed back to the \cpp{ParameterSpace} in order to be processed and/or stored there as well.
+
+The virtual method \cpp{compute\ubar{}Hamiltonian} of \cpp{MultiModel} obtains the value of all mean-fields at a specific time and computes the full Hamiltonian (spin-spin couplings and spin-mean-field couplings) at this time point.
+
+The virtual method \cpp{interpret\ubar{}model\ubar{}specific\ubar{}parameters} in \cpp{CorrelationReplicaModel} delinearizes the imported spin-mean-field couplings stored in \cpp{J\ubar{}linearized} so that the latter can be properly interpreted in the self-consistency conditions. The delinearized couplings are stored as a \cpp{SymmMatrixOfMatrix} (four-dimensional tensor). Each submatrix with pair index $i,j$ contains the information of how the spin correlations are superposed in order to construct the mean-field moment $\mfav{ V_i(t)V_j(0) }$. A matrix element $k,l$ of the submatrix corresponds to the weight $\left(J^{\mf}_{ij,kl}\right)^2$ of the spin correlation $\expval{\op{S}_k(t)\op{S}_l(0)}$.
+
+The virtual method \cpp{rescale} rescales the spin-mean-field couplings and spin-spin couplings according to the parameters \cpp{rescale\ubar{}meanfield} and \cpp{rescale\ubar{}spinspin}.
+
+The virtual method \cpp{self\ubar{}consistency} transforms spin correlations of the cluster environment into the covariance matrix of the mean-fields. To this end, the spin correlations are first transformed according to the underlying spin-model (Heisenberg, XXZ, \dots) via 
+\begin{align}
+    R^{\alpha\beta}_{kl}(t,0) \coloneqq \expval{\dul{D} \vS_k(t) \left(\dul{D}\vS_l(0)\right)^\top}_{\alpha\beta} =  \sum_{\rho\gamma} D^{\alpha\rho} D^{\beta\gamma} \expval{\op{S}^{\rho}_k(t) \op{S}^{\gamma}_l(0)},
+\end{align}
+where $\dul{D}$ is the matrix capturing the spin-spin coupling $\vSi^{\top} \dul{D} \vSj$. This step is essentially the same as for spinDMFT, see \cref{sec:spinDMFT:functions}. Subsequently, a \cpp{CluCorrTen} containing the second mean-field moments is generated. Each mean-field moment with index pair $i,j$ results from a superposition of the rotated spin correlations with index pairs $k,l$ according to 
+\begin{align}
+    \mfav{\cVa_i(t)\cVb_j(0)} &= \sum_{kl} \left(J^{\mf}_{ij,kl}\right)^2 R^{\alpha\beta}_{kl}(t,0).
+\end{align}
+The weights $\left(J^{\mf}_{ij,kl}\right)^2$ are read from \cpp{J\ubar{}mf\ubar{}sq}. The mean-field moments are then written into a covariance matrix using a \cpp{CorrelationVectorTensorClusterFillingScheme} as explained in \cref{subsec:cpplibs:symmetry_schemes}. Note that there is just a single covariance matrix for all mean-fields together, since they are correlated and cannot be treated independently.
+
+
+\section{Functions}
+\label{sec:CspinDMFT:functions}
+\contains{Functions.h, Functions.cpp, Error\ubar{}Handling.h}
+
+This header file contains a collection of functions used in \file{main.cpp}. The function \cpp{write\ubar{}general\ubar{}spin\ubar{}matrices} writes the global matrices representing $\one$, $\op{0}$ and $\Sai$ for $i\in{1,\dots,N_\Gamma}$ and $\alpha\in\{x,y,z\}$. All matrices are defined on the full cluster Hilbert space. Th spin matrices are created by a tensor product of the local matrices at each site 
+as explained in \cref{subsec:cpplibs:matrices}. 
+
+The function \cpp{write\ubar{}cluster\ubar{}Hamiltonian} writes the cluster Hamiltonian, i.e., everything but the spin-mean-field couplings, to the global matrix \cpp{H\ubar{}CLUSTER}. This includes local spin terms like chemical shifts or quarupolar couplings as well as the couplings between the spins of the cluster. This requires not only the global spin matrices $\Sai$ and $\Sbj$, but also the coupling factor $J_{ij}$ stored in \cpp{J} and the spin-model factor $D^{\alpha\beta}$ stored in \cpp{spinspin\ubar{}cmodel} of the parameter space.
+
+The function \cpp{generate\ubar{}initial\ubar{}environment\ubar{}spin\ubar{}correlations} generates the initial guess for the spin correlations inserted to the self consistency similar to the analogue function in spinDMFT, see \cref{sec:spinDMFT:functions}. The correlations are either set by predefined analytic functions, contained in \cpp{init\ubar{}diag\ubar{}corr} and \cpp{init\ubar{}nondiag\ubar{}corr} of the parameter space, or by imported correlations depending on the value of \cpp{init\ubar{}corr\ubar{}mode}.
+
+The function \cpp{propagate} updates the time evolution operator by multiplying a short-step propagator to it according to 
+\begin{align}
+    \oU(t+\delta t, 0) = \oU(t+\delta t, t) \oU(t,0).
+\end{align}
+The latter is approximated by CFET-2 \cite{alver11} according to
+\begin{align}
+    \oU(t+\delta t, t) &\approx \exp{ -\im\frac{\delta t}{2} \left( \oH(t) + \oH(t+\delta t) \right) }.
+\end{align}
+The evaluation of the matrix exponential is a bit involved. It can be done either by taylor expansion, which is not recommended because of large numerical errors, or by diagonalization of the exponent.
+
+The function \cpp{compute\ubar{}spin\ubar{}correlations} computes the spin correlations for all required pairs of sites $k,l$ and pairs of directions $\alpha,\beta$.
+
+After the Monte-Carlo simulation is finished, the results are shared among the cores via \cpp{MPI\ubar{}share\ubar{}results}.
+
+The function \cpp{normalize\ubar{}and\ubar{}fill\ubar{}time\ubar{}zero} sets the value of the spin correlations at time zero according to 
+\begin{align}
+    \expval{\Sai(0) \Sbj(0)} = \delta_{kl} \delta^{\alpha\beta} \frac{ S(S+1) }{3}
+\end{align}
+and normalizes the value at other times according to the sample size. 
+
+
+\section{Storage\ubar{}Concept}
+\label{sec:CspinDMFT:storageconcept}
+\contains{Storage\ubar{}Concept.h, Storage\ubar{}Concept.cpp, Error\ubar{}Handling.h}
+
+The storage concept is very similar to the one for spinDMFT, see \cref{sec:spinDMFT:storageconcept}. One difference is the necessity to store a \cpp{CluCorrTen}, which is done by the function \cpp{store\ubar{}correlation\ubar{}tensor\ubar{}cluster}. This method stores a \cpp{CorrTen} for each pair of sites $i,j$ naming it according to \enquote{i-j}. 
+
+
+\section{main.cpp and main\ubar{}header.h}
+\label{sec:CspinDMFT:main}
+
+The main code is structured similar to the one for spinDMFT, see \cref{sec:spinDMFT:main}. Hence, only the differences are highlighted in this section. The initialization works essentially the same as for spinDMFT. An additional step is the construction of several global matrices using the functions \cpp{write\ubar{}general\ubar{}spin\ubar{}matrices} and \cpp{write\ubar{}cluster\ubar{}Hamiltonian}, which are explained in \cref{sec:CspinDMFT:functions}.
+
+The beginning of each self-consistency iteration step is also very similar to the one for spinDMFT. It involves creating the mean-field covariance matrix using the self-consistency equations and subsequently diagonalizing it. The new spin autocorrelations to be computed in the iteration step are initialized to zero and stored in \cpp{my\ubar{}new\ubar{}spin\ubar{}correlations}. In opposition to spinDMFT, they now represent a \cpp{CluCorrTen} instead of a \cpp{CorrTen} due to the additional site indices. It should be noted that these correlations are initialized with the parameter \cpp{correlation\ubar{}categories} from the parameter space. Correspondingly, if specified in the configuration file, only a certain subset of correlations is considered and thus computed in the Monte-Carlo simulation as explained in \cref{sec:CspinDMFT:meanfieldmodels}.
+
+The Monte-Carlo simulation is also very similar to the one for spinDMFT. The scheme to read noise vectors from \cpp{GaussianNoiseVectorsBlocks} is now a \cpp{NoiseTensorClusterReaderScheme} instead of a \cpp{NoiseTensorReaderScheme} due to the additional site index of the noise. The time evolution is structured a bit differently compared to the one for spinDMFT. Instead of computing all propagators at once, only a single propagator is stored and updated in a loop over the time steps. The method \cpp{compute\ubar{}Hamiltonian} computes the Hamiltonian for a given set of mean-fields at a specific time (obtained from the reader scheme) as explained in \cref{sec:CspinDMFT:meanfieldmodels}. This \cpp{new\ubar{}Hamiltonian} and the \cpp{old\ubar{}Hamiltonian},i.e., the one from the previous time step, are inserted into the function \cpp{propagate}, which updates the time evolution operator by multiplying a short-step propagator to it as described in \cref{sec:CspinDMFT:functions}. Subsequently, the function \cpp{compute\ubar{}spin\ubar{}correlations} computes the spin correlations for all required pairs of sites and pairs of directions and the specific time point implied by the current propagator.
+
+The finalization of each iteration step is also very similar to the one for spinDMFT. One difference is that the estimated standard deviations now need to be processed in case of an adaptive sample size. This is done by the method \cpp{compute\ubar{}and\ubar{}process\ubar{}sample\ubar{}stds}, which is explained in \cref{sec:CspinDMFT:runtimedata}.
+
+Once the iteration is finished, the data are stored using the class \cpp{HDF5\ubar{}Storage}. At last, MPI is finalized.
+
+
+config file creation!!!!!!!!!!!!!!!
+chemical shifts for CspinDMFT not yet implemented
+
+
+% ==========================================================================================
+\chapter{Documentation of nl-spinDMFT}
+\label{ch:nlspinDMFT}
+% ==========================================================================================
+
+This code is used to perform simulations of a cluster in a mean-field background. A crucial aspect is that the spin correlations defining the mean-fields are generated beforehand, i.e., this code does not contain any self-consistency anymore. Therefore it can be used to perform the second step of non-local spinDMFT (nl-spinDMFT). We refer the reader to the open access article in \refcite{graes24} and/or dissertation in \refcite{Graesser_PhD} (Chapter 6) for details about the method.
+
+Note that the code is also helpful if one intends to compute completely local quantities like autocorrelations as long as the mean-fields are \emph{a priori} given. This is the case, for example, if the mean-field background results from a different spin sort for which the self-consistency can be solved independently beforehand using spinDMFT or CspinDMFT. 
+
+mention p-spinDMFT?
+
+
+\section{matrices.h}
+\label{sec:CspinDMFT:matrices}
+
+This header file defines several global blaze matrix types as well as some global matrix instances. The latter are available in most of the code and written in the beginning of the \file{main.cpp} using functions implemented in \cref{sec:nlspinDMFT:functions}.
+
+
+\section{Parameter\ubar{}Space}
+\label{sec:nlspinDMFT:parameterspace}
+\contains{Parameter\ubar{}Space.h, Parameter\ubar{}Space.cpp, Error\ubar{}Handling.h}
+
+This directory contains the class \cpp{ParameterSpace}, which is responsible for the handling of parameters. The class works in the same way as the one for CspinDMFT, which is explained in \cref{sec:CspinDMFT:parameterspace}.
+
+big difference: read\ubar{}initial\ubar{}correlations\ubar{}from\ubar{}file
+
+
+\section{Run\ubar{}Time\ubar{}Data}
+\label{sec:nlspinDMFT:runtimedata}
+\contains{Run\ubar{}Time\ubar{}Data.h, Run\ubar{}Time\ubar{}Data.cpp, Error\ubar{}Handling.h}
+
+This directory contains the class \cpp{RunTimeData}, which is responsible for several numerical data generated in the process of the simulation. It is essentially a reduced version of the analogous class in CspinDMFT, which is explained in \cref{sec:CspinDMFT:runtimedata}. Since nl-spinDMFT contains no self consistency, any methods or parameters related to iteration or termination are removed. 
+
+
+\section{Time\ubar{}Measure}
+\label{sec:nlspinDMFT:timemeasure}
+\contains{Time\ubar{}Measure.h, Time\ubar{}Measure.cpp}
+
+This directory contains the class \cpp{DerivedTimeMeasure}, which is responsible for measuring the duration of different steps of the simulation. It is almost equivalent to the one for spinDMFT, which is explained in \cref{sec:spinDMFT:timemeasure}.
+
+
+\section{Mean\ubar{}Field\ubar{}Models}
+\label{sec:nlspinDMFT:meanfieldmodels}
+\contains{Mean\ubar{}Field\ubar{}Models.h, Mean\ubar{}Field\ubar{}Models.cpp, Error\ubar{}Handling.h}
+
+This directory contains the header and implementation of the abstract class \cpp{MeanFieldModel}, the derived abstract class \cpp{MultiModel} and the further derived class \cpp{CorrelationReplicaModel}. It is structured very similar to the one for CspinDMFT, which is explained in \cref{sec:CspinDMFT:meanfieldmodels}. Only the differences are highlighted in this section.
+
+The method \cpp{read\ubar{}configuration\ubar{}from\ubar{}file} imports the additional parameter \cpp{import\ubar{}only}, which correlations should be imported as environment correlations. The parameter contains the corresponding site double indices.
+
+The virtual method \cpp{interpret\ubar{}model\ubar{}specific\ubar{}parameters} in \cpp{CorrelationReplicaModel} delinearizes the imported spin-mean-field couplings stored in \cpp{J\ubar{}linearized} so that the latter can be properly interpreted in the self-consistency conditions. Note that although the nl-spinDMFT contains no self consistency loop, one still needs conditions to determine the second mean-field moments from the imported environment correlations. As these conditions are related to the common self-consistency conditions, they are named self-consistency conditions in the code as well. In CspinDMFT, the spin-mean-field couplings are stored as a matrix of a matrix, since each mean field moment with index pair $i,j$ was constructed from a superposition of the $N_{\Gamma}^2$ spin correlations on the cluster requiring $N_{\Gamma}^2$ weights $\left(J^{\mf}_{ij,kl}\right)^2$. In nl-spinDMFT, however, the environment correlations can be completely unrelated to those of the cluster so that the cluster site indices $k,l$ have no meaning for them. Of course, each environment correlation can still be associated with a pair of site indices in the full spin system, but these numbers are not relevant for the nl-spinDMFT code. Therefore, the spin-mean-field couplings are stored as a matrix of a vector instead. Each second mean-field moment with index pair $i,j$ is constructed from a superposition of the \cpp{num\ubar{}Import} imported environment correlations correlations with weights $\left(J^{\mf}_{ij,p}\right)^2$, where $p$ numbers the environment correlation.
+
+The virtual method \cpp{self\ubar{}consistency} of \cpp{CorrelationReplicaModel} 
+\cpp{CorrTenList} instead of a \cpp{CluCorrTen}
+\begin{align}
+    self cons with p instead of kl
+\end{align}
+
+
+
+\section{Functions}
+\label{sec:nlspinDMFT:functions}
+\contains{Functions.h, Functions.cpp, Error\ubar{}Handling.h}
+
+
+\section{Storage\ubar{}Concept}
+\label{sec:nlspinDMFT:storageconcept}
+\contains{Storage\ubar{}Concept.h, Storage\ubar{}Concept.cpp, Error\ubar{}Handling.h}
+
+
+\section{main.cpp and main\ubar{}header.h}
+\label{sec:nlspinDMFT:main}
+
+
+
+% ==========================================================================================
+\chapter{Documentation of cpp\ubar{}libs}
+\label{ch:cpplibs}
+% ==========================================================================================
+
+The directory \file{cpp\ubar{}libs} contains a collection of header files that are used in the different codes. The headers already contain some explanatory comments. This chapter shall provide a more detailed description.
+
+Several header files require the global type definitions \cpp{RealType} and \cpp{Dim}. As will be explained below, \cpp{RealType} is set by macro variables in the header file \file{Globals/Types.h}, which is included in the affected header files. \cpp{Dim} has to be set manually as \cpp{constexpr size\ubar{}t} before certain header files are included. Otherwise there will be a compilation error. The affected header files are exclusively in the \cpp{Physics} folder and the requirement for the \cpp{Dim} variable is always clarified in the initial comment line.
+
+
+
+Some directories contain a header file named \file{Error\ubar{}Handling.h} or similar, in which the error messages of some runtime errors are implemented.
+
+
+symmetry\ubar{}type
+
+
+\section{Globals}
+
+\subsection{Types.h}
+This short header file defines \cpp{uint}, the floating point data type \cpp{RealType} and the corresponding complex data type \cpp{ComplexType}. \cpp{RealType} is either set to its default value \cpp{double}, or, if the corresponding macro \cpp{USE\ubar{}FLOAT} is defined, to \cpp{float}.
+
+\subsection{MPI\ubar{}Types.h}
+This short header file defines the MPI data type that corresponds to \cpp{RealType} and is used for any MPI communications of this specific data type.
+
+\subsection{Matrix\ubar{}Types.h}
+This short header file defines aliases of several basic blaze vector and matrix types according to \cref{tab:matrix_aliases}.
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{|l|l|}
+    \hline
+    \textbf{Alias} & \textbf{Definition} \\ \hline
+    \small{\cpp{Rotation}} & \small{\cpp{blaze::StaticMatrix<RealType,3UL,3UL>}} \\
+    \small{\cpp{FieldMatrix}} & \small{\cpp{Rotation}} \\
+    \small{\cpp{DiagonalRotation}} & \small{\cpp{blaze::DiagonalMatrix<blaze::StaticMatrix<RealType,3UL,3UL>>}} \\
+    \small{\cpp{RealSpaceVector}} & \small{\cpp{blaze::StaticVector<RealType,3UL,blaze::columnVector>}} \\
+    \small{\cpp{FieldVector}} & \small{\cpp{RealSpaceVector}} \\
+    \small{\cpp{GeneralMatrix}} & \small{\cpp{blaze::DynamicMatrix<ComplexType,blaze::rowMajor>}} \\
+    \small{\cpp{HermitianMatrix}} & \small{\cpp{blaze::HermitianMatrix<GeneralMatrix>}} \\
+    \small{\cpp{DiagonalMatrix}} & \small{\cpp{blaze::DiagonalMatrix<GeneralMatrix>}} \\
+    \small{\cpp{SparseGeneralMatrix}} & \small{\cpp{blaze::CompressedMatrix<ComplexType,blaze::rowMajor>}} \\
+    \small{\cpp{SparseHermitianMatrix}} & \small{\cpp{blaze::HermitianMatrix<SparseGeneralMatrix>}} \\
+    \hline
+    \end{tabular}
+    \caption{List of blaze aliases.}
+    \label{tab:matrix_aliases}
+\end{table}
+    
+    
+
+\section{File\ubar{}Management/File\ubar{}Management.h}
+This header file contains several functions for file management. The function \cpp{Orientation()} provides the relative path from the current location to the location of the file \file{.orientation}, which is located in the main directory of the repository. The functions \cpp{create\ubar{}folder} and \cpp{create\ubar{}folder\ubar{}tree} create a folder or a whole list of folders from given paths, respectively. The function \cpp{get\ubar{}system\ubar{}name()} returns the name of the operating system as \cpp{std::string}. This name is typically stored in the hdf5-files created by the different codes. 
+
+
+\section{HDF5/HDF5\ubar{}Routines.h}
+This header file contains a collection of functions for storing and reading data in hdf5 format. Simple storing routines include \cpp{store\ubar{}scalar}, \cpp{store\ubar{}list}, \cpp{store\ubar{}string} and \cpp{store\ubar{}string\ubar{}list}, which perform what their name suggests. They all obtain the ID of the hdf5-file or group, where the attribute data should be stored, as well as a name and the data itself. The functions \cpp{store\ubar{}scalar} and \cpp{store\ubar{}list} are templated, so that their hdf5 data type has to be deduced. This is done by the \cpp{get\ubar{}H5\ubar{}Type} method, which translates several standard C++ data types into hdf5 data types. 
+
+The header file also contains the tensor storing routines \cpp{store\ubar{}ND\ubar{}tensor}, where N can be replaced by 2, 3 or 4 (a general implementation has not yet been attempted). The function obtains a file/group ID, a name, the base type of the tensor as well as the tensor itself. Before storing, the tensor is linearized via the function \cpp{linearize\ubar{}ND\ubar{}tensor\ubar{}to\ubar{}vector}, where N is again 2, 3 or 4. Note that these functions are all templated, i.e., the provided tensor can be quite general. However, the tensor and all of its subtensors need to contain the \cpp{size()} method as well as standard begin and end iterators \cpp{begin()}, \cpp{end()}, \cpp{cbegin()} and \cpp{cend()}.
+
+The functions \cpp{import\ubar{}scalar}, \cpp{import\ubar{}string} and \cpp{import\ubar{}list} are used for importing attribute data from an hdf-file providing the file/group ID, the data name and the variable, to which the data should be written, by reference.
+
+The function \cpp{import\ubar{}ND\ubar{}tensor\ubar{}linearized} allows for importing a linearized tensor providing the ID, the name and the linearized data holder by reference. Optionally, one can also hand over a list, to which the tensor dimensions should be written, by reference.
+
+
+\section{Standard\ubar{}Algorithms}
+
+\subsection{Standard\ubar{}Algorithms.h}
+This header file contains some standard algorithms for container iteration and sorting. The functions \cpp{for\ubar{}2each}, \cpp{for\ubar{}3each} and \cpp{for\ubar{}n\ubar{}each} are essentially extensions of \cpp{std::for\ubar{}each} to simultaneous iterations over several containers at once. While \cpp{for\ubar{}n\ubar{}each} is the most general, it may not be the easiest to read in the code because the lambda function and the iterators are swapped in the function parameters.
+
+The template function \cpp{argsort} returns a list of indices corresponding to the sorted order of an inserted \cpp{std::vector} and a comparison function which is \cpp{std::less} by default. The vector is not changed in the process. The function \cpp{argsort\ubar{}flip} works the same way but returns the flipped index list. The functions \cpp{argsort\ubar{}extended} and \cpp{argsort\ubar{}flip\ubar{}extended} apply \cpp{argsort} or \cpp{argsort\ubar{}flip}, respectively, and subsequently group all equal elements according to an equality condition that is also handed over and return the result as a vector of index lists. The function \cpp{argmin} simply returns the first index to the minimum element of a container.
+
+The function \cpp{possibilities} recursively finds all (N over k) possibilities to draw k out of N elements.
+
+\subsection{Numerics.h}
+This header file contains some standard numerical algorithms. The function \cpp{extrapolate} linearly extrapolates a vector from an old equidistant discretization to a new equidistant discretization. The functions \cpp{mean} and \cpp{stddev} compute mean and standard deviation of the inserted container. 
+
+Aside from that, the header file contains several functions concerning floating point arithmetic such as the functions \cpp{is\ubar{}equal} and \cpp{is\ubar{}equal\ubar{}soft} for comparing floating point numbers or \cpp{is\ubar{}zero} and \cpp{is\ubar{}zero\ubar{}soft} to check whether a floating point number is zero (very close to it). Based on these, there are also the functions \cpp{cast\ubar{}if\ubar{}real} and \cpp{cast\ubar{}if\ubar{}real\ubar{}soft} for casting complex to real values if the imaginary part is negligible.
+
+
+\subsection{Print\ubar{}Routines.h}
+This header file contains some standard routines for printing to the terminal and creating or manipulating instances of \cpp{std::string}. 
+
+
+\section{Matrices}
+
+\subsection{Matrices.h}
+\label{subsec:cpplibs:matrices}
+This header file contains some routines for basic matrix operations. The routine \cpp{count\ubar{}zeros} counts the number of zero elements according to \cpp{is\ubar{}zero} in a matrix, which can be important to decide whether the use of a compressed (sparse) matrix is reasonable. The function \cpp{cast\ubar{}to\ubar{}sparse} casts a blaze dense matrix to a blaze compressed matrix manually by removing any values that are numerically zero according to \cpp{is\ubar{}zero}. The function \cpp{truncate\ubar{}sparse} removes any numerically zero elements of a blaze compressed matrix to save additional memory.
+
+Important for CspinDMFT and nl-spinDMFT is the function \cpp{Nth\ubar{}order\ubar{}tensor\ubar{}product}, which obtains an \cpp{std::vector} of matrices and returns the total tensor product
+\begin{align}
+    \dul{M} = \bigotimes_{i=1}^N \dul{M}_i = \dul{M}_1 \otimes \dul{M}_2 \otimes \dots \otimes \dul{M}_N.
+\end{align}
+The matrices must be square, but their dimensions do not need to be equal. The function makes use of the sub-routine \cpp{tensor\ubar{}product}, which computes the tensor product of two general square matrices. 
+
+\subsection{Diagonalization.h}
+This header file contains the diagonalization functions \cpp{diagonalize\ubar{}real} and \cpp{diagonalize\ubar{}cplx} obtaining the blaze matrix to be diagonalized as well as the eigenvalues and orthogonal/unitary transformation by reference. If blaze diagonalization (via LAPACK) is available, the functions simply apply the standard blaze diagonalization function \cpp{blaze::eigen}. If the macro \cpp{EIGEN} is defined instead, the header includes the eigen libraries and automatically uses the \cpp{Eigen::SelfAdjointEigenSolver} for diagonalization. The code blocks for the eigen diagonalization are a bit larger as they are adapted to the syntax of eigen and also require casting from blaze to eigen types and vice versa.
+
+
+\section{Observables}
+
+\subsection{Correlations.h}
+\label{subsec:cpplibs:observables:correlations}
+This header contains the class \cpp{CorrelationVector}, which is essentially a wrapper around \cpp{std::vector}. Despite standard element access and iterators, this class also allows some standard vector operations such as multiplication by scalar or adding or subtracting another vector. Morevover, a correlation can be constructed providing a function and an equidistant discretization (fixed $\delta t$).
+
+\subsection{Tensors.h}
+\label{subsec:cpplibs:observables:tensors}
+This header contains the template class \cpp{CorrelationTensor}, which serves for straight-forwardly storing and accessing quantities in three-dimensional real space. The class is used in all three codes. It is a wrapper around \cpp{std::vector} and contains \cpp{Correlation} elements. Each element is assigned to two direction indices $\alpha, \beta \in \{0 (x), 1 (y), 2 (z)\}$, which are stored in the index-pair list \cpp{m\ubar{}direction\ubar{}pairs}. A key ingredient of the class is the \cpp{symmetry\ubar{}type} containing the information about which elements of the tensor are equivalent or zero. It is set in the constructors and can be accessed by the method \cpp{get\ubar{}symmetry}. The currently availabe symmetry types are listed in \cref{tab:tensor_symmetries}.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|c|c|l|}
+    \hline
+    \textbf{symmetry type} & \textbf{size} & \textbf{correlations} \\
+    \hline
+    A & 1 & $G_1 = G^{xx} = G^{yy} = G^{zz},\quad$ rest is zero \\
+    B & 2 & $G_1 = G^{xx} = G^{yy},\quad G_2 = G^{zz},\quad$ rest is zero \\
+    C & 4 & $G_1 = G^{xx} = G^{yy},\quad G_2 = G^{xy},\quad G_3 = G^{yx},\quad$ \\
+      &   & $G_4 = G^{zz},\quad$ rest is zero \\
+    D & 9 & all nine correlations are stored \\
+    \hline
+\end{tabular}
+\caption{Symmetry types and their corresponding sizes as well as the contained correlations.}
+\label{tab:tensor_symmetries}
+\end{table} 
+
+Except for the default constructor, the constructors all require the \cpp{symmetry\ubar{}type} as an argument (in some constructors indirectly). The last constructor is rather special and allows to create the \cpp{CorrelationTensor} from another \cpp{CorrelationTensor} and a so-called transformation scheme, which determines each \cpp{Correlation} element of the new \cpp{CorrelationTensor} from a certain transformation of the inserted \cpp{CorrelationTensor}. This functionality is used in the implementation of the self-consistency conditions.
+
+The contained \cpp{Correlation} elements can be accessed by the get functions, e.g., \cpp{get\ubar{}xx}, by iterators or by the operator \cpp{[]}, which obtains the linearized index. Trying to explicitly access a correlation that is zero within the current symmetry type leads to either a run-time error, or, if the method \cpp{zero\ubar{}according\ubar{}to} is available in the template class \cpp{Correlation}, returns a corresponding implemented zero value. 
+
+The iterator functions \cpp{iterate} and \cpp{const\ubar{}iterate} allow for iterating over all non-zero tensor elements appying a lambda function that is handed over. The lambda function takes not only the \cpp{Correlation} element but also the corresponding direction index pair as arguments. With the extended iterator functions \cpp{iterate2} and \cpp{const\ubar{}iterate2}, one can also iterate over two \cpp{CorrelationTensors} of the same symmetry type simultaneously. In this case, the lambda function obtains three arguments, namely the two \cpp{Correlation} elements and the corresponding direction index pair.
+
+
+\subsection{Clusters.h}
+\label{subsec:cpplibs:observables:clusters}
+This header file contains the class \cpp{CorrelationCluster}, which is a wrapper around \cpp{std::vector} of correlation objects, for example, \cpp{CorrelationTensor}. The class is essential in the codes CspinDMFT and nl-spinDMFT
+
+to be finished
+
+
+
+\section{Multivariate\ubar{}Gaussian}
+
+\subsection{Multivariate\ubar{}Gaussian.h}
+This header contains the classes \cpp{CovarianceMatrix}, \cpp{DiagonalBasisNormalDistributions} and \cpp{GaussianNoiseVectors}. 
+
+The class \cpp{CovarianceMatrix} is a wrapper around \cpp{SymmetricMatrix} therefore enforcing the contained matrix to be symmetric. However, positivity, which is another neccessary condition for a covariance matrix, is not enforced and has to be checked manually. The matrix can be filled within construction or after default construction in several different ways. Note that a non-diagonal matrix element $M_{ij}$ only needs to be filled in once at $(i,j)$ and is implicitly filled into $(j,i)$ to due to the usage of \cpp{blaze::SymmetricMatrix}. The covariance matrix may be filled by providing a matrix via \cpp{fill\ubar{}correlationmatrix} or a vector via \cpp{fill\ubar{}correlationvector}. The latter is typically used in spinDMFT and its extensions, where the covariance matrix is built from spin correlations, which are stored as vectors in time. A vector $(x_1, x_2, x_3, \dots)^{\top}$ are inserted according to the following scheme:
+
+\begin{align}
+\dul{M} &=
+\begin{pmatrix}
+x_1 & x_2 & x_3 & \dots \\
+x_2 & x_1 & x_2 & \dots \\
+x_3 & x_2 & x_1 & \dots \\
+\vdots & \vdots & \vdots & \ddots \\
+\end{pmatrix} 
+\end{align}
+
+Matrices and vectors may also be inserted into a subblock of the matrix providing the start row and column via the methods \cpp{fill\ubar{}correlationvector\ubar{}to\ubar{}subtriangle}, \cpp{fill\ubar{}correlationmatrix\ubar{}to\ubar{}subsquare} or \cpp{fill\ubar{}symmetriccorrelationmatrix\ubar{}to\ubar{}diagonal\ubar{}subblock}. The method \cpp{fill\ubar{}correlationvector\ubar{}to\ubar{}subtriangle} fills the triangle of a subblock as well as the mirrored triangle in the covariance matrix. The method \cpp{fill\ubar{}correlationmatrix\ubar{}to\ubar{}subsquare} fills a subblock of the covariance matrix as well as the mirrored subblock in the covariance matrix. If the subblock is around the diagonal, one may use the more efficient method \cpp{fill\ubar{}symmetriccorrelationmatrix\ubar{}to\ubar{}diagonal\ubar{}subblock} instead. 
+
+The method \cpp{diagonalize} computes the eigenvalues and eigenvectors, which are provided by reference as function arguments.
+
+The class \cpp{DiagonalBasisNormalDistributions} is a wrapper around an \cpp{std::vector} of \cpp{std::normal\ubar{}distribution}. The latter are initialized with zero mean and variances provided in the constructor or in the \cpp{fill} method in case of default construction. The normal distributions can be accessed by standard vector iterators.
+
+The class \cpp{GaussianNoiseVectors} is a wrapper around an \cpp{blaze::DynamicMatrix} and essentially stores a set of Gaussian-distributed noise vectors in matrix format. The noise is constructed providing an instance of \cpp{DiagonalBasisNormalDistributions}, a pseudo-random generator \cpp{std::mt19937} and, if unequal to 1, the number of noise samples in the set. The noise can be transformed to another basis via \cpp{basis\ubar{}transform} providing an orthogonal transformation matrix (orthogonality is not checked). The noise can be accessed by \cpp{()} operators or standard matrix iterators.
+
+
+\subsection{Multivariate\ubar{}Gaussian\ubar{}Blocks.h}
+\label{subsec:cpplibs:multivariate_gaussian_blocks}
+This header extends \file{Multivariate\ubar{}Gaussian.h} by providing the classes \cpp{CovarianceMatrixBlocks}, \cpp{DiagonalBasisNormalDistributionsBlocks} and \cpp{GaussianNoiseVectorsBlocks}, which are each wrappers around \cpp{std::vector} of the corresponding classes in \file{Multivariate\ubar{}Gaussian.h} and contain essentially the same methods. A special new method in \cpp{CovarianceMatrixBlocks} is \cpp{fill\ubar{}from\ubar{}scheme}, which allows a template class \cpp{FillingScheme} to fill the covariance matrix. This is used in the implementation of the filling schemes in \file{Multivariate\ubar{}Gaussian/Symmetry\ubar{}Schemes.h}.
+
+
+\subsection{Symmetry\ubar{}Schemes.h}
+\label{subsec:cpplibs:symmetry_schemes}
+The other header files in this subdirectory do not directly contain or require any information about the \cpp{symmetry\ubar{}type}. The latter enters through filling and reader schemes implemented in this header file. It contains the template classes \cpp{CorrelationVectorTensorFillingScheme}, \cpp{CorrelationVectorTensorClusterFillingScheme}, \cpp{CorrelationMatrixTensorFillingScheme}, \cpp{NoiseTensorReaderScheme} and \cpp{NoiseTensorClusterReaderScheme}, which essentially do what their names suggest.
+
+The filling schemes are used to fill the covariance matrix with correlations according to a specific \cpp{symmetry\ubar{}type} and, in case of \cpp{CorrelationVectorTensorClusterFillingScheme}, also according to the number of spins in the cluster (this is required for CspinDMFT and nl-spinDMFT).
+Generally, the covariance matrix is filled according to
+
+\begin{subequations}
+\begin{align}
+\dul{M} &=
+\begin{pmatrix}
+v^{xx} & v^{xy} & v^{xz} \\
+v^{yx} & v^{yy} & v^{yz} \\
+v^{zx} & v^{zy} & v^{zz} \\
+\end{pmatrix} \\
+\intertext{with}
+v^{\alpha \beta} &= 
+\begin{pmatrix}
+v^{\alpha\beta}(0,0) & v^{\alpha\beta}(0,\delta t) & v^{\alpha\beta}(0,2\delta t) & \dots \\
+v^{\alpha\beta}(\delta t,0) & v^{\alpha\beta}(\delta t,\delta t) & v^{\alpha\beta}(\delta t,2\delta t) & \dots \\
+v^{\alpha\beta}(2\delta t,0) & v^{\alpha\beta}(2\delta t,\delta t) & v^{\alpha\beta}(2\delta t,2\delta t) & \dots \\
+\vdots & \vdots & \vdots & \ddots \\
+\end{pmatrix} \\
+&=
+\begin{pmatrix}
+v^{\alpha\beta}(0,0) & v^{\alpha\beta}(0,\delta t) & v^{\alpha\beta}(0,2\delta t) & \dots \\
+v^{\alpha\beta}(\delta t,0) & v^{\alpha\beta}(0,0) & v^{\alpha\beta}(0,\delta t) & \dots \\
+v^{\alpha\beta}(2\delta t,0) & v^{\alpha\beta}(\delta t,0) & v^{\alpha\beta}(0,0) & \dots \\
+\vdots & \vdots & \vdots & \ddots \\
+\end{pmatrix} 
+\intertext{and} 
+v^{\alpha\beta}(t_1,t_2)&\coloneqq \mfav{V^{\alpha}(t_1)V^{\beta}(t_2)},
+\end{align}
+\end{subequations}
+
+where time-translation invariance is assumed in the last step. In case of several mean-fields (CspinDMFT and nl-spinDMFT), the submatrices are built according to 
+
+\begin{subequations}
+\begin{align}
+V^{\alpha \beta} &= 
+\begin{pmatrix}
+v^{\alpha\beta}_{11}(0,0) & v^{\alpha\beta}_{11}(0,\delta t) & \dots & v^{\alpha\beta}_{12}(0,0) & v^{\alpha\beta}_{12}(0,\delta t) & \dots \\
+v^{\alpha\beta}_{11}(\delta t,0) & v^{\alpha\beta}_{11}(0,0) & \dots & v^{\alpha\beta}_{12}(\delta t,0) & v^{\alpha\beta}_{12}(0,0) & \dots \\
+\vdots & \vdots & \ddots & \vdots & \vdots & \ddots \\
+v^{\alpha\beta}_{21}(0,0) & v^{\alpha\beta}_{21}(0,\delta t) & \dots & v^{\alpha\beta}_{22}(0,0) & v^{\alpha\beta}_{22}(0,\delta t) & \dots \\
+v^{\alpha\beta}_{21}(\delta t,0) & v^{\alpha\beta}_{21}(0,0) & \dots & v^{\alpha\beta}_{22}(\delta t,0) & v^{\alpha\beta}_{22}(0,0) & \dots \\
+\vdots & \vdots & \ddots & \vdots & \vdots & \ddots \\
+\end{pmatrix}
+\intertext{with}
+v^{\alpha\beta}_{ij}(t_1,t_2) &\coloneqq \mfav{V_{i}^{\alpha}(t_1)V_{j}^{\beta}(t_2)}.
+\end{align}
+\end{subequations}
+
+Symmetries often allow to store the \cpp{CovarianceMatrixBlocks} more efficiently. Depending on the \cpp{symmetry\ubar{}type}, the \cpp{CovarianceMatrixBlocks} are stored according to \cref{tab:covariance_symmetries}
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|c|c|l|}
+    \hline
+    \textbf{symmetry Type} & \textbf{block sizes} & \textbf{subblocks} \\
+    \hline
+    A & 1 & $v_1 = v^{xx} = v^{yy} = v^{zz},\quad$ rest is zero \\
+    B & 2 & $v_1 = v^{xx} = v^{yy},\quad v_2 = v^{zz},\quad$ rest is zero \\
+    C & 2 & $v_1 = \begin{pmatrix} v^{xx} & v^{xy} \\ v^{yx} & v^{yy} \end{pmatrix},\quad v_2 = v^{zz},\quad$ rest is zero \\
+    D & 1 & the whole matrix is stored in a single block \\
+    \hline
+\end{tabular}
+\caption{Block sizes of the covariance matrix and their corresponding subblocks for the different symmetry types.}
+\label{tab:covariance_symmetries}
+\end{table}
+
+The class \cpp{CorrelationVectorTensorFillingScheme} is essentially build to fill an instance of \cpp{CorrelationTensor<CorrelationVector>} into the \cpp{CovarianceMatrixBlocks} following the above scheme. The \cpp{CorrelationVectorTensorClusterFillingScheme} simply extends this to filling an instance of \cpp{CorrelationCluster<CorrelationTensor<CorrelationVector>>}. The \cpp{CorrelationMatrixTensorFillingScheme} provides an alternative way of filling the covariance matrix if time-translation invariance is not valid. This is not further discussed because it is not available in the current implementation of the code.
+
+Generating \cpp{GaussianNoiseVectorsBlocks} is not very complex and therefore not performed by a filling scheme but simply by using the class constructors in combination with the function \cpp{return\ubar{}num\ubar{}noises\ubar{}per\ubar{}block} implemented in this header file. Depending on the \cpp{symmetry\ubar{}type}, the \cpp{GaussianNoiseVectorsBlocks} are stored according to \cref{tab:gaussian_noise_symmetries}.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|c|c|l|}
+    \hline
+    \textbf{symmetry Type} & \textbf{block sizes} & \textbf{subblocks} \\
+    \hline
+    A & 1 & $\mathcal{V}_1 = \begin{pmatrix} \mathcal{V}^{x} & \mathcal{V}^{y} & \mathcal{V}^{z} \end{pmatrix}$ \\
+    B & 2 & $\mathcal{V}_1 = \begin{pmatrix} \mathcal{V}^{x} & \mathcal{V}^{y} \end{pmatrix},\quad \mathcal{V}_2 = \mathcal{V}^{z}$ \\
+    C & 2 & $\mathcal{V}_1 = \begin{pmatrix} \mathcal{V}^{x} \\ \mathcal{V}^{y} \end{pmatrix},\quad \mathcal{V}_2 = \mathcal{V}^{z}$ \\
+    D & 1 & $\mathcal{V}_1 = \begin{pmatrix} \mathcal{V}^{x} \\ \mathcal{V}^{y} \\ \mathcal{V}^{z} \end{pmatrix}$ \\
+    \hline
+\end{tabular}
+\caption{Block sizes and subblocks of the Gaussian noise vectors for different symmetry types.}
+\label{tab:gaussian_noise_symmetries}
+\end{table}
+
+where 
+
+\begin{align}
+\mathcal{V}^{\alpha} =
+\begin{pmatrix}
+V^{\alpha}_{(1)}(0) & \dots & V^{\alpha}_{(M)}(0) \\
+V^{\alpha}_{(1)}(\delta t) & \dots & V^{\alpha}_{(M)}(\delta t) \\
+\vdots & \dots & \vdots \\
+\end{pmatrix}
+\end{align}
+
+is the noise set with $M$ samples for direction $\alpha$ and all time steps. In case of several mean-fields (CspinDMFT and nl-spinDMFT), the noise is stored according to 
+
+\begin{align}
+\mathcal{V}^{\alpha} =
+\begin{pmatrix}
+V^{\alpha}_{1,(1)}(0) & \dots & V^{\alpha}_{1,(M)}(0) \\
+V^{\alpha}_{1,(1)}(\delta t) & \dots & V^{\alpha}_{1,(M)}(\delta t) \\
+\vdots & \dots & \vdots \\
+V^{\alpha}_{2,(1)}(0) & \dots & V^{\alpha}_{2,(M)}(0) \\
+\vdots & \dots & \vdots \\
+\end{pmatrix}.
+\end{align}
+
+Note that the covariance matrix, or to be precise, its eigenvalues and orthogonal transformation are required to generate \cpp{GaussianNoiseVectorsBlocks} explaining why the latter must have the same block structure. 
+
+Last but not least, this header contains the noise reader schemes \cpp{NoiseTensorReaderScheme} and \cpp{NoiseTensorClusterReaderScheme}. These each carry a \cpp{std::shared\ubar{}ptr} to a \cpp{GaussianNoiseVectorsBlocks} and allow to straightforwardly and efficiently read elements from it using pointers. The read-out is done time step by time step using the method \cpp{read} which, in case of \cpp{NoiseTensorReaderScheme} (for spinDMFT), returns the mean-field at the next time step as \cpp{Vec} (3D \cpp{blaze::StaticVector}). In case of \cpp{NoiseTensorClusterReaderScheme} (for CspinDMFT or nl-spinDMFT), the method returns all mean-fields at the next time step as \cpp{VecVec} (\cpp{std::vector} of \cpp{Vec}).
+
+
+\section{Physics}
+
+\subsection{Physics.h}
+This header contains several practical classes used in the different codes. Amongst others, it contains the classes \cpp{DiagonalSpinCorrelation} and \cpp{NonDiagonalSpinCorrelation}, which generate \cpp{std::function} objects that are used to define the initial spin correlations used in the algorithms. Providing an step width $\delta t$, the method \cpp{create\ubar{}discretization} evaluates the function at a discrete equidistant set of time steps.
+
+The class \cpp{SpinModel} is used to define the model by which the spins couple to one another. The coupling is always bilinear and of the form $\vS_i^{\top} \dul{D} \vS_j$ with some transformation matrix $\dul{D}$, which is not necessarily a rotation matrix. The transformation matrix is saved as a class member \cpp{coupling\ubar{}matrix}, which can be directly accessed. It required for setting up self-consistency equations in all three algorithms and to set up the local cluster Hamiltonian in case of CspinDMFT and nl-spinDMFT.
+
+The class \cpp{MagneticField} is used to define a static global magnetic field and the class \cpp{ChemicalShift} adds a static magnetic field in $z$ direction, which may vary locally. The class \cpp{Noise} stores the 3x3 variance tensor of a Gaussian static noise source. The class \cpp{ExtraInteraction} provides a local interaction term in dependence of the spin matrices $\Sx$, $\Sy$ and $\Sz$. An example for this is a quadrupolar interaction term.
+
+\subsection{CFET.h}
+\label{subsec:CFET}
+\requires{\cpp{HermitianMatrix ZERO} and \cpp{HermitianMatrix IDENTITY}}
+
+This header contains implementations of Commutator-free exponential time (CFET) propagators. For more information on the math behind this, see \cref{alver11}. Mostly, CFET-2, which is equivalent to a first-order truncation of the Magnus expansion, is used because the resulting numerical error is already of the same order as the one from the numerical evaluation of the occurring time integrals. Specifically for a single spin with $S=\frac12$, an optimized CFET-4 with three exponentials is used because the evaluation of matrix exponentials is particularly easy for this case due to the formula 
+
+\begin{align}
+\mathrm{e}^{-\mathrm{i}\vec{F}\cdot\vec{\sigma}} = \cos(F) \sigma^{0} - \mathrm{i} \frac{\sin(F)}{F}  \vec{F}\cdot\vec{\sigma}.
+\end{align}
+
+This is implemented in the function \cpp{CFET4opt\ubar{}for\ubar{}single\ubar{}spin\ubar{}one\ubar{}half}. For higher spin values and/or several spins as in CspinDMFT and nl-spinDMFT, the evaluation of matrix exponentials is more involved. Currently, the evaluation is done by diagonalization of the exponent which is straightforward although certainly not the most efficient way. 
+
+
+\subsection{Spin\ubar{}Geometries.h}
+\requires{\cpp{constexpr size\ubar{}t Dim}}
+
+This header file contains the classes \cpp{InhomogeneousEnsemble} and \cpp{Lattice}, which can be used to generate a spin \cpp{Ensemble}, i.e., a list of spin positions.
+
+The class \cpp{InhomogeneousEnsemble} generates random spin positions in a \cpp{Dim}-dimensional cube. The cube center is at the origin $(0,0,\dots)^\top$. The class includes two different constructors. The first creates the ensemble from a given seed, a given number of spins $N$ and, optionally, a density $\rho = N/L^\text{Dim}$ ($L$ is the cube side length), which is one by default. The second constructor creates the ensemble from a given seed, a given number of spins $N$, a given set of fixed spin positions that are automatically added, a minimum distance between any pair of spins and, optionally, another \cpp{Constraint} (\cpp{std::function} returning a \cpp{bool} given a \cpp{Spin}) and a density, which is one by default. The generated \cpp{Ensemble} can be printed and returned from the class. 
+
+The class \cpp{Lattice} generates a spin ensemble on a lattice in \cpp{Dim} dimensions. The constructor requires a \cpp{Unit\ubar{}Cell}, the number of cells in each direction 
+and the lattice vectors to shift the unit cell. A \cpp{Unit\ubar{}Cell} is a \cpp{std::vector} of \cpp{Group}, which is itself a \cpp{std::vector} of \cpp{Spin}. This structure can is advantageous if the later-required clusters are chosen manually. A \cpp{Group} (or later \cpp{Cluster}) does not necessarily form a cell, by which a total lattice can be generated. A unit cell of combined groups, however, is able to do so. The cell and group structure is removed once the ensemble is returned. However, the central group appears first in the generated \cpp{Ensemble} and can thus be easily found. Aside from the \cpp{Lattice} class, this header also contains the functions \cpp{create\ubar{}SimpleCubic} and \cpp{create\ubar{}Triangular} each creating a specific lattice.
+
+\subsection{Coulings.h}
+\requires{\cpp{constexpr size\ubar{}t Dim}}
+
+This header file contains several functions to compute spin-spin couplings in specific systems. Each of these functions obtains the position of the two spins and potentially additional parameters. Providing a coupling function and a set of spin positions, the general function \cpp{compute\ubar{}coupling\ubar{}matrix} returns all spin-spin couplings as a \cpp{blaze::SymmetricMatrix}.
+
+\subsection{Clusterization.h}
+\requires{\cpp{constexpr size\ubar{}t Dim}}
+
+This header file contains several different schemes to divide a spin ensemble into cluster and environment, which is required for setting up CspinDMFT. The schemes obtain amongst others an \cpp{Ensemble} which is a list of spin positions and return two \cpp{Cluster}, which are also positions lists, as well as an \cpp{IndexList} containing the indices of the spins in the cluster within the ensemble. The function \cpp{auto\ubar{}clusterize} simply takes the first $N_\Gamma$ list entries of the ensemble and puts them into the cluster. Via \cpp{manually\ubar{}add\ubar{}spin\ubar{}to\ubar{}cluster} one can add an additional spin by index to an already clusterized ensemble. The remaining functions implement schemes of the categories central-spin based, cluster based and hybrid, which are explained in \refcite{Graesser_PhD} (Appendix D). Some of the schemes are defined differently for lattices and inhomogeneous systems. Moreover the cluster size $N_{\Gamma}$ may be fixed manually or be chosen by some optimization algorithm. The preferred scheme according to \refcite{Graesser_PhD} is \cpp{clusterize\ubar{}hybrid} or \cpp{clusterize\ubar{}hybrid\ubar{}vsize} in case of a variable cluster size. It may be used for lattices and inhomogeneous systems.
+
+\subsection{Mean\ubar{}Field\ubar{}Couplings.h}
+\requires{\cpp{constexpr size\ubar{}t Dim}}
+
+This header file contains several algorithms to compute spin-mean-field couplings such as the quadratic coupling constant.
+
+Contained are also the Correlation Replica Approximation (CRA) and Correlation Replica (CR) scheme, which compute coupling tensors in inhomogeneous systems and lattices, respectively, from the given cluster, environment and the coupling function. These schemes are required to initialize the CspinDMFT simulation. 
+The CRA for inhomogeneous systems returns the weights of each spin correlation of the cluster in the second mean-field moments. These weights are also stored as a symmetric matrix of matrices according to 
+
+\begin{align}
+\begin{pmatrix}
+J^{\text{CRA}}_{11} & J^{\text{CRA}}_{12} & \dots \\
+J^{\text{CRA}}_{21} & J^{\text{CRA}}_{22} & \dots \\
+\vdots & \vdots & \ddots \\
+\end{pmatrix} \quad \text{with} \quad J^{\text{CRA}}_{ij} = 
+\begin{pmatrix}
+J^{\text{CRA}}_{ij,11} & J^{\text{CRA}}_{ij,12} & \dots \\
+J^{\text{CRA}}_{ij,21} & J^{\text{CRA}}_{ij,22} & \dots \\
+\vdots & \vdots & \ddots \\
+\end{pmatrix},
+\end{align}
+
+where the element $J^{\text{CRA}}_{ij,kl}$ describes the weight of the spin correlation $\expval{S_k(t)S_l(0)}$ in the second mean-field moment $\mfav{ V_i(t)V_j(0) }$. The CR scheme removes symmetry-equivalent correlations to arrive at a minimal set of distinguishable spin correlations. Only these specific spin correlations contribute to the coupling tensor and are thus required to close the self consistency. The CR scheme returns a list of index pairs each referring to one of these spin correlations. It also returns a symmetric matrix of matrices containing the weights of all possible spin correlation in the corresponding second mean-field moment similar to the CRA scheme. Correlations that are not occurring in the index list simply lead to zero elements in the coupling tensor and will be ignored in the CspinDMFT simulation. An explanation of the functionality of the schemes and how the specific couplings are computed is provided in \refcite{Graesser_PhD} (Section 5.1.4).
+
+The header also contains the function \cpp{compute\ubar{}Jbath\ubar{}sq\ubar{}simple} used to compute the coupling tensor for nl-spinDMFT. The function returns a symmetric matrix of vectors according to
+
+\begin{align}
+\begin{pmatrix}
+J^{\text{bath}}_{11} & J^{\text{bath}}_{12} & \dots \\
+J^{\text{bath}}_{21} & J^{\text{bath}}_{22} & \dots \\
+\vdots & \vdots & \ddots \\
+\end{pmatrix} \quad \text{with} \quad J^{\text{bath}}_{ij} = 
+\begin{pmatrix}
+J^{\text{bath}}_{ij,(0)} \\
+J^{\text{bath}}_{ij,(1)} \\
+\vdots \\
+\end{pmatrix},
+\end{align}
+
+where the element $J^{\text{bath}}_{ij,p}$ captures the weight of the spin correlation $\langle \op{S}_m(t)\op{S}_n(0) \rangle$ with $p=\{m,n\}$ in the second mean-field moment $\mfav{ V_i(t)V_j(0) }$. Note that the indices $m,n$ are not necessarily indices of spins that are symmetry-equivalent to spins in the cluster. They refer to bath spins which may not be related to the cluster spins at all. The function \cpp{compute\ubar{}Jbath\ubar{}sq\ubar{}simple} is only implemented for the case of a single spin autocorrelation entering the second mean-field moments, i.e., each vector contains only a single element $J^{\text{bath}}_{ij,(0)}$. An explanation of the scheme and how the elements are computed is provided in \refcite{Graesser_PhD} (Section 6.1.2 and specifically Eq. (6.5)).
+
+\red{squares everywhere!!!}
+
+\subsection{Spin.h}
+This header file contains several functions dealing with the spins and their associated Hilbert space. The function \cpp{write\ubar{}spin\ubar{}matrices} fills the local spin matrices $S^x$, $S^y$ and $S^z$, which are handed over by reference, depending on the spin length. For example in case of $S=\frac12$, the matrices are set to the standard Pauli matrices. Similarly, the functions \cpp{create\ubar{}local\ubar{}zero} and \cpp{create\ubar{}local\ubar{}identity} return the local zero and identity matrix in dependence of the spin length. 
+
+The function \cpp{create\ubar{}zero\ubar{}and\ubar{}identity} returns the zero and identity matrix for a given Hilbert space dimension (the Hilbert space may contain several spins). The function \cpp{create\ubar{}linear\ubar{}spin\ubar{}term} creates a spin matrix on a Hilbert space with several spins providing the spin lengths as well as the corresponding spin index $i$ and direction $\alpha$ of the spin operator. To this end, the function creates a list of the local matrices at each site. These are then combined to a single matrix by the tensor product according to
+
+\begin{align}
+    \Sai = \underbrace{\one \otimes \dots}_{1 \to i-1} \otimes \underbrace{\Sa}_{i} \otimes \underbrace{\dots \otimes \one}_{i+1 \to N}
+\end{align}
+
+spin lengths are not yet in the config file creation mechanism
+check all config file creations
+
+\subsection{Random.h}
+This header file is used to generate seeds for the random number generators used in the codes. The function \cpp{generate\ubar{}seed} generates a seed from a string input, which either contains the word \enquote{random} or corresponds to some unsigned integer. The generated seed is shared among the cores via MPI. The function \cpp{throw\ubar{}seed} obtains this seed to generate a local seed which depends on \cpp{my\ubar{}rank}, i.e., the core, and \cpp{num\ubar{}Iteration}, i.e., the number of the current iteration step.
+
+
+\section{Time\ubar{}Measure/Time\ubar{}Measure.h}
+\label{subsec:cpplibs:time_measure}
+This header file contains the classes \cpp{DurationQuantity}, \cpp{TimeMeasure}, \cpp{SimpleDurationEstimator} and \cpp{DurationEstimator}. \cpp{DurationQuantity} simply stores a time duration with a corresponding name. 
+
+\cpp{TimeMeasure} is an abstract base class used in all of the codes to track and store the duration of different processes. Particularly, the class contains a mechanism to measure the duration of subprocesses in nested loops. For this to work, loops have to be entered and left using the methods \cpp{enter()} and \cpp{leave()}. A duration measurement is carried out with \cpp{measure} providing the name of the duration and, optionally, whether the duration should be printed to the terminal. The method can be called within or outside of loops. One might want to use the method \cpp{update\ubar{}time()}, which ensures that the subsequent duration measurement is done with respect to the time of this function call. Otherwise, duration measurements are always done with regard to the previous measurement. The time measurement is finalized via the method \cpp{stop()}. Generally, two different types of measures are distinguished: the scalar \cpp{m\ubar{}global\ubar{}measure\ubar{}time} and the list \cpp{m\ubar{}tmp\ubar{}measure\ubar{}times}. The global measure time is updated with each \cpp{measure} call that happens outside of any loop, while a measurement within a loop updates the corresponding element in \cpp{m\ubar{}tmp\ubar{}measure\ubar{}times}. A call of \cpp{measure} invokes a call of the virtual undefined method \cpp{internal\ubar{}measure}. To be able to use the abstract class \cpp{TimeMeasure}, one has to define a derived class and define this virtual method. In the derived class constructor, one should define the different time measurements one intends to perform in the main code. The method \cpp{internal\ubar{}measure} should manage, how the measured times are stored.
+
+The classes \cpp{SimpleDurationEstimator} estimates the duration of a loop after the first pass. To this end, it obtains the size of the loop in the constructor and the duration of the first loop pass via the \cpp{obtain} method. If desired, this method also shows a progress bar in the terminal. The class \cpp{DurationEstimator} is an extension of this to nested loops. It obtains the size of all involved loops in the constructor and obtains the durations of a single pass for each loop.
+
+

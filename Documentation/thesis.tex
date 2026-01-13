@@ -1,0 +1,282 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%   Vorlage für eine Abschlussarbeit   %%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Erstellt von Maximilian Nöthe, <maximilian.noethe@tu-dortmund.de>
+% ausgelegt für lualatex und Biblatex mit biber
+
+% Kompilieren mit
+% latexmk --lualatex --output-directory=build thesis.tex
+% oder einfach mit:
+% make
+
+\documentclass[
+  tucolor,       % remove for less green,
+  BCOR=12mm,     % 12mm binding corrections, adjust to fit your binding
+  parskip=half,  % new paragraphs start with half line vertical space
+  open=any,      % chapters start on both odd and even pages
+  cleardoublepage=plain,  % no header/footer on blank pages
+]{tudothesis}
+
+\usepackage{lipsum}
+\usepackage[aux]{rerunfilecheck} % Warning, if another latex run is needed
+\setcounter{tocdepth}{1} % just list chapters and sections in the toc, not subsections or smaller
+
+%------------------------------------------------------------------------------
+%------------------------------ Adjust Margins etc. ---------------------------
+%------------------------------------------------------------------------------
+% geometry package for edge distances 
+%\usepackage[margin=3cm]{geometry}
+\usepackage[top=3.5cm,bottom=4.5cm]{geometry} 
+
+%------------------------------------------------------------------------------
+%------------------------------ Fonts, Unicode, Language ----------------------
+%------------------------------------------------------------------------------
+\usepackage{fontspec}
+\defaultfontfeatures{Ligatures=TeX}  % -- becomes en-dash etc.
+\usepackage[ngerman,american]{babel} % load english (for abstract) and ngerman language; the main language has to come last 
+\usepackage[autostyle]{csquotes} % intelligent quotation marks, language and nesting sensitive -> e.g. for using \enquote{}
+\usepackage{microtype} % microtypographical features, makes the text look nicer on the small scale
+
+%------------------------------------------------------------------------------
+%------------------------ Math Packages and settings --------------------------
+%------------------------------------------------------------------------------
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{physics}
+\usepackage[version=4]{mhchem} % e.g. \ce{} for chemical compounds
+\usepackage{mathtools}
+\usepackage{xfrac} % nice, small fracs for the text with \sfrac{}{}
+\usepackage{fixltx2e} % nice indices in text 
+
+%\usepackage[
+%  math-style=ISO,
+%  bold-style=ISO,
+%  sans-style=italic,
+%  nabla=upright,
+%  partial=upright,
+%  warnings-off={mathtools-colon,mathtools-overbracket}, % suppress some unnecessary warnings
+%]{unicode-math}
+%\setmathfont{Latin Modern Math} % Enable Unicode-Math and follow the ISO-Standards for typesetting math
+
+%------------------------------------------------------------------------------
+%---------------------------- Numbers and Units -------------------------------
+%------------------------------------------------------------------------------
+\usepackage[
+  locale=US,
+  per-mode=symbol-or-fraction,
+  print-zero-exponent=false, 
+  print-unity-mantissa=false
+]{siunitx}
+
+%------------------------------------------------------------------------------
+%-------------------------------- tables and figures --------------------------
+%------------------------------------------------------------------------------
+\usepackage{booktabs} % \toprule, \midrule, \bottomrule, etc
+
+% keep figures and tables in the section
+\usepackage[section, below]{placeins}
+
+% allow figures to be placed in the running text by default:
+\usepackage{sidecap}
+\usepackage{scrhack}
+\usepackage{float}
+\floatplacement{figure}{htbp}
+\floatplacement{SCfigure}{htbp}
+\sidecaptionvpos{figure}{c}
+\floatplacement{table}{htbp}
+
+
+%------------------------------------------------------------------------------
+%-------------------------------- graphics ------------------------------------
+%------------------------------------------------------------------------------
+\usepackage{graphicx}
+\graphicspath{{Graphics/Chapter_1/}{Graphics/Chapter_2/}{Graphics/Chapter_3/}{Graphics/Chapter_4/}{Graphics/Chapter_5/}{Graphics/Chapter_6/}}
+
+% for nice boxes 
+\usepackage{mdframed}
+\colorlet{mdframecolor}{tugreen!6}
+
+% nice tugreen footnote colors
+\renewcommand{\footnoterule}{
+    \color{tugreen} % color of the line
+    \hrule width 0.5\linewidth height 0.4pt \vspace{2pt}
+    \color{black} % color of the footnote
+}
+
+\usepackage{xcolor}
+\usepackage{soul}
+\sethlcolor{gray!20} % Set the background color to light gray
+
+%------------------------------------------------------------------------------
+%-------------------------------- pdfincludes ---------------------------------
+%------------------------------------------------------------------------------
+% allows to include PDFs as full pages
+\usepackage{pdfpages}
+
+% Set the PDF Version of this document to 1.7 (1.4 is the current default)
+% This is needed so that PDFs with Version >1.5 can be included
+\pdfvariable minorversion=7
+
+
+%------------------------------------------------------------------------------
+%------------------------------ Captions ---------------------------------
+%------------------------------------------------------------------------------
+\usepackage{caption}
+\usepackage{subcaption}
+
+%------------------------------------------------------------------------------
+%---------------------- customize list environments ---------------------------
+%------------------------------------------------------------------------------
+\usepackage{enumitem}
+\renewcommand{\labelitemi}{\raisebox{0.28ex}{\textcolor{tugreen}{\tiny{$\blacksquare$}}}} % nice item bullets
+
+%------------------------------------------------------------------------------
+%------------------------------ Bibliographie ---------------------------------
+%------------------------------------------------------------------------------
+\input{my_bibstyle.tex}
+
+
+
+    
+% Last packages, do not change order or insert new packages after these ones
+\usepackage[pdfusetitle,unicode,colorlinks=false,urlbordercolor=tugreen,linkbordercolor=tugreen,citebordercolor=tudark,linktoc=page]{hyperref}
+\usepackage{bookmark}
+\usepackage[shortcuts]{extdash}
+
+%------------------------------------------------------------------------------
+%------------------------------ Referenzen ------------------------------------
+%------------------------------------------------------------------------------
+
+\usepackage{cleveref}
+\crefname{chapter}{Ch.}{Chs.}
+\crefname{section}{Sec.}{Secs.}
+\crefname{appendix}{App.}{Appx.}
+\crefname{figure}{Fig.}{Figs.}
+\crefname{table}{Tab.}{Tabs.}
+\crefname{equation}{Eq.}{Eqs.}
+%\crefname{itemize}{It.}{Its.}
+%\crefname{enumerate}{It.}{Its.}
+
+%\newcommand{\cnref}[3][red]{
+%  \hypersetup{linkbordercolor=#1}
+%  \cref{#2}{#3}
+%  \hypersetup{linkbordercolor=blue}
+%}
+
+\newcommand{\refcite}[1]{Ref.~\cite{#1}}
+\newcommand{\refcites}[1]{Refs.~\cite{#1}}
+
+\newcommand{\refsimple}[1]{\ref{#1}} % replacement for \ref{}
+\newcommand{\refit}[1]{item~\ref{#1}} % if items need to be referenced
+
+
+%------------------------------------------------------------------------------
+%-------------------------------- commands ------------------------------------
+%------------------------------------------------------------------------------
+\input{commands.tex}
+\newcommand{\ubar}{\_}
+%\newcommand{\cpp}[1]{\colorbox{gray!20}{\texttt{#1}}}
+%\newcommand{\cpp}[1]{\tcbox[colback=gray!20, colframe=gray!20, sharp corners, boxrule=0pt, left=1pt, right=1pt]{\texttt{#1}}}
+\newcommand{\cpp}[1]{\hl{\texttt{#1}}}
+\newcommand{\file}[1]{\enquote{#1}}
+\newcommand{\contains}[1]{\bullet{}\,\,\,\textbf{contains:}\,\,\,#1}
+\newcommand{\requires}[1]{\bullet{}\,\,\,\textbf{requires:}\,\,\,#1}
+\newcommand{\parameter}[1]{\textbf{#1}}
+
+\usepackage{listings}
+\lstnewenvironment{terminal}[1][]{
+  \lstset{
+    basicstyle=\ttfamily,
+    backgroundcolor=\color{gray!20},
+    frame=single,
+    xleftmargin=\parindent,
+    xrightmargin=0pt,
+    aboveskip=1em,
+    belowskip=0em,
+    breaklines=true,
+    columns=fullflexible,
+    keepspaces=true,
+    showstringspaces=false,
+    #1
+  }
+}{}
+
+
+%------------------------------------------------------------------------------
+%-------------------------------- Acronyms ------------------------------------
+%------------------------------------------------------------------------------
+\usepackage[
+  acronyms,
+  shortcuts,
+  nogroupskip,
+  nomain,
+  %nohypertypes={acronym},% disable automated hyperlinks
+  %nopostdot,
+  %nonumberlist,
+]{glossaries}
+\input{content/acronyms.tex}
+\makeglossaries
+
+%------------------------------------------------------------------------------
+%-------------------------    Angaben zur Arbeit   ----------------------------
+%------------------------------------------------------------------------------
+
+
+\thesisclass{Dr. rer. nat.}
+\title{Collection of algorithms concerning spin dynamic mean-field theory}
+\subtitle{Documentation of the code}
+\author{Timo Gräßer}
+\date{2025}
+\chair{Uhrig Group - Condensed Matter Theory}
+\division{Fakultät Physik}
+\university{Technische Universität Dortmund}
+
+% tu logo on top of the titlepage
+\titlehead{\includegraphics[height=1.5cm]{logos/tu-logo.pdf}}
+
+\begin{document}
+\frontmatter
+\maketitle
+
+%\begin{titlepage}
+%  \newgeometry{top=2.5cm, bottom=5cm, left=3cm, right=3cm}
+%  \includegraphics[width=0.6\textwidth]{logos/tu-logo.pdf}
+%  \begin{center}
+%    \vspace{2cm}
+%    \Large\textbf{\thethesisclass} \\
+%    \vspace{1.6cm}\vspace{-0.3cm}
+%    \rule{\textwidth}{1.2pt} \\
+%    \vspace{0.5cm}\vspace{0.5cm}
+%    \huge\textsf{\textbf{\color{tugreen}\thetitle}} \\
+%    \vspace{0.5cm}
+%    \rule{\textwidth}{1.2pt} \\
+%    \vspace{1.6cm}
+%    \Large\theauthor \\
+%    \thebirthplace \\
+%    \vspace{0.5cm}    
+%    \thedate \\
+%    \vfill
+%    \thechair \\
+%    \thedivision \\
+%    \theuniversity \\
+%  \end{center}
+%\end{titlepage}
+
+
+\tableofcontents
+
+\mainmatter
+
+% Hier beginnt der Inhalt mit Seite 1 in arabischen Ziffern
+\input{content/content.tex}
+
+\backmatter
+\printbibheading[heading=bibintoc]
+\textit{The abbreviation scheme of the references is based on the authors last names and the year. In case of three or less authors, the first letters of the last names are appended and, in case of more than three authors, the first three letters of the first authors last name including a '+' symbol are taken.}
+\printbibliography[heading=none]
+
+\printglossary[type=\acronymtype]
+\addcontentsline{toc}{chapter}{Acronyms}
+
+\end{document}

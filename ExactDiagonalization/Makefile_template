@@ -1,0 +1,86 @@
+cppOptions 	=	-std=c++17 \
+				-pipe \
+				-Wall \
+				-O3 \
+
+# additional flags:
+#-ffast-math: quicker but "dangerous", needs to be tested if included
+
+# self-written C++ libraries:
+CPP_LIBS = ../cpp_libs
+
+# === TODO ===
+# diagonalization flags (use either LAPACK or EIGEN, remove or comment out the remaining flag):
+diagonal	= 	-I path/to/eigen \
+				-D EIGEN \
+				-llapack \
+				-D LAPACK \
+
+# === TODO ===
+# hdf5 flags (lhdf5 or lhdf5_serial should work):
+hdf5		=	-I /path/to/hdf5
+				-lhdf5 \
+				-lhdf5_serial \
+
+# === TODO ===
+# used data type (float or double)
+USE_TYPE	= 	FLOAT
+#DOUBLE
+
+CPP_LIBS = ../cpp_libs
+
+libOptions 	=	-lboost_program_options \
+				-D USE_$(USE_TYPE) \
+				$(diagonal) \
+				$(hdf5) \
+				-I $(CPP_LIBS)
+
+COMPILER	=	mpicxx
+EXECUTABLE  =	executable_$(USE_TYPE).out
+
+REAL_H		=	Global/RealType_Global.h
+MPI_H		=	Global/MPI_Global.h
+MATR_H		=	Global/Matrices_Global.h
+INLMATR_H	=	Global/InlineMatrices_Global.h
+EIGEN_H		=	Global/Eigen_Global.h
+
+OUT		   	=	Executables_$(USE_TYPE)
+TMM_OUT		=	$(OUT)/TimeMeasure.out
+PSPACE_OUT	=	$(OUT)/Parameter_Space.out
+RTD_OUT		=	$(OUT)/Run_Time_Data.out
+MOD_OUT		= 	$(OUT)/Models.out
+INIT_OUT	=	$(OUT)/Initialization.out
+STORE_OUT	=	$(OUT)/Storage_Concept.out
+MAIN_OUT	=	$(OUT)/main.out
+
+# move errors to file : 2> output
+
+all: $(EXECUTABLE)
+
+$(EXECUTABLE): $(MAIN_OUT) $(TMM_OUT) $(PSPACE_OUT) $(RTD_OUT) $(MOD_OUT) $(STORE_OUT) | build 
+	$(COMPILER) $(cppOptions) $(MAIN_OUT) $(TMM_OUT) $(PSPACE_OUT) $(RTD_OUT) $(MOD_OUT) $(STORE_OUT) -o $(EXECUTABLE) $(libOptions)
+
+$(MAIN_OUT): main.cpp $(REAL_H) $(MPI_H) Time_Measure/Time_Measure.h Parameter_Space/Parameter_Space.h Run_Time_Data/Run_Time_Data.h Initialization/Initialization.h Functions/Functions.h Models/Models.h Storage_Concept/Storage_Concept.h $(MATR_H) $(INLMATR_H) main.cpp | build
+	$(COMPILER) $(cppOptions) -c -o $(MAIN_OUT) main.cpp $(libOptions)
+
+$(STORE_OUT): Storage_Concept/Storage_Concept.h Storage_Concept/Storage_Concept.cpp Time_Measure/Time_Measure.h Parameter_Space/Parameter_Space.h Run_Time_Data/Run_Time_Data.h $(REAL_H) | build
+	$(COMPILER) $(cppOptions) -c -o $(STORE_OUT) Storage_Concept/Storage_Concept.cpp $(libOptions)
+
+$(MOD_OUT): Models/Models.h Functions/Functions.h Models/Models.cpp Models/ISO_Disordered.cpp Models/ISO_Disordered_Blockwise.cpp Models/ISO_Polarized.cpp Models/XXZ_Disordered.cpp Models/DRF_Disordered_Blockwise.cpp Models/DRF_Disordered.cpp Parameter_Space/Parameter_Space.h $(REAL_H) $(MPI_H) | build
+	$(COMPILER) $(cppOptions) -c -o $(MOD_OUT) Models/Models.cpp $(libOptions)
+
+$(RTD_OUT): Run_Time_Data/Run_Time_Data.h Run_Time_Data/Run_Time_Data.cpp Parameter_Space/Parameter_Space.h $(REAL_H) | build
+	$(COMPILER) $(cppOptions) -c -o $(RTD_OUT) Run_Time_Data/Run_Time_Data.cpp $(libOptions)
+
+$(PSPACE_OUT): Parameter_Space/Parameter_Space.h Parameter_Space/Parameter_Space.cpp Models/Models.h $(REAL_H) $(MPI_H) | build
+	$(COMPILER) $(cppOptions) -c -o $(PSPACE_OUT) Parameter_Space/Parameter_Space.cpp $(libOptions)
+
+$(TMM_OUT):  Time_Measure/Time_Measure.cpp Time_Measure/Time_Measure.h $(REAL_H) $(MPI_H) | build
+	$(COMPILER) $(cppOptions) -c -o $(TMM_OUT) Time_Measure/Time_Measure.cpp $(libOptions)
+
+build:
+	mkdir -p $(OUT)/
+
+clean:
+	rm -rf $(OUT); rm $(EXECUTABLE)
+

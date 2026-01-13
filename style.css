@@ -1,0 +1,19 @@
+/* Set the font size for the entire document */
+body {
+    font-size: 8pt; /* Adjust this value to make the font smaller or larger */
+    font-family: Arial, sans-serif; /* Optional: Set a specific font */
+  }
+  
+  /* Add page numbers in the footer */
+  @page {
+    @bottom-center {
+      content: "Page " counter(page) " of " counter(pages);
+      font-size: 8pt; /* Adjust the font size of the page numbers */
+      color: gray; /* Optional: Set the color of the page numbers */
+    }
+  }
+  
+  /* Optional: Adjust margins to fit more content on each page */
+  @page {
+    margin: 0.7in; /* Adjust margins (e.g., 1 inch) */
+  }

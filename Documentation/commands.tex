@@ -1,0 +1,448 @@
+% better aligned indices in text:
+\def\smt#1{\smash[t]{#1}}
+\def\usmash#1{^{\smash[t]{#1}}}
+\def\dsmash#1{_{\smash[t]{#1}}}
+\def\dusmash#1#2{\dsmash{#1}\usmash{#2}}
+
+% text shorthands
+\newcommand{\rf}{\mathrm{rf}}           % rotating frame
+\newcommand{\drf}{\mathrm{drf}}         % doubly rotating frame
+\newcommand{\La}{\mathrm{L}}            % Larmor
+\newcommand{\Hubbard}{\mathrm{Hubb}}    % Hubbard
+\newcommand{\eff}{\mathrm{eff}}         % effective
+\newcommand{\aux}{\mathrm{aux}}         % auxiliary
+\newcommand{\iso}{\mathrm{iso}}         % isotropic
+\newcommand{\homo}{\mathrm{hom}}        % homogeneous
+\newcommand{\het}{\mathrm{het}}         % heterogeneous
+\newcommand{\refe}{\mathrm{ref}}        % reference
+\newcommand{\mx}{\mathrm{max}}          % maximum
+\newcommand{\mn}{\mathrm{min}}          % minimum
+\newcommand{\mf}{\mathrm{mf}}           % mean field
+\newcommand{\therm}{\mathrm{th}}        % thermal
+\newcommand{\equil}{\mathrm{eq}}        % equilibrium
+\newcommand{\tot}{\mathrm{tot}}         % total
+\newcommand{\DD}{\mathrm{DD}}           % dipole-dipole
+\newcommand{\CR}{\mathrm{CR}}           % correlation replica
+\newcommand{\CRA}{\mathrm{CRA}}         % correlation replica average
+\newcommand{\Zee}{\mathrm{Z}}           % Zeeman
+\newcommand{\sat}{\mathrm{s}}           % saturated
+\newcommand{\modul}{\mathrm{mod}}       % modulated
+\newcommand{\crit}{\mathrm{crit}}       % critical
+\newcommand{\marginal}{\mathrm{mar}}    % marginal
+\newcommand{\low}{\mathrm{low}}         % lower
+\newcommand{\cut}{\mathrm{cut}}         % cutoff
+\newcommand{\CG}{\mathrm{CG}}           % complete graphs
+\newcommand{\hermc}{\mathrm{h.c.}}      % hermitian conjugate
+\newcommand{\strexp}{\mathrm{str-exp}}  % stretched exponential
+\newcommand{\retarded}{\mathrm{ret}}    % retarded
+\newcommand{\loc}{\mathrm{loc}}         % local
+\newcommand{\magic}{\mathrm{m}}         % magic
+\newcommand{\cs}{\mathrm{cs}}           % central spin
+\newcommand{\auto}{\mathrm{auto}}       % autocorrelation
+\newcommand{\pair}{\mathrm{pair}}       % pair correlation
+\newcommand{\realpart}{\mathrm{Re}}     % real
+\newcommand{\imagpart}{\mathrm{Im}}     % imaginary
+\newcommand{\Qu}{\mathrm{Q}}            % quadratic
+\newcommand{\Te}{\mathrm{T}}            % tetra
+\newcommand{\motav}{\mathrm{ma}}        % motional average
+\newcommand{\powav}{\mathrm{pa}}        % powder average
+\newcommand{\tav}{\mathrm{ta}}          % time average
+\newcommand{\cf}{\mathrm{cf}}           % configuration
+\newcommand{\simc}{\mathrm{sc}}         % simple cubic
+\newcommand{\fcc}{\mathrm{fcc}}         % face-centered cubic
+\newcommand{\NV}{\mathrm{NV}}           % nitrogen-vacancy
+\newcommand{\Su}{\mathrm{S}}            % surface spin
+\newcommand{\Pro}{\mathrm{P}}           % proton spin
+\newcommand{\SuPro}{\mathrm{S-P}}       % surface spin - proton spin
+\newcommand{\Hy}{\mathrm{H}}            % hydrogen
+\newcommand{\Ca}{\mathrm{C}}            % carbon
+\newcommand{\CX}{\mathrm{CX}}           % carbon X
+\newcommand{\CA}{\mathrm{CA}}           % carbon A
+\newcommand{\CB}{\mathrm{CB}}           % carbon B
+\newcommand{\Fl}{\mathrm{F}}            % fluorine
+\newcommand{\elec}{\mathrm{e}}          % electron
+\newcommand{\logar}{\mathrm{log}}       % logarithm
+
+% ausgeschrieben
+\newcommand{\XXZ}{\mathrm{XXZ}}
+\newcommand{\Ising}{\mathrm{Ising}}
+\newcommand{\SIAM}{\mathrm{SIAM}}
+\newcommand{\tpulse}{\mathrm{pulse}}
+\newcommand{\cluster}{\mathrm{cluster}}
+\newcommand{\hybrid}{\mathrm{hybrid}}
+\newcommand{\noise}{\mathrm{noise}}
+\newcommand{\drive}{\mathrm{drive}}
+\newcommand{\threshold}{\mathrm{threshold}}
+
+
+% ===========================================
+% ================ operators ================
+% ===========================================
+\newcommand{\mb}{\mathbf}
+\newcommand{\dagg}{\dagger}
+\newcommand{\pdagg}{\phantom{\dagger}}
+\def\op#1{\mb{#1}}
+\def\opdagg#1{\mb{#1}^\dagg}
+
+% general 
+\newcommand{\one}{\op{1}}
+\newcommand{\oA}{\op{A}}
+\newcommand{\oB}{\op{B}}
+\newcommand{\oC}{\op{C}}
+\newcommand{\oO}{\op{O}}
+
+% Hamiltonians
+\newcommand{\oH}{\op{H}}
+\newcommand{\oHZ}{\op{H}_{\Zee}}
+\newcommand{\oHeff}{\op{H}_{\eff}}
+\newcommand{\oh}{\op{h}}
+
+% unitary transformations
+\newcommand{\oU}{\op{U}}
+\newcommand{\oUd}{\op{U}^{\dagg}}
+\newcommand{\oUpd}{\op{U}^{\pdagg}}
+\newcommand{\oUZ}{\op{U}_{\Zee}^{\pdagg}}
+\newcommand{\oUZd}{\op{U}_{\Zee}^{\dagg}}
+\newcommand{\oUeff}{\op{U}_{\eff}^{\pdagg}}
+\newcommand{\oUeffd}{\op{U}_{\eff}^{\dagg}}
+
+% ladder and occupation operators
+\def\oc#1{\op{c}^{\pdagg}_{#1}}
+\def\ocd#1{\op{c}^{\dagg}_{#1}}
+\def\ocb#1{\op{c}^{(\dagg)}_{#1}}
+\def\oa#1{\op{a}^{\pdagg}_{#1}}
+\def\oad#1{\op{a}^{\dagg}_{#1}}
+\def\on#1{\op{n}^{\pdagg}_{#1}}
+
+% spin operators in direction
+\newcommand{\oS}{\op{S}}
+\newcommand{\Sx}{\oS^{x}}
+\newcommand{\Sy}{\oS^{y}}
+\newcommand{\Sz}{\oS^{z}}
+\newcommand{\Sp}{\oS^{+}}
+\newcommand{\Sm}{\oS^{-}}
+\newcommand{\Sa}{\oS^{\alpha}}
+\newcommand{\Sb}{\oS^{\beta}}
+\newcommand{\Ix}{\op{I}^{x}}
+\newcommand{\Iy}{\op{I}^{y}}
+\newcommand{\Iz}{\op{I}^{z}}
+
+% spin operators in direction at site i,j
+\newcommand{\Sxi}{\Sx_{i}}
+\newcommand{\Syi}{\Sy_{i}}
+\newcommand{\Szi}{\Sz_{i}}
+\newcommand{\Sai}{\Sa_{i}}
+\newcommand{\Sbi}{\Sb_{i}}
+\newcommand{\Sxj}{\Sx_{j}}
+\newcommand{\Syj}{\Sy_{j}}
+\newcommand{\Szj}{\Sz_{j}}
+\newcommand{\Saj}{\Sa_{j}}
+\newcommand{\Sbj}{\Sb_{j}}
+\newcommand{\Sak}{\Sa_{k}}
+\newcommand{\Sbk}{\Sb_{k}}
+\newcommand{\Sal}{\Sa_{l}}
+\newcommand{\Sbl}{\Sb_{l}}
+\newcommand{\textSai}{\oS\dusmash{i}{\alpha}}
+\newcommand{\textSbi}{\oS\dusmash{i}{\beta}}
+\newcommand{\textSaj}{\oS\dusmash{j}{\alpha}}
+\newcommand{\textSbj}{\oS\dusmash{j}{\beta}}
+
+% spin vector operators
+\newcommand{\vS}{\vec{\op{S}}}
+\newcommand{\vSi}{\vec{\op{S}}_{i}}
+\newcommand{\vSj}{\vec{\op{S}}_{j}}
+\newcommand{\vI}{\vec{\op{I}}}
+
+% local environment operators in direction
+\newcommand{\oV}{\op{V}}
+\newcommand{\Vx}{\oV^{x}}
+\newcommand{\Vy}{\oV^{y}}
+\newcommand{\Vz}{\oV^{z}}
+\newcommand{\Va}{\oV^{\alpha}}
+\newcommand{\Vb}{\oV^{\beta}}
+
+% local environment operators in direction at site
+\newcommand{\Vai}{\Va_{i}}
+\newcommand{\Vbi}{\Vb_{i}}
+\newcommand{\Vaj}{\Va_{j}}
+\newcommand{\Vbj}{\Vb_{j}}
+\newcommand{\textVai}{\oV\dusmash{i}{\alpha}}
+\newcommand{\textVbi}{\oV\dusmash{i}{\beta}}
+\newcommand{\textVaj}{\oV\dusmash{j}{\alpha}}
+\newcommand{\textVbj}{\oV\dusmash{j}{\beta}}
+
+% local environment vector operators
+\newcommand{\vV}{\vec{\oV}}
+\newcommand{\vVi}{\vV_{i}}
+\newcommand{\vVj}{\vV_{j}}
+
+% magnetization
+\newcommand{\ovm}{\vec{\op{m}}}
+\newcommand{\oma}{\op{m}^{\alpha}}
+\newcommand{\omb}{\op{m}^{\beta}}
+\newcommand{\omx}{\op{m}^{x}}
+\newcommand{\omy}{\op{m}^{y}}
+\newcommand{\omz}{\op{m}^{z}}
+
+% mean-field components
+\newcommand{\cVx}{V^{x}}
+\newcommand{\cVy}{V^{y}}
+\newcommand{\cVz}{V^{z}}
+\newcommand{\cVa}{V^{\alpha}}
+\newcommand{\cVb}{V^{\beta}}
+\newcommand{\cVai}{\cVa_i}
+\newcommand{\cVbj}{\cVb_j}
+
+% mean-field vectors
+\newcommand{\cvV}{\vec{V}}
+\newcommand{\cvVi}{\vec{V}_{i}}
+
+% nice chi
+\DeclareRobustCommand{\rchi}{{\mathpalette\irchi\relax}}
+\newcommand{\irchi}[2]{\raisebox{\depth}{$#1\chi$}} % inner command, used by \rchi
+
+% mean-field time series
+\newcommand{\tvV}{\vec{\mathcal{V}}}
+\newcommand{\stsdep}{\hspace{-0.8mm}\left[\tvV_i(t,t_0)\right]}
+\newcommand{\textstsdep}{[\tvV_i(t,t_0)]}
+\newcommand{\stsshort}{\rchi}%\mathcal{X}}% 
+\newcommand{\stsdepn}{\hspace{-0.8mm}\left[\stsshort\right]}
+
+% density operators
+\newcommand{\rhoth}{\rho_{\therm}}
+\newcommand{\rhothperp}{\rho_{\therm,\perp}}
+
+% Frobenius norm of an operator
+\def\normF#1{\lVert{#1}\rVert}
+
+
+% ===========================================
+% ================ matrices =================
+% ===========================================
+\def\dul#1{\underline{\underline{#1}}}
+\newcommand{\onematrix}{\dul{1}}
+\newcommand{\sigmazero}{\sigma^{0}}
+\newcommand{\sigmax}{\sigma^{x}}
+\newcommand{\sigmay}{\sigma^{y}}
+\newcommand{\sigmaz}{\sigma^{z}}
+
+
+% ===========================================
+% ================ operations ===============
+% ===========================================
+% expectation value
+\def\expval#1{\langle#1\rangle}
+
+% commutator 
+\def\commute#1#2{\left[#1,#2\right]}
+
+% taxicab 
+\def\taxicab#1#2{\lambda(#1,#2)}
+
+
+
+% ===========================================
+% ================ functions ================
+% ===========================================
+% exponential
+\def\exp#1{\mathrm{e}^{#1}}
+\def\explong{\mathrm{exp}}
+
+% differential
+\newcommand{\diff}{\mathrm{d}}
+\newcommand{\Diff}{\mathrm{D}}
+
+% Heaviside
+\def\Heaviside#1{\Theta\left(#1\right)}
+
+% Greens function
+\newcommand{\Green}{\mathcal{G}}
+%\newcommand{\Gret}{\mathcal{G}^{\retarded}}
+\def\Gret#1#2{\mathcal{G}^{\retarded}_{#1|#2}}
+\def\Gretzero#1#2{\mathcal{G}^{\retarded,(0)}_{#1|#2}}
+\def\Grets#1{\mathcal{G}^{\retarded}_{#1}}
+\def\Gretszero#1{\mathcal{G}^{\retarded,(0)}_{#1}}
+%\newcommand{\Gadv}{\mathcal{G}^{\adv}}
+%\newcommand{\Gthd}{\mathcal{G}^{\thd}}
+
+% spectral function
+\def\Spec#1#2{\mathcal{A}_{#1|#2}}
+\def\Specs#1{\mathcal{A}_{#1}}
+\def\Specszero#1{\mathcal{A}^{(0)}_{#1}}
+
+% self energy
+\def\Sret#1#2{\Sigma^{\retarded}_{#1|#2}}
+\def\Srets#1{\Sigma^{\retarded}_{#1}}
+\def\Self#1#2{\Sigma_{#1|#2}}
+\def\Selfs#1{\Sigma_{#1}}
+
+% coupling constants and coordination numbers
+\newcommand{\J}{\mathcal{J}}
+\newcommand{\Jmi}{\J_{m,i}}
+\newcommand{\JQi}{J_{\Qu,i}}
+\newcommand{\JQ}{J_{\Qu}}
+\newcommand{\textJQ}{J\dsmash{\Qu}}
+\newcommand{\textJQinv}{J\dusmash{\Qu}{-1}}
+\newcommand{\textJQsq}{J\dusmash{\Qu}{2}}
+\newcommand{\tJQ}{\tilde{J}_{\Qu}}
+\newcommand{\texttJQ}{\tilde{J}\dsmash{\Qu}}
+\newcommand{\texttJQinv}{\tilde{J}\dusmash{\Qu}{-1}}
+\newcommand{\JTi}{J_{\Te,i}}
+\newcommand{\JT}{J_{\Te}}
+\newcommand{\Jijc}{J_{ij,c}}
+\newcommand{\zeffi}{z_{\eff,i}}
+\newcommand{\zeff}{z_{\eff}}
+\newcommand{\zeffcs}{z_{\eff,\cs}}
+
+
+
+% ====================================================
+% ================ general math stuff ================
+% ====================================================
+% sums
+\def\sumcondition#1#2{#1:#2} % condition for sums
+
+% numbers 
+\newcommand{\naturalnumbers}{\mathbb{N}}
+\newcommand{\realnumbers}{\mathbb{R}}
+
+% complex numbers
+\newcommand{\im}{\texttt{i}}
+
+
+
+
+% ====================================================
+% ================ general physics stuff =============
+% ====================================================
+% directions (usage with {} in text)
+\newcommand{\xdirect}{$x$-direction{}}
+\newcommand{\ydirect}{$y$-direction{}}
+\newcommand{\zdirect}{$z$-direction{}}
+\newcommand{\xcom}{$x$-component{}}
+\newcommand{\ycom}{$y$-component{}}
+\newcommand{\zcom}{$z$-component{}}
+
+% numero
+\def\numero#1{{No.\,#1}}
+\def\numeros#1#2{{No.\,#1} {and #2}}
+
+% dimensionality
+\newcommand{\ND}[1]{\acnsubst{ND}{#1D}} 
+
+% NMR
+\newcommand{\nB}{\vec{n}_{B}}
+\newcommand{\CaFin}[1]{\acnsubst{CaFin}{\ce{CaF_2}\hspace{0.2ex}-[#1]}} 
+
+% averages
+\def\mfav#1{\overline{#1}^{\mf}}
+\def\cfav#1{\overline{#1}^{\cf}}
+\def\motionalav#1{\overline{#1}^{\motav}}
+\def\powdav#1{\overline{#1}^{\powav}}
+\def\timeav#1{\overline{#1}^{\tav}}
+
+% gyromagnetic ratios
+\newcommand{\gammai}{\gamma_{i}}
+\newcommand{\gammaH}{\gamma_{\Hy}}
+\newcommand{\gammaC}{\gamma_{\Ca}}
+\newcommand{\gammaF}{\gamma_{\Fl}}
+\newcommand{\gammae}{\gamma_{\elec}}
+
+% partition sum 
+\newcommand{\partitionsum}{\mathcal{Z}}
+
+% Hilbert space dimension
+\newcommand{\dloc}{d_{\loc}}
+
+% Fermi energy 
+\newcommand\eF{\epsilon_{\text{F}}}
+
+% Boltzman constant
+\newcommand{\kB}{k_\text{B}}
+
+% thermal energy 
+\newcommand{\Eth}{E_\therm}
+
+% conjugate spin
+\newcommand{\sigmao}{\overline{\sigma}}
+
+% frequency
+\newcommand{\omegaL}{\omega_{\La}}
+\newcommand{\omegai}{\omega_{i}}
+\newcommand{\omegaj}{\omega_{j}}
+
+% lattice constants
+\newcommand{\asc}{a_{\simc}}
+\newcommand{\afcc}{a_{\fcc}}
+
+% pulses
+\def\pulse#1#2{\left(#1\right)_{#2}}
+\def\textpulse#1#2{{$\smash{(#1)_{#2}}$\hspace{0.1ex}-pulse}}
+\def\textfracpulse#1#2#3{{$\left(\frac{#1}{#2}\right)\textsubscript{\!\!\raisebox{-0.3ex}{$#3$}}$\hspace{0.1ex}-pulse}}
+
+% nearest neighbors 
+\def\nearest#1#2{\langle{#1},{#2}\rangle}
+
+
+% ======================================================
+% ================ concerning main text ================
+% ======================================================
+% todo- and content-list:
+\def\todo#1{\textbf{ToDo:}\begin{itemize}#1\end{itemize}}
+\def\cont#1{\textbf{Content:}\begin{itemize}#1\end{itemize}}
+
+% colors:
+\def\blue#1{{\color{blue}{#1}}}
+\def\red#1{{\color{red}{#1}}}
+\def\orange#1{{\color{orange}{#1}}}
+
+% tables:
+\def\panel#1{\,\textbf{(#1)}} % use without space after the previous sentence
+
+
+% ========================================
+% ================ others ================
+% ========================================
+% transformations
+\newlength{\textarrow}
+\settowidth{\textarrow}{\scriptsize$0000$}
+\def\mytextrightarrow#1{\xrightarrow[{\mathmakebox[\textarrow]{#1}}]{}}
+\def\trafo#1{\,\,\,\mytextrightarrow{{#1}}\,\,\,}
+
+
+% text spin (usage with {} in text)
+\newcommand{\spin}{$S$}
+\newcommand{\largerspinhalf}{$S>\sfrac12$}
+\newcommand{\spinhalf}{$S=\sfrac12$}
+\newcommand{\spinone}{$S=1$}
+
+\newcommand{\oGamma}{\overline{\Gamma}}
+
+\newcommand{\csize}{n} % cluster size
+\newcommand{\nmax}{n^{\mx}}
+\newcommand{\textnmax}{n\usmash{\mx}}
+\newcommand{\textcsize}{$\csize$} % cluster size
+\newcommand{\stsdepnC}{\hspace{-0.8mm}\left[\stsshort_1,\dots,\stsshort_\csize\right]}
+
+% manually better alignment for oGamma^2:
+\newcommand{\oGammaSq}{\oGamma^{\raisebox{-2.2pt}{$\scriptstyle 2$}}}
+
+
+
+% ========================================
+% ================ unused ================
+% ========================================
+% evolution of density matrices
+\def\densityevolution#1{\,\,\,\mytextrightarrow{{#1}}\,\,\,}
+\usepackage{tikz} % circle around symbol
+\newcommand{\circled}[1]{%
+    \tikz[baseline=(char.base)]{%
+        \node[shape=circle,draw,inner sep=0.5pt] (char) {#1};
+    }
+}
+\usepackage{tikz} % circle around index
+\newcommand{\circledindex}[1]{%
+    \tikz[baseline=(char.base)]{%
+        \node[shape=circle,draw,inner sep=0.5pt] (char) {\scalebox{0.7}{#1}};
+    }
+}
