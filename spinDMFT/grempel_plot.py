@@ -32,7 +32,7 @@ def ImportData_spinDMFT( spin_model, physical_data = "", project = "", selfcons 
     return all, disc 
 
 
-betas = [1, 2, 3, 5, 7, 12]
+betas = [1, 5, 7, 12, 30]
 
 data_X = {}
 data_Y = {}
@@ -53,7 +53,7 @@ for beta in betas:
 
 for beta in betas:
     if beta == 30:
-        all, disc = ImportData_spinDMFT("ISO",physical_data=f"JQ=20__beta=1",project="Iterative_Init",extension="")
+        all, disc = ImportData_spinDMFT("ISO",physical_data=f"JQ=25__beta=1",project="Iterative_Init",extension="")
     else:
         all, disc = ImportData_spinDMFT("ISO",physical_data=f"JQ={beta:.2g}__beta=1",project="Iterative_Init",extension="")
     G = np.array([gab for gab in all['results']['Re_correlation']])

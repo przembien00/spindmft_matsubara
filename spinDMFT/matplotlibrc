@@ -11,7 +11,7 @@ lines.linewidth : 1.3
 lines.markersize: 6
 lines.markeredgewidth: 0.9
 lines.markerfacecolor: none
-axes.prop_cycle : cycler('color',['blue', 'darkorange', 'blueviolet','green', 'red', 'gold', 'indigo', 'fuchsia'])
+axes.prop_cycle : cycler('color',['blue', 'crimson', 'darkorchid','dimgray', 'forestgreen', 'gold', 'indigo', 'fuchsia'])
 # axes
 axes.grid : True
 grid.alpha : 0.5

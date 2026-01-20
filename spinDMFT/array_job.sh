@@ -13,7 +13,7 @@ for((i=0;i<$len;i++))
 do
 	d="${data[$i]}"
 	echo "RUNNING JOB WITH BETA = "$d
-	mpirun -n 4 executable_DOUBLE.out --beta=$d --numSamplesPerCore=100000 --numSamplesPerSet=100 --cstype=A --spinmodel=ISO --numTimeSteps=50 --critneg=0.001 --JQ=1 --project="Matsubara"
+	mpirun -n 8 executable_DOUBLE.out --beta=$d --numSamplesPerCore=100000 --numSamplesPerSet=100 --cstype=A --spinmodel=ISO --numTimeSteps=50 --critneg=1 --JQ=30 --project="Matsubara" --initcorrfile="/Matsubara/spinmodel=ISO__JQ=12__beta=1"
 wait
 done
 echo "DONE"

@@ -9,12 +9,13 @@ fi
 
 echo "STARTING ARRAY JOB : SPINDMFT CHANGING T"
 len=${#data[@]}
-o=19
+o=18
 for((i=0;i<$len;i++))
 do
     d="${data[$i]}"
     echo "RUNNING JOB WITH BETA = "$d
-    mpirun -n 4 executable_DOUBLE.out --beta=1 --JQ=$d --numSamplesPerCore=1000000 --numSamplesPerSet=100 --cstype=A --spinmodel=ISO --numTimeSteps=300 --loadinit --project="Iterative_Init" --initcorrfile="Iterative_Init/spinmodel=ISO__JQ="$o"__beta=1" --critneg=0.1 --iterlimit=30
+    mpirun -n 8 executable_DOUBLE.out --beta=1 --JQ=$d --numSamplesPerCore=1000000 --numSamplesPerSet=100 --cstype=A --spinmodel=ISO --numTimeSteps=50 --loadinit --project="Iterative_Init" --initcorrfile="Iterative_Init/spinmodel=ISO__JQ="$o"__beta=1" --critneg=0.1
     o=$d
 done
 echo "DONE"
+

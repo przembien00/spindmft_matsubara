@@ -49,7 +49,7 @@ def ImportData_spinDMFT( spin_model, physical_data = "", project = "", selfcons 
     
     return all, disc 
 
-beta_array = [0.2, 0.4, 0.6, 0.8, 1.0, 3.0]
+beta_array = [0.2, 0.4, 0.6, 0.8, 1.0]
 
 
 markers = ['v', '^', 's', 'x', 'D', '+']
@@ -58,17 +58,17 @@ markers = ['v', '^', 's', 'x', 'D', '+']
 i=0
 for beta in beta_array:
     all, disc = ImportData_spinDMFT("ISO",physical_data=f"beta={beta:.2g}",project="",extension="")
-    all_M, disc_M = ImportData_spinDMFT("ISO",physical_data=f"beta={beta:.2g}",project="Matsubara",extension="")
-    # all_cet, times = ImportData(f"ISO__Square_NN_PBC_N=20__beta={beta:.2g}__rescale=0.5", project_name="Chebyshev")
+    # all_M, disc_M = ImportData_spinDMFT("ISO",physical_data=f"beta={beta:.2g}",project="Matsubara",extension="")
+    all_cet, disc_cet = ImportData(f"ISO__Square_NN_PBC_N=20__beta={beta:.2g}__rescale=0.5", project_name="Chebyshev")
     G = np.array([gab for gab in all['results']['Re_correlation']][0])
-    G_M = np.array([gab for gab in all_M['results']['Re_correlation']][0])
-    # G_cet = np.array( [ gab for gab in all_cet['results']['Re_correlation'][0]] )
-    # g_cet = np.concatenate((G_cet, np.flip(G_cet)))
+    # G_M = np.array([gab for gab in all_M['results']['Re_correlation']][0])
+    G_cet = np.array( [ gab for gab in all_cet['results']['Re_correlation'][0]] )
+    g_cet = np.concatenate((G_cet, np.flip(G_cet)))
     # C = G[0][0:int(len(G[0])/2 + 1)]
     # C = np.append(C, np.flip(C[1:]))
     plt.plot(disc, G, ls="-", label=rf'spinDMFT, $\beta J_Q$={beta:.2g}', marker=markers[i], markevery=20)
-    plt.plot(disc_M, G_M, ls="--", label=rf'spinDMFT Matsubara, $\beta J_Q$={beta:.2g}', marker=markers[i], markevery=20)   
-    # plt.plot(disc, g_cet, ls=":", label=rf'CET N=18, $\beta J_Q$={beta:.2g}', marker=markers[i], markevery=20)
+    # plt.plot(disc_M, G_M, ls="--", label=rf'spinDMFT Matsubara, $\beta J_Q$={beta:.2g}', marker=markers[i], markevery=20)   
+    plt.plot(disc_cet, g_cet, ls=":", label=rf'CET N=20, $\beta J_Q$={beta:.2g}', marker=markers[i], markevery=20)
     i+=1
 
 plt.legend()
