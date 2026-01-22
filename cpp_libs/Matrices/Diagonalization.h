@@ -91,3 +91,8 @@ void diagonalize_cplx( const Matrix& matrix, EigVal& eigvals, UnitaryTrafo& U )
 
 
 };
+
+
+
+
+mpirun -n 4 executable_DOUBLE.out --beta=1 --JQ=2 --numSamplesPerCore=100000 --numSamplesPerSet=100 --numTimeSteps=100  --cstype=A --spinmodel=ISO --project="Iterative_Init" --critneg=0.1 --reliterror=5
