@@ -40,8 +40,8 @@ void diagonalize_real( const Matrix& matrix, EigVal& eigvals, OrthoTrafo& O )
     solver.compute( EIGEN_matrix );
 
     // initialize eigvals and O properly
-    eigvals.resize( matrix.rows() );
-    O.resize( matrix.rows(), matrix.rows() );
+//    eigvals.resize( matrix.rows() );
+//    O.resize( matrix.rows(), matrix.rows() );
 
     // copy results to eigvals and O
     std::copy( solver.eigenvalues().cbegin(), solver.eigenvalues().cend(), eigvals.begin() ); // copy eigenvalues
@@ -74,8 +74,8 @@ void diagonalize_cplx( const Matrix& matrix, EigVal& eigvals, UnitaryTrafo& U )
     solver.compute( EIGEN_matrix );
 
     // initialize eigvals and U properly
-    eigvals.resize( matrix.rows() );
-    U.resize( matrix.rows(), matrix.rows() );
+ //   eigvals.resize( matrix.rows() );
+ //   U.resize( matrix.rows(), matrix.rows() );
 
     // copy results to eigvals and U
     std::copy( solver.eigenvalues().cbegin(), solver.eigenvalues().cend(), eigvals.begin() ); // copy eigenvalues
