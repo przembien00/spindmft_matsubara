@@ -297,7 +297,7 @@ void ParameterSpace::read_initial_correlations_from_file()
     // check discretization (may only mismatch if extrapolation is used)
     if( !extrapolate_initial_spin_correlations )
     {
-        if( old_num_TimePoints != num_TimePoints || old_delta_t != delta_t )
+        if( old_num_TimePoints != num_TimePoints )
         {
             error::INIT_CORRELATIONS_MISMATCH( __PRETTY_FUNCTION__ );
         }
