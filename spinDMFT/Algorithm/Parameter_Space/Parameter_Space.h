@@ -69,7 +69,8 @@ class ParameterSpace
   RealType absolute_iteration_error_threshold{};
   size_t Iteration_Limit{};
   
-  // ...concerning the initial correlations 
+  // ...concerning the initial correlations
+  FieldVector initial_spin_expval{};
   ph::DiagonalSpinCorrelation init_diag_corr{};
   ph::NonDiagonalSpinCorrelation init_nondiag_corr{};
   bool load_initial_spin_correlations{ false };

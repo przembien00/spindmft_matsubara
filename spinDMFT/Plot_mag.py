@@ -30,10 +30,11 @@ def ImportData_spinDMFT( spin_model, physical_data = "", project = "", selfcons 
     
     return all, disc
 
-beta_array = [0.5, 1.5, 2.5]
-h_array_small = [0.001, 0.005, 0.01, 0.02, 0.04]
-h_array = np.arange(0.05, 0.65, 0.05)
+beta_array = [0.5, 1.5, 3.5]
+h_array_small = [0.001, 0.01, 0.02, 0.05]
+h_array = np.arange(0.15, 0.45, 0.05)
 h_array = np.concatenate((h_array_small, h_array))
+# h_array = [0.001, 0.005, 0.05, 0.1, 0.15, 0.2, 0.25, 0.4, 0.45, 0.55, 0.6]
 # h_vals = np.concatenate((-h_array[::-1], h_array))
 for beta in beta_array:
     mags = []

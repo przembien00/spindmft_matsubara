@@ -19,7 +19,7 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
   func::initialize_matrices( my_pspace );
 
   // ====== Initialize Spin Correlations ======
-  FieldVector my_spin_expval{0.,0.,0.}; // needs to be made time dependent when H is time dependent
+  FieldVector my_spin_expval = my_pspace.initial_spin_expval;
   auto my_spin_correlations_Re = func::generate_initial_spin_correlations( my_pspace );
   auto my_spin_correlations_Im = func::generate_initial_spin_correlations( my_pspace );
 

@@ -265,6 +265,8 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     project_name            = vm["project"].as<std::string>();
     filename_extension      = vm["fileext"].as<std::string>();
     num_PrintDigits         = vm["numPrintDigits"].as<size_t>();
+
+    initial_spin_expval = FieldVector{0., 0., 0.};
     if( vm.count("loadinit") )
     {
         load_initial_spin_correlations = true;
@@ -339,8 +341,12 @@ void ParameterSpace::read_initial_correlations_from_file()
     {
         error::SRC_DIRECTORY( initial_correlations_src_directory, __PRETTY_FUNCTION__ );
     }
+    // 4) import spin expectation values:
+    hdf5r::import_scalar( group_id, "S_x", initial_spin_expval[0] );
+    hdf5r::import_scalar( group_id, "S_y", initial_spin_expval[1] );
+    hdf5r::import_scalar( group_id, "S_z", initial_spin_expval[2] );
 
-    // 4) close resources:
+    // 5) close resources:
     H5Gclose( group_id );
     H5Fclose( file_id );
 }
