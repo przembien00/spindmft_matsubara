@@ -30,20 +30,21 @@ def ImportData_spinDMFT( spin_model, physical_data = "", project = "", selfcons 
     
     return all, disc
 
-beta_array = [0.5, 1.5, 3.5]
-h_array_small = [0.001, 0.01, 0.02, 0.05]
-h_array = np.arange(0.15, 0.45, 0.05)
+beta_array = [0.5, 1.5, 2.5, 3.5]
+h_array_small = [0.001, 0.005, 0.01, 0.02, 0.04]
+h_array = np.arange(0.05, 0.5, 0.05)
 h_array = np.concatenate((h_array_small, h_array))
 # h_array = [0.001, 0.005, 0.05, 0.1, 0.15, 0.2, 0.25, 0.4, 0.45, 0.55, 0.6]
-# h_vals = np.concatenate((-h_array[::-1], h_array))
+h_vals = np.concatenate((-h_array[::-1], h_array))
 for beta in beta_array:
     mags = []
     for h in h_array:
         all, disc = ImportData_spinDMFT("ISO",physical_data=f"JL=-2__beta={beta:.2g}__h=z_h_abs={h:.2g}",project="Magnetization",extension="")
         mags.append(all['results'].attrs['S_z'])
-    # mags = np.concatenate(( -np.array(mags)[::-1], np.array(mags)))
-    plt.plot(h_array, mags, label=rf"$\beta J_Q$={beta:.2g}")
-plt.xlabel("B")
-plt.ylabel("M")
+    mags = np.concatenate(( -np.array(mags)[::-1], np.array(mags)))
+    plt.plot(h_vals, mags, label=rf"$\beta J_Q$={beta:.2g}")
+plt.xlabel(r"$\gamma_s B J_Q^{-1}$")
+plt.ylabel(r"$\left<\mathbf{S}^z_0\right>$")
+plt.xlim(-0.45,0.45)
 plt.legend()
 plt.savefig("Plots/Mag_vs_B.pdf")
