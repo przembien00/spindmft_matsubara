@@ -34,7 +34,7 @@ beta_array = [1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.3, 2.4, 2.5]
 
 M_array = []
 for beta in beta_array:
-    all, disc = ImportData_spinDMFT("ISO",physical_data=f"JL=-2__beta={beta:.2g}__h=z_h_abs=0.001",project="Magnetization",extension="")
+    all, disc = ImportData_spinDMFT("ISO",physical_data=f"JL=-2__beta={beta:.2g}__h=z_h_abs=0.05",project="Magnetization",extension="")
     M_array.append(all['results'].attrs['S_z'])
 
 plt.plot(beta_array, M_array)

@@ -72,8 +72,9 @@ inline bool store_string( const hid_t ID, const std::string& name, const std::st
     auto datatype_id = H5Tcopy( H5T_C_S1 );
     H5Tset_size( datatype_id, value.size() + 1 );
     auto attr_id = H5Acreate( ID, name.c_str(), datatype_id, space_id, H5P_DEFAULT, H5P_DEFAULT );
-    auto status = H5Awrite( attr_id, datatype_id, &value );
+    auto status = H5Awrite( attr_id, datatype_id, value.c_str() );
     H5Aclose( attr_id );
+    H5Tclose( datatype_id );
     H5Sclose( space_id );
     return (status < 0) ? false : true;
 }
