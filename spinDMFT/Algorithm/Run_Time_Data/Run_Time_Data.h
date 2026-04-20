@@ -44,6 +44,10 @@ class RunTimeData
    CorrTen sample_cov_Im{};    // covariance between imag part and Z
    CorrTen sample_stds_Re{};     // sqrt(<x^2> - <x>^2)
    CorrTen sample_stds_Im{};     // sqrt(<x^2> - <x>^2)
+  // ...spin expectation value statistics (S_x, S_y, S_z)
+  FieldVector spin_expval_sqsum{}; // M*<S^2>
+  FieldVector spin_expval_cov{};   // covariance between S and Z
+  FieldVector spin_expval_stds{};  // standard deviations of S
 
    // ...concerning the iteration
    size_t num_Iterations{};
@@ -56,7 +60,7 @@ class RunTimeData
 
    // ...concerning the statistics
    std::string get_seed_str();
-   void compute_sample_stds( const CorrTen& sample_sum_Re, const CorrTen& sample_sum_Im, const RealType& Z );
+  void compute_sample_stds( const CorrTen& sample_sum_Re, const CorrTen& sample_sum_Im, const RealType& Z, const FieldVector& spin_sample_sum );
    size_t get_num_SamplesPerCore() const;
    size_t get_num_Samples() const;
 

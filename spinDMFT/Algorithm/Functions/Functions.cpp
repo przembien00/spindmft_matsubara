@@ -196,15 +196,26 @@ ComplexType correlation( const std::vector<Operator>& vS_t1, const std::vector<O
 // compute the spin correlations for a single MC sample
 void compute_spin_correlations( const ps::ParameterSpace& pspace, rtd::RunTimeData& rtdata,
     CorrTen& spin_correlations_R, CorrTen& spin_correlations_I, FieldVector& spin_expval, RealType& Z,
+    FieldVector& spin_expval_sqsum, FieldVector& spin_expval_cov,
     const std::vector<Operator>& S_x_of_t,
     const std::vector<Operator>& S_y_of_t, 
     const std::vector<Operator>& S_z_of_t )
 {
     std::vector<Operator> vS_at_zero = {S_X, S_Y, S_Z}; // spin vector at time 0
 
-    spin_expval[0] += std::real( blaze::trace(S_x_of_t[0]) ); // <Sx>
-    spin_expval[1] += std::real( blaze::trace(S_y_of_t[0]) ); // <Sy>
-    spin_expval[2] += std::real( blaze::trace(S_z_of_t[0]) ); // <Sz>
+    RealType s0 = std::real( blaze::trace(S_x_of_t[0]) ); // <Sx>
+    RealType s1 = std::real( blaze::trace(S_y_of_t[0]) ); // <Sy>
+    RealType s2 = std::real( blaze::trace(S_z_of_t[0]) ); // <Sz>
+    spin_expval[0] += s0;
+    spin_expval[1] += s1;
+    spin_expval[2] += s2;
+    // accumulate spin square sums and spin-Z covariance into per-core accumulators
+    spin_expval_sqsum[0] += s0*s0;
+    spin_expval_sqsum[1] += s1*s1;
+    spin_expval_sqsum[2] += s2*s2;
+    spin_expval_cov[0] += s0 * Z;
+    spin_expval_cov[1] += s1 * Z;
+    spin_expval_cov[2] += s2 * Z;
 
     // loop over all directions, then over all times
     stda::for_n_each( [&]( auto& re_g_alphabeta_of_t, auto& im_g_alphabeta_of_t, auto& re_gsq_alphabeta_of_t, auto& im_gsq_alphabeta_of_t, auto& re_cov_alphabeta_of_t, auto& im_cov_alphabeta_of_t, auto& alphabeta )
@@ -225,13 +236,24 @@ void compute_spin_correlations( const ps::ParameterSpace& pspace, rtd::RunTimeDa
 }
 
 // sum the results of all cores and broadcast the sum to all cores with MPI_Allreduce 
-void MPI_share_results( rtd::RunTimeData& rtdata, CorrTen& spin_correlations_R, CorrTen& spin_correlations_I, FieldVector& spin_expval, RealType& partition_function )
+void MPI_share_results( rtd::RunTimeData& rtdata, CorrTen& spin_correlations_R, CorrTen& spin_correlations_I, FieldVector& spin_expval, RealType& partition_function, FieldVector& spin_expval_sqsum, FieldVector& spin_expval_cov )
 {
     // share mag moment results
     std::vector<RealType> rcv_buf(3);
     std::vector<RealType> snd_buf = { spin_expval[0], spin_expval[1], spin_expval[2] };
     MPI_Allreduce( snd_buf.data(), rcv_buf.data(), 3, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
     spin_expval = { rcv_buf[0], rcv_buf[1], rcv_buf[2] };
+
+    // share spin sums of squares and spin-Z covariances
+    std::vector<RealType> snd_sq = { spin_expval_sqsum[0], spin_expval_sqsum[1], spin_expval_sqsum[2] };
+    std::vector<RealType> rcv_sq(3);
+    MPI_Allreduce( snd_sq.data(), rcv_sq.data(), 3, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+    rtdata.spin_expval_sqsum = { rcv_sq[0], rcv_sq[1], rcv_sq[2] };
+
+    std::vector<RealType> snd_cov = { spin_expval_cov[0], spin_expval_cov[1], spin_expval_cov[2] };
+    std::vector<RealType> rcv_cov(3);
+    MPI_Allreduce( snd_cov.data(), rcv_cov.data(), 3, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+    rtdata.spin_expval_cov = { rcv_cov[0], rcv_cov[1], rcv_cov[2] };
 
     // share correlation results
     std::for_each( spin_correlations_R.begin(), spin_correlations_R.end(), []( corr::CorrelationVector& spin_c ) 

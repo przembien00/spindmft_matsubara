@@ -36,11 +36,12 @@ void compute_S_of_t( const ps::ParameterSpace& pspace, const std::vector<Operato
 
 void compute_spin_correlations( const ps::ParameterSpace& pspace, rtd::RunTimeData& rtdata,
     CorrTen& spin_correlations_R, CorrTen& spin_correlations_I, FieldVector& spin_expval, RealType& Z,
+    FieldVector& spin_expval_sqsum, FieldVector& spin_expval_cov,
     const std::vector<Operator>& S_x_of_t,
     const std::vector<Operator>& S_y_of_t, 
     const std::vector<Operator>& S_z_of_t );
 
-void MPI_share_results( rtd::RunTimeData& rtdata, CorrTen& spin_correlations_R, CorrTen& spin_correlations_I, FieldVector& spin_expval, RealType& partition_function );
+void MPI_share_results( rtd::RunTimeData& rtdata, CorrTen& spin_correlations_R, CorrTen& spin_correlations_I, FieldVector& spin_expval, RealType& partition_function, FieldVector& spin_expval_sqsum, FieldVector& spin_expval_cov );
 
 void normalize( rtd::RunTimeData& rtdata, CorrTen& spin_correlations, RealType& partition_function );
 

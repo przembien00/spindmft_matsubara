@@ -43,7 +43,7 @@ for beta in beta_array:
         mags.append(all['results'].attrs['S_z'])
     mags = np.concatenate(( -np.array(mags)[::-1], np.array(mags)))
     plt.plot(h_vals, mags, label=rf"$\beta J_Q$={beta:.2g}")
-plt.xlabel(r"$\gamma_s B J_Q^{-1}$")
+plt.xlabel(r"$B_z\, J_Q^{-1}$")
 plt.ylabel(r"$\left<\mathbf{S}^z_0\right>$")
 plt.xlim(-0.45,0.45)
 plt.legend()

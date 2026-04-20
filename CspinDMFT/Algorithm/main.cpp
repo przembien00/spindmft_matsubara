@@ -42,7 +42,7 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     tmm::DurationEstimator my_MC_estimator( my_rank, "Monte-Carlo simulation", loop_sizes, loop_names, true );
 
     // ====== Build the Random Generator ======
-    std::mt19937 engine{rd::throw_seed( my_rtdata.generated_seed, my_rtdata.num_Iterations, my_rank )};
+    std::mt19937 engine{ static_cast<uint>(rd::throw_seed( my_rtdata.generated_seed, my_rtdata.num_Iterations, my_rank )) };
 
     // ====== Initialize the Spin Cluster Correlation Functions ======
     CluCorrTen my_new_spin_correlations{ my_pspace.correlation_categories, my_pspace.symmetry_type, my_pspace.num_TimePoints };

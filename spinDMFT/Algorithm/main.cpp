@@ -46,6 +46,8 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     RealType my_partition_function = RealType{0.};
     RealType my_partition_function_sq = RealType{0.};
     FieldVector my_new_spin_expval{0.,0.,0.}; // needs to be made time dependent when H is time dependent
+  FieldVector my_spin_expval_sqsum{0.,0.,0.};
+  FieldVector my_spin_expval_cov{0.,0.,0.};
     CorrTen my_new_spin_correlations_Re{ my_pspace.correlation_symmetry_type, my_pspace.num_TimePoints };
     CorrTen my_new_spin_correlations_Im{ my_pspace.correlation_symmetry_type, my_pspace.num_TimePoints };
     // ====== Determine the Mean-Field Moments Self-Consistently ======
@@ -87,9 +89,9 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
         auto propagation_duration = my_clock.measure( "time propagation" );
 
         // ====== Compute Spin MeanValues and Correlations ======
-        my_partition_function += Z;
-        my_rtdata.Z_sqsum += Z*Z;
-        func::compute_spin_correlations( my_pspace, my_rtdata, my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expval, Z, S_x_of_t, S_y_of_t, S_z_of_t );
+  my_partition_function += Z;
+  my_rtdata.Z_sqsum += Z*Z;
+  func::compute_spin_correlations( my_pspace, my_rtdata, my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expval, Z, my_spin_expval_sqsum, my_spin_expval_cov, S_x_of_t, S_y_of_t, S_z_of_t );
         
         auto expectationvalues_duration = my_clock.measure( "expectation values" );
         my_MC_estimator.obtain( tmm::DurationQuantity{"time evolution", propagation_duration.m_duration + expectationvalues_duration.m_duration} );
@@ -103,7 +105,7 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     // ----------------------------------------------------------------------------------------------------------------------------- 
 
     // ====== Share the Results of Each MPI Process ======
-    func::MPI_share_results( my_rtdata, my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expval, my_partition_function ); // this could be done more efficiently
+  func::MPI_share_results( my_rtdata, my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expval, my_partition_function, my_spin_expval_sqsum, my_spin_expval_cov ); // this could be done more efficiently
 
     my_clock.measure( "MPI communication", true );
 
@@ -111,7 +113,7 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     func::normalize( my_rtdata, my_new_spin_correlations_Re, my_partition_function ); // normalize with respect to the sample size
     func::normalize( my_rtdata, my_new_spin_correlations_Im, my_partition_function ); // normalize with respect to the sample size
     my_new_spin_expval /= my_partition_function;
-    my_rtdata.compute_sample_stds( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_partition_function ); // statistical error of the Monte-Carlo simulation
+  my_rtdata.compute_sample_stds( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_partition_function, my_spin_expval ); // statistical error of the Monte-Carlo simulation (pass summed S)
     my_rtdata.compute_iteration_error( my_spin_correlations_Re, my_new_spin_correlations_Re );
     my_spin_correlations_Re = std::move( my_new_spin_correlations_Re );
     my_spin_correlations_Im = std::move( my_new_spin_correlations_Im );

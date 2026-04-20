@@ -232,6 +232,11 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace, const rtd::RunT
     store_correlation_tensor( rtdata.sample_stds_Re, rtd_group_id, "Re_correlation_sample_stds", "Standard deviations of the correlations <S^alpha(t)S^beta(0)>, stored according to the hierarchy alpha-beta, t" );
     store_correlation_tensor( rtdata.sample_stds_Im, rtd_group_id, "Im_correlation_sample_stds", "Standard deviations of the correlations <S^alpha(t)S^beta(0)>, stored according to the hierarchy alpha-beta, t" );
 
+    // ...spin expectation value sample stds
+    hdf5r::store_scalar( rtd_group_id, "S_x_sample_std", rtdata.spin_expval_stds[0] );
+    hdf5r::store_scalar( rtd_group_id, "S_y_sample_std", rtdata.spin_expval_stds[1] );
+    hdf5r::store_scalar( rtd_group_id, "S_z_sample_std", rtdata.spin_expval_stds[2] );
+
 
     // ...concerning the iteration
     hdf5r::store_scalar( rtd_group_id, "num_Iterations",            rtdata.num_Iterations );

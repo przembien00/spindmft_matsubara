@@ -34,6 +34,9 @@ RunTimeData::RunTimeData( const ps::ParameterSpace& pspace, const int my_rank ):
     sample_cov_Re   = CorrTen{ pspace.correlation_symmetry_type, pspace.num_TimePoints };
     sample_cov_Im   = CorrTen{ pspace.correlation_symmetry_type, pspace.num_TimePoints };
     Z_sqsum = RealType{0.};
+    spin_expval_sqsum = FieldVector{0.,0.,0.};
+    spin_expval_cov   = FieldVector{0.,0.,0.};
+    spin_expval_stds  = FieldVector{0.,0.,0.};
 
     // set the truncation scheme for negative eigenvalues:
     if( pspace.truncation_scheme_negative_eigenvalues == "set_zero" )
@@ -121,7 +124,7 @@ template <class InputIterator1, class InputIterator2, class InputIterator3,
 }
 
 // compute the single sample standard deviations
-void RunTimeData::compute_sample_stds( const CorrTen& sample_sum_Re, const CorrTen& sample_sum_Im, const RealType& Z )
+void RunTimeData::compute_sample_stds( const CorrTen& sample_sum_Re, const CorrTen& sample_sum_Im, const RealType& Z, const FieldVector& spin_sample_sum )
 {
     // RealType M = static_cast<RealType>( this->get_num_Samples() );
 
@@ -149,7 +152,21 @@ void RunTimeData::compute_sample_stds( const CorrTen& sample_sum_Re, const CorrT
     sample_sqsum_Im = CorrTen{ sample_sum_Re.get_symmetry(), sample_sum_Re[0].size() }; // reset the square sum for the next iteration
     sample_cov_Re = CorrTen{ sample_sum_Re.get_symmetry(), sample_sum_Re[0].size() }; // reset the covariance for the next iteration
     sample_cov_Im = CorrTen{ sample_sum_Re.get_symmetry(), sample_sum_Re[0].size() }; // reset the covariance for the next iteration
+
+    // compute and reset spin expectation value stds using provided spin_sample_sum (M*<S>)
+    if( Z > RealType{0.} )
+    {
+        for( size_t i=0; i<3; ++i )
+        {
+            // formula analogous to correlations: sqrt( <S^2> - <S>^2 ) but using sums and Z
+            spin_expval_stds[i] = std::sqrt( std::abs( spin_expval_sqsum[i] + std::pow(spin_sample_sum[i],2) * Z_sqsum - 2. * spin_sample_sum[i] * spin_expval_cov[i] ) / std::pow(Z,2) );
+            spin_expval_sqsum[i] = RealType{0.};
+            spin_expval_cov[i] = RealType{0.};
+        }
+    }
     Z_sqsum = RealType{0.}; // reset the Z square sum for the next iteration
+
+
 }
 
 
