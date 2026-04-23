@@ -35,13 +35,13 @@ void diagonalize_real( const Matrix& matrix, EigVal& eigvals, OrthoTrafo& O )
         }
     }
 
-    // diagonalize the eigen covariance matrix
-    Eigen::SelfAdjointEigenSolver<EigenMatrixType> solver;
-    solver.compute( EIGEN_matrix );
+	// diagonalize the eigen covariance matrix
+	Eigen::SelfAdjointEigenSolver<EigenMatrixType> solver;
+	solver.compute( EIGEN_matrix );
 
-    // initialize eigvals and O properly
-//    eigvals.resize( matrix.rows() );
-//    O.resize( matrix.rows(), matrix.rows() );
+	// initialize eigvals and O properly before copying into them
+	eigvals.resize( matrix.rows() );
+	O.resize( matrix.rows(), matrix.rows() );
 
     // copy results to eigvals and O
     std::copy( solver.eigenvalues().cbegin(), solver.eigenvalues().cend(), eigvals.begin() ); // copy eigenvalues
@@ -69,13 +69,13 @@ void diagonalize_cplx( const Matrix& matrix, EigVal& eigvals, UnitaryTrafo& U )
         }
     }
 
-    // diagonalize the eigen covariance matrix
-    Eigen::SelfAdjointEigenSolver<ComplexEigenMatrixType> solver;
-    solver.compute( EIGEN_matrix );
+	// diagonalize the eigen covariance matrix
+	Eigen::SelfAdjointEigenSolver<ComplexEigenMatrixType> solver;
+	solver.compute( EIGEN_matrix );
 
-    // initialize eigvals and U properly
- //   eigvals.resize( matrix.rows() );
- //   U.resize( matrix.rows(), matrix.rows() );
+	// initialize eigvals and U properly before copying into them
+	eigvals.resize( matrix.rows() );
+	U.resize( matrix.rows(), matrix.rows() );
 
     // copy results to eigvals and U
     std::copy( solver.eigenvalues().cbegin(), solver.eigenvalues().cend(), eigvals.begin() ); // copy eigenvalues
