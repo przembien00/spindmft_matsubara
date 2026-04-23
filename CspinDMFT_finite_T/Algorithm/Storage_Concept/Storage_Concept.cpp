@@ -24,6 +24,16 @@ namespace Storage_Concept
 {
 namespace
 {
+std::string basename_from_path( const std::string& path )
+{
+    const auto pos = path.find_last_of( "/\\" );
+    if( pos == std::string::npos )
+    {
+        return path;
+    }
+    return path.substr( pos + 1 );
+}
+
 std::vector<std::vector<RealType>> matrix_to_vmatrix( const Matrix& matrix )
 {
     std::vector<std::vector<RealType>> vmatrix( matrix.rows(), std::vector<RealType>( matrix.columns() ) );
@@ -108,12 +118,13 @@ void HDF5_Storage::create_file( const ps::ParameterSpace& pspace, const bool eig
 
     // create filename:
     std::string filename{};
+    const std::string config_name = basename_from_path( pspace.config_file );
     filename += pspace.spinspin_cmodel.compact_info(pspace.num_PrintDigits);
     if( pspace.spinmf_cmodel != pspace.spinspin_cmodel )
     {
         filename += "__mf" + pspace.spinmf_cmodel.compact_info(pspace.num_PrintDigits);
     }
-    filename += "__config=" + pspace.config_file;
+    filename += "__config=" + config_name;
     filename += "__beta=" + print::remove_zeros(print::round_value_to_string(pspace.beta,pspace.num_PrintDigits));
     if( pspace.chemical_shift.m_name != "none" )
     {

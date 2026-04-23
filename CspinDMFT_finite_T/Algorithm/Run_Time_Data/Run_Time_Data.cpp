@@ -268,7 +268,8 @@ void RunTimeData::compute_iteration_error( const CluCorrTen& new_CCT, const CluC
         return deviation_CT;
     } );
 
-    // compute the relative iteration error Delta I_rel = sqrt(M) * max_ij{ max_ab{ timeav(Delta I^ab_ij) / timeav(sigma^ab_ij) } }
+    // compute the relative iteration error Delta I_rel = max_ij{ max_ab{ timeav(Delta I^ab_ij) / timeav(sigma^ab_ij) } }
+    // The sample standard deviations already carry the 1/sqrt(M) normalization.
     Vec max_rel_avdevs{};
     std::transform( sample_stds_Re.cbegin(), sample_stds_Re.cend(), deviation_CCT.cbegin(), std::back_inserter( max_rel_avdevs ), []( const CorrTen& std_CT, const CorrTen& dev_CT )
     {
@@ -279,7 +280,7 @@ void RunTimeData::compute_iteration_error( const CluCorrTen& new_CCT, const CluC
         } );
         return *max_element( rel_avdevs.cbegin(), rel_avdevs.cend() );
     } );
-    relative_iteration_error_list.emplace_back( *max_element( max_rel_avdevs.cbegin(), max_rel_avdevs.cend() ) * std::sqrt(get_num_Samples()) );
+    relative_iteration_error_list.emplace_back( *max_element( max_rel_avdevs.cbegin(), max_rel_avdevs.cend() ) );
 
     // compute the absolute iteration error Delta I_abs = max_ij{ max_ab{ timeav(Delta I^ab_ij) } }
     Vec max_abs_devs{};
