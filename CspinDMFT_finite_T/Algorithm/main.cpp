@@ -59,13 +59,9 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     // ====== Build the Mean-Field Distribution from the Correlations ======
     mvgb::EigenValuesBlocks my_eig;
     mvgb::OrthogonalTransformationBlocks my_ortho;
-    print::print_R0( my_rank, "Diagonalizing the mean-field covariance matrix..." );
     my_meanfield_covariances.diagonalize( my_eig, my_ortho ); // diagonalization on cluster with eigen does not work yet
-    print::print_R0( my_rank, "Diagonalization finished." );
     my_rtdata.process_and_check_eigenvalues( my_eig );
-    print::print_R0( my_rank, "Eigenvalues processed." );
     mvgb::DiagonalBasisNormalDistributionsBlocks my_dist{ my_eig };
-    print::print_R0( my_rank, "Mean-field distribution initialized." );
     my_clock.measure( "mean-field distribution", true );
 
     // -------------------------- Monte-Carlo Simulation -------------------------
