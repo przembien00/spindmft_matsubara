@@ -51,19 +51,21 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     CluCorrTen my_new_spin_correlations_Im{ my_pspace.correlation_categories, my_pspace.symmetry_type, my_pspace.num_TimePoints };
     func::SiteFields my_new_spin_expvals( my_pspace.num_Spins, FieldVector{0.,0.,0.} );
     RealType my_partition_function = RealType{0.};
-    print::print_R0( my_rank, "Correlation initialized\n" );
 
     // ====== Build the Mean-Field Correlations from the environment spin correlations ====== 
     auto [my_meanfield_mean, my_meanfield_correlations] = my_pspace.mf_model->self_consistency( my_spin_correlations_Re, my_spin_expvals );
     func::FrequencyCovarianceCluster my_meanfield_covariances{ my_meanfield_correlations, my_pspace.symmetry_type, my_pspace.num_Spins };
-    print::print_R0( my_rank, "Mean-field covariances initialized\n" );
 
     // ====== Build the Mean-Field Distribution from the Correlations ======
     mvgb::EigenValuesBlocks my_eig;
     mvgb::OrthogonalTransformationBlocks my_ortho;
+    print::print_R0( my_rank, "Diagonalizing the mean-field covariance matrix..." );
     my_meanfield_covariances.diagonalize( my_eig, my_ortho ); // diagonalization on cluster with eigen does not work yet
+    print::print_R0( my_rank, "Diagonalization finished." );
     my_rtdata.process_and_check_eigenvalues( my_eig );
+    print::print_R0( my_rank, "Eigenvalues processed." );
     mvgb::DiagonalBasisNormalDistributionsBlocks my_dist{ my_eig };
+    print::print_R0( my_rank, "Mean-field distribution initialized." );
     my_clock.measure( "mean-field distribution", true );
 
     // -------------------------- Monte-Carlo Simulation -------------------------
