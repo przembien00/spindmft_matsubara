@@ -1,0 +1,17 @@
+[0] Config.pm:308> INFO - This is Biber 2.20
+[0] Config.pm:311> INFO - Logfile is 'thesis.blg'
+[25] biber-darwin:340> INFO - === Wed Apr 29, 2026, 12:58:53
+[31] Biber.pm:420> INFO - Reading 'thesis.bcf'
+[58] Biber.pm:994> INFO - Found 5 citekeys in bib section 0
+[63] Biber.pm:4463> INFO - Processing section 0
+[66] Biber.pm:4654> INFO - Looking for bibtex file 'References/references.bib' for section 0
+[71] bibtex.pm:1713> INFO - LaTeX decoding ...
+[147] bibtex.pm:1519> INFO - Found BibTeX data source 'References/references.bib'
+[176] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'normalization = NFD' with 'normalization = prenormalized'
+[176] UCollate.pm:68> INFO - Overriding locale 'en-US' defaults 'variable = shifted' with 'variable = non-ignorable'
+[176] Biber.pm:4283> INFO - Sorting list 'anyt/global//global/global/global' of type 'entry' with template 'anyt' and locale 'en-US'
+[176] Biber.pm:4289> INFO - No sort tailoring available for locale 'en-US'
+[180] bbl.pm:676> INFO - Writing 'thesis.bbl' with encoding 'UTF-8'
+[181] bbl.pm:779> INFO - Output to thesis.bbl
+[181] Biber.pm:131> WARN - legacy month field 'Technische Universität Dortmund' in entry 'Graesser_PhD' is not an integer - this will probably not sort properly.
+[181] Biber.pm:133> INFO - WARNINGS: 1

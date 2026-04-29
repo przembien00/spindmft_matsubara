@@ -1,0 +1,267 @@
+% $ biblatex auxiliary file $
+% $ biblatex bbl format version 3.3 $
+% Do not modify the above lines!
+%
+% This is an auxiliary file used by the 'biblatex' package.
+% This file may safely be deleted. It will be recreated by
+% biber as required.
+%
+\begingroup
+\makeatletter
+\@ifundefined{ver@biblatex.sty}
+  {\@latex@error
+     {Missing 'biblatex' package}
+     {The bibliography requires the 'biblatex' package.}
+      \aftergroup\endinput}
+  {}
+\endgroup
+
+
+\refsection{0}
+  \datalist[entry]{anyt/global//global/global/global}
+    \entry{alver11}{article}{}{}
+      \name{author}{2}{}{%
+        {{hash=0394a1be6800ba74e38bd6153390818f}{%
+           family={Alvermann},
+           familyi={A\bibinitperiod},
+           given={A.},
+           giveni={A\bibinitperiod}}}%
+        {{hash=65d82fdddf75b735b39c70032973f0f5}{%
+           family={Fehske},
+           familyi={F\bibinitperiod},
+           given={H.},
+           giveni={H\bibinitperiod}}}%
+      }
+      \strng{namehash}{823072ec1667c792a77062bb1ad5c1b7}
+      \strng{fullhash}{823072ec1667c792a77062bb1ad5c1b7}
+      \strng{fullhashraw}{823072ec1667c792a77062bb1ad5c1b7}
+      \strng{bibnamehash}{823072ec1667c792a77062bb1ad5c1b7}
+      \strng{authorbibnamehash}{823072ec1667c792a77062bb1ad5c1b7}
+      \strng{authornamehash}{823072ec1667c792a77062bb1ad5c1b7}
+      \strng{authorfullhash}{823072ec1667c792a77062bb1ad5c1b7}
+      \strng{authorfullhashraw}{823072ec1667c792a77062bb1ad5c1b7}
+      \field{labelalpha}{AF11}
+      \field{sortinit}{A}
+      \field{sortinithash}{2f401846e2029bad6b3ecc16d50031e2}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{issn}{0021-9991}
+      \field{journaltitle}{Journal of Computational Physics}
+      \field{number}{15}
+      \field{title}{High-order commutator-free exponential time-propagation of driven quantum systems}
+      \field{volume}{230}
+      \field{year}{2011}
+      \field{pages}{5930}
+      \range{pages}{1}
+      \verb{doi}
+      \verb https://doi.org/10.1016/j.jcp.2011.04.006
+      \endverb
+      \verb{urlraw}
+      \verb https://www.sciencedirect.com/science/article/pii/S0021999111002300
+      \endverb
+      \verb{url}
+      \verb https://www.sciencedirect.com/science/article/pii/S0021999111002300
+      \endverb
+    \endentry
+    \entry{graes24}{article}{}{}
+      \name{author}{3}{}{%
+        {{hash=9b2082e1bbd2ef177caee8f47a6fb8c7}{%
+           family={Gräßer},
+           familyi={G\bibinitperiod},
+           given={T.},
+           giveni={T\bibinitperiod}}}%
+        {{hash=18a0ad47415f21ff8db8d265263cbe49}{%
+           family={Hahn},
+           familyi={H\bibinitperiod},
+           given={T.},
+           giveni={T\bibinitperiod}}}%
+        {{hash=99ee0a8eb9ad04433a669afe1998bb0c}{%
+           family={Uhrig},
+           familyi={U\bibinitperiod},
+           given={G.\bibnamedelimi S.},
+           giveni={G\bibinitperiod\bibinitdelim S\bibinitperiod}}}%
+      }
+      \strng{namehash}{d3341296fc93d4af978925b90b9ff2e6}
+      \strng{fullhash}{d3341296fc93d4af978925b90b9ff2e6}
+      \strng{fullhashraw}{d3341296fc93d4af978925b90b9ff2e6}
+      \strng{bibnamehash}{d3341296fc93d4af978925b90b9ff2e6}
+      \strng{authorbibnamehash}{d3341296fc93d4af978925b90b9ff2e6}
+      \strng{authornamehash}{d3341296fc93d4af978925b90b9ff2e6}
+      \strng{authorfullhash}{d3341296fc93d4af978925b90b9ff2e6}
+      \strng{authorfullhashraw}{d3341296fc93d4af978925b90b9ff2e6}
+      \field{labelalpha}{GHU24}
+      \field{sortinit}{G}
+      \field{sortinithash}{32d67eca0634bf53703493fb1090a2e8}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{journaltitle}{Solid State Nuclear Magnetic Resonance}
+      \field{title}{Microscopic understanding of NMR signals by dynamic mean-field theory for spins}
+      \field{volume}{132}
+      \field{year}{2024}
+      \field{pages}{101936}
+      \range{pages}{1}
+      \verb{doi}
+      \verb https://doi.org/10.1016/j.ssnmr.2024.101936
+      \endverb
+      \verb{urlraw}
+      \verb https://www.sciencedirect.com/science/article/pii/S0926204024000225
+      \endverb
+      \verb{url}
+      \verb https://www.sciencedirect.com/science/article/pii/S0926204024000225
+      \endverb
+    \endentry
+    \entry{graes21}{article}{}{}
+      \name{author}{5}{}{%
+        {{hash=9b2082e1bbd2ef177caee8f47a6fb8c7}{%
+           family={Gräßer},
+           familyi={G\bibinitperiod},
+           given={T.},
+           giveni={T\bibinitperiod}}}%
+        {{hash=2613f40154f71aa704e6abcc4c29966d}{%
+           family={Bleicker},
+           familyi={B\bibinitperiod},
+           given={P.},
+           giveni={P\bibinitperiod}}}%
+        {{hash=38189c86fad243b58ebfb72cce091817}{%
+           family={Hering},
+           familyi={H\bibinitperiod},
+           given={D.-B.},
+           giveni={D\bibinithyphendelim B\bibinitperiod}}}%
+        {{hash=3d5967a1ee334fa871878d83d9fa7687}{%
+           family={Yarmohammadi},
+           familyi={Y\bibinitperiod},
+           given={M.},
+           giveni={M\bibinitperiod}}}%
+        {{hash=99ee0a8eb9ad04433a669afe1998bb0c}{%
+           family={Uhrig},
+           familyi={U\bibinitperiod},
+           given={G.\bibnamedelimi S.},
+           giveni={G\bibinitperiod\bibinitdelim S\bibinitperiod}}}%
+      }
+      \list{publisher}{1}{%
+        {American Physical Society}%
+      }
+      \strng{namehash}{d84b1225dc1c8f2f13ee834464f86698}
+      \strng{fullhash}{e0ea36fcf08622fbb37825af3cf9a13f}
+      \strng{fullhashraw}{e0ea36fcf08622fbb37825af3cf9a13f}
+      \strng{bibnamehash}{d84b1225dc1c8f2f13ee834464f86698}
+      \strng{authorbibnamehash}{d84b1225dc1c8f2f13ee834464f86698}
+      \strng{authornamehash}{d84b1225dc1c8f2f13ee834464f86698}
+      \strng{authorfullhash}{e0ea36fcf08622fbb37825af3cf9a13f}
+      \strng{authorfullhashraw}{e0ea36fcf08622fbb37825af3cf9a13f}
+      \field{extraname}{1}
+      \field{labelalpha}{Grä+21}
+      \field{sortinit}{G}
+      \field{sortinithash}{32d67eca0634bf53703493fb1090a2e8}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{issue}{4}
+      \field{journaltitle}{Physical Review Research}
+      \field{title}{Dynamic mean-field theory for dense spin systems at infinite temperature}
+      \field{volume}{3}
+      \field{year}{2021}
+      \field{pages}{043168}
+      \range{pages}{1}
+      \verb{doi}
+      \verb 10.1103/PhysRevResearch.3.043168
+      \endverb
+      \verb{urlraw}
+      \verb https://link.aps.org/doi/10.1103/PhysRevResearch.3.043168
+      \endverb
+      \verb{url}
+      \verb https://link.aps.org/doi/10.1103/PhysRevResearch.3.043168
+      \endverb
+    \endentry
+    \entry{graes23}{article}{}{}
+      \name{author}{4}{}{%
+        {{hash=9b2082e1bbd2ef177caee8f47a6fb8c7}{%
+           family={Gräßer},
+           familyi={G\bibinitperiod},
+           given={T.},
+           giveni={T\bibinitperiod}}}%
+        {{hash=b5c6b37be2707b5e33cbbdbcf1f35f8e}{%
+           family={Rezai},
+           familyi={R\bibinitperiod},
+           given={K.},
+           giveni={K\bibinitperiod}}}%
+        {{hash=6c2607f31977e30470ed9c2c34036b55}{%
+           family={Sushkov},
+           familyi={S\bibinitperiod},
+           given={A.\bibnamedelimi O.},
+           giveni={A\bibinitperiod\bibinitdelim O\bibinitperiod}}}%
+        {{hash=99ee0a8eb9ad04433a669afe1998bb0c}{%
+           family={Uhrig},
+           familyi={U\bibinitperiod},
+           given={G.\bibnamedelimi S.},
+           giveni={G\bibinitperiod\bibinitdelim S\bibinitperiod}}}%
+      }
+      \list{publisher}{1}{%
+        {American Physical Society}%
+      }
+      \strng{namehash}{d84b1225dc1c8f2f13ee834464f86698}
+      \strng{fullhash}{6f382c2fe04e014e802c882c6b2c2a24}
+      \strng{fullhashraw}{6f382c2fe04e014e802c882c6b2c2a24}
+      \strng{bibnamehash}{d84b1225dc1c8f2f13ee834464f86698}
+      \strng{authorbibnamehash}{d84b1225dc1c8f2f13ee834464f86698}
+      \strng{authornamehash}{d84b1225dc1c8f2f13ee834464f86698}
+      \strng{authorfullhash}{6f382c2fe04e014e802c882c6b2c2a24}
+      \strng{authorfullhashraw}{6f382c2fe04e014e802c882c6b2c2a24}
+      \field{extraname}{2}
+      \field{labelalpha}{Grä+23}
+      \field{sortinit}{G}
+      \field{sortinithash}{32d67eca0634bf53703493fb1090a2e8}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{issue}{4}
+      \field{journaltitle}{Physical Review Research}
+      \field{title}{Understanding the dynamics of randomly positioned dipolar spin ensembles}
+      \field{volume}{5}
+      \field{year}{2023}
+      \field{pages}{043191}
+      \range{pages}{1}
+      \verb{doi}
+      \verb 10.1103/PhysRevResearch.5.043191
+      \endverb
+      \verb{urlraw}
+      \verb https://link.aps.org/doi/10.1103/PhysRevResearch.5.043191
+      \endverb
+      \verb{url}
+      \verb https://link.aps.org/doi/10.1103/PhysRevResearch.5.043191
+      \endverb
+    \endentry
+    \entry{Graesser_PhD}{thesis}{}{}
+      \name{author}{1}{}{%
+        {{hash=9b2082e1bbd2ef177caee8f47a6fb8c7}{%
+           family={Gräßer},
+           familyi={G\bibinitperiod},
+           given={T.},
+           giveni={T\bibinitperiod}}}%
+      }
+      \strng{namehash}{9b2082e1bbd2ef177caee8f47a6fb8c7}
+      \strng{fullhash}{9b2082e1bbd2ef177caee8f47a6fb8c7}
+      \strng{fullhashraw}{9b2082e1bbd2ef177caee8f47a6fb8c7}
+      \strng{bibnamehash}{9b2082e1bbd2ef177caee8f47a6fb8c7}
+      \strng{authorbibnamehash}{9b2082e1bbd2ef177caee8f47a6fb8c7}
+      \strng{authornamehash}{9b2082e1bbd2ef177caee8f47a6fb8c7}
+      \strng{authorfullhash}{9b2082e1bbd2ef177caee8f47a6fb8c7}
+      \strng{authorfullhashraw}{9b2082e1bbd2ef177caee8f47a6fb8c7}
+      \field{labelalpha}{Grä24}
+      \field{sortinit}{G}
+      \field{sortinithash}{32d67eca0634bf53703493fb1090a2e8}
+      \field{labelnamesource}{author}
+      \field{labeltitlesource}{title}
+      \field{month}{Technische Universität Dortmund}
+      \field{title}{Dynamic mean-field theory for simulating the infinite-temperature dynamics of spin ensembles}
+      \field{type}{PhD thesis}
+      \field{year}{2024}
+      \verb{urlraw}
+      \verb https://eldorado.tu-dortmund.de/handle/2003/46592
+      \endverb
+      \verb{url}
+      \verb https://eldorado.tu-dortmund.de/handle/2003/46592
+      \endverb
+    \endentry
+  \enddatalist
+\endrefsection
+\endinput
+
