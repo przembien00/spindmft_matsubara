@@ -125,6 +125,10 @@ void HDF5_Storage::create_file( const ps::ParameterSpace& pspace, const bool eig
         filename += "__mf" + pspace.spinmf_cmodel.compact_info(pspace.num_PrintDigits);
     }
     filename += "__config=" + config_name;
+    if( pspace.uncoupled_spins )
+    {
+        filename += "__uncoupled";
+    }
     filename += "__beta=" + print::remove_zeros(print::round_value_to_string(pspace.beta,pspace.num_PrintDigits));
     if( pspace.chemical_shift.m_name != "none" )
     {
@@ -243,6 +247,7 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace, rtd::RunTimeDat
 
     // ...concerning the initial correlations
     hdf5r::store_string( ps_group_id, "init_corr_mode",             pspace.init_corr_mode );
+    hdf5r::store_string( ps_group_id, "init_pair_corr_mode",        hdf5r::none_if_empty(pspace.init_pair_corr_mode) );
     // ...if they are imported
     hdf5r::store_string( ps_group_id, "extrapolate_imported_spin_correlations", hdf5r::bool_to_string(pspace.extrapolate_imported_spin_correlations) );
     hdf5r::store_string( ps_group_id, "imported_correlations_src_file",         hdf5r::none_if_empty(pspace.imported_correlations_src_file) );

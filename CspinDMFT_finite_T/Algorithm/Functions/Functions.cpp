@@ -20,6 +20,9 @@ namespace diag = Matrices::Diagonalization;
 #include<Physics/Spin.h>
 namespace sp = Physics::Spin;
 
+#include<Physics/CFET.h>
+namespace cfet = Physics::CFET;
+
 #include"../Mean_Field_Models/Mean_Field_Models.h"
 
 
@@ -52,6 +55,15 @@ void write_general_spin_matrices( const std::vector<RealType>& spin_float_list, 
     S_Z_LIST.emplace_back( SparseObservable{sp::create_linear_spin_term( spin_float_list, index, S_Z )} );
     index++;
   }
+}
+
+// initialization function : initialize 2x2 matrices for uncoupled mode
+void write_uncoupled_spin_matrices()
+{
+    Operator Sx(2,2); Sx(0,0)=0; Sx(0,1)=0.5; Sx(1,0)=0.5; Sx(1,1)=0; S_X_2x2 = Sx;
+    Operator Sy(2,2); Sy(0,0)=0; Sy(0,1)=ComplexType(0, -0.5); Sy(1,0)=ComplexType(0, 0.5); Sy(1,1)=0; S_Y_2x2 = Sy;
+    Operator Sz(2,2); Sz(0,0)=0.5; Sz(0,1)=0; Sz(1,0)=0; Sz(1,1)=-0.5; S_Z_2x2 = Sz;
+    Operator I(2,2); I(0,0)=1; I(0,1)=0; I(1,0)=0; I(1,1)=1; I_2x2 = I;
 }
 
 // initialization function : initialize H_CLUSTER
@@ -105,8 +117,24 @@ CluCorrTen generate_initial_environment_spin_correlations( const ps::ParameterSp
 
   if( pspace.init_corr_mode == "generate" ) // set the spin correlations to some pregiven functions
   {
-    // create the zero correlation:
-    corr::CorrelationVector ZC{  ph::NonDiagonalSpinCorrelation{"zero"}.create_discretization( pspace.delta_t, pspace.num_TimePoints, 0. ) };
+    RealType nonlocal_value{};
+    if( pspace.init_pair_corr_mode == "zero" )
+    {
+      nonlocal_value = RealType{0.};
+    }
+    else if( pspace.init_pair_corr_mode == "positive" )
+    {
+      nonlocal_value = RealType{0.1};
+    }
+    else if( pspace.init_pair_corr_mode == "negative" )
+    {
+      nonlocal_value = RealType{-0.1};
+    }
+    else
+      {
+          error::INIT_CORRELATIONS_UNKNOWN( __PRETTY_FUNCTION__, pspace.init_pair_corr_mode );
+      }
+    corr::CorrelationVector NLC{ std::vector<RealType>( pspace.num_TimePoints, nonlocal_value ) };
 
     // insert them into the spin correlations
     CCT.iterate( [&]( CorrTen& CT, const IndexPair& ij )
@@ -124,9 +152,9 @@ CluCorrTen generate_initial_environment_spin_correlations( const ps::ParameterSp
           C = (alphabeta[0]==alphabeta[1]) ? DC : NDC;
         } );
       }
-      else // set any spin paircorrelations to ZC (zero)
+      else // set any spin paircorrelations to the configured constant nonlocal seed
       {
-          std::fill( CT.begin(), CT.end(), ZC );
+          std::fill( CT.begin(), CT.end(), NLC );
       }
     } );
   }
@@ -501,6 +529,238 @@ void compute_spin_observables( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im,
                 sqsum_C.at( tau_index ) += x_im * x_im;
                 cov_C.at( tau_index ) += x_im * Z;
             }
+        } );
+    } );
+}
+
+// ------------------------------------------------------------------------------------------------
+// UNCOUPLED SPINS MODE
+// ------------------------------------------------------------------------------------------------
+
+std::tuple<std::vector<RealType>, std::vector<std::vector<Operator>>, std::vector<std::vector<Operator>>> compute_uncoupled_propagators( const TimeTrajectory& Vs_of_t, const SiteFields& mean_fields, const ps::ParameterSpace& pspace )
+{
+
+    std::vector<std::vector<Operator>> forward_propagators( pspace.num_TimePoints, std::vector<Operator>(pspace.num_Spins) );
+    std::vector<std::vector<Operator>> backward_propagators( pspace.num_TimePoints, std::vector<Operator>(pspace.num_Spins) );
+    std::vector<RealType> Z_i_list(pspace.num_Spins);
+    
+    Operator I2(2, 2);
+    I2(0,0)=1; I2(0,1)=0; I2(1,0)=0; I2(1,1)=1;
+    
+    for( size_t site = 0; site < pspace.num_Spins; ++site )
+    {
+        std::vector<Operator> shortstep_propagators{};
+        shortstep_propagators.reserve( pspace.num_TimePoints - 1 );
+        
+        FieldVector old_fields = Vs_of_t[0][site] + mean_fields[site];
+        if( pspace.chemical_shift.m_name != "none" ) old_fields[2] += pspace.chemical_shift.at(site);
+        
+        for( size_t time = 1; time < pspace.num_TimePoints - 1; ++time )
+        {
+            FieldVector new_fields = Vs_of_t[time][site] + mean_fields[site];
+            if( pspace.chemical_shift.m_name != "none" ) new_fields[2] += pspace.chemical_shift.at(site);
+            
+            shortstep_propagators.emplace_back( cfet::CFET4opt_for_single_spin_one_half( new_fields, old_fields, pspace.delta_t, S_X_2x2, S_Y_2x2, S_Z_2x2, I_2x2 ) );
+            old_fields = new_fields;
+        }
+        FieldVector closing_fields = Vs_of_t[0][site] + mean_fields[site];
+        if( pspace.chemical_shift.m_name != "none" ) closing_fields[2] += pspace.chemical_shift.at(site);
+        
+        shortstep_propagators.emplace_back( cfet::CFET4opt_for_single_spin_one_half( closing_fields, old_fields, pspace.delta_t, S_X_2x2, S_Y_2x2, S_Z_2x2, I_2x2 ) );
+
+        forward_propagators[0][site] = I2;
+        for( size_t time = 0; time < shortstep_propagators.size(); ++time )
+        {
+            forward_propagators[time+1][site] = shortstep_propagators[time] * forward_propagators[time][site];
+        }
+        
+        backward_propagators[pspace.num_TimePoints - 1][site] = I2;
+        for( size_t time = shortstep_propagators.size(); time > 0; --time )
+        {
+            backward_propagators[time-1][site] = backward_propagators[time][site] * shortstep_propagators[time-1];
+        }
+        
+        Z_i_list[site] = std::real( blaze::trace( forward_propagators.back()[site] ) );
+    }
+    
+    return std::make_tuple( Z_i_list, std::move( forward_propagators ), std::move( backward_propagators ) );
+}
+
+inline const Observable& S_2x2( size_t alpha )
+{
+    if(alpha == 0) return S_X_2x2;
+    if(alpha == 1) return S_Y_2x2;
+    return S_Z_2x2;
+}
+
+inline ComplexType uncoupled_correlation( const std::vector<Operator>& forward_U_tau, const std::vector<Operator>& backward_U_tau, const std::vector<Operator>& forward_U_beta, const ten::IndexPair& ij, const ten::IndexPair& alphabeta )
+{
+    if( ij[0] != ij[1] )
+    {
+        return blaze::trace( backward_U_tau[ij[0]] * S_2x2(alphabeta[0]) * forward_U_tau[ij[0]] ) * blaze::trace( forward_U_beta[ij[1]] * S_2x2(alphabeta[1]) );
+    }
+    else
+    {
+        return blaze::trace( backward_U_tau[ij[0]] * S_2x2(alphabeta[0]) * forward_U_tau[ij[0]] * S_2x2(alphabeta[1]) );
+    }
+}
+
+void accumulate_uncoupled_Z( std::vector<RealType>& uncoupled_partition_functions, rtd::RunTimeData& rtdata, const std::vector<RealType>& Z_i_list, const ps::ParameterSpace& pspace )
+{
+    for( size_t site = 0; site < pspace.num_Spins; ++site )
+    {
+        uncoupled_partition_functions[site] += Z_i_list[site];
+        rtdata.uncoupled_Z_sqsum[site] += Z_i_list[site] * Z_i_list[site];
+    }
+    rtdata.uncoupled_Z_cov.iterate( [&]( RealType& C, const auto& ij )
+    {
+        C += Z_i_list[ij[0]] * Z_i_list[ij[1]];
+    } );
+}
+
+void compute_uncoupled_spin_observables( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, const std::vector<std::vector<Operator>>& forward_propagators, const std::vector<std::vector<Operator>>& backward_propagators, const std::vector<RealType>& Z_i_list, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace )
+{
+    for( size_t site = 0; site < pspace.num_Spins; ++site )
+    {
+        for( size_t alpha = 0; alpha < 3; ++alpha )
+        {
+            ComplexType value = blaze::trace( forward_propagators.back()[site] * S_2x2(alpha) );
+            RealType x = std::real( value );
+            spin_expvals[site][alpha] += x;
+            rtdata.spin_expval_sqsum[site][alpha] += x * x;
+            rtdata.spin_expval_cov[site][alpha] += x * Z_i_list[site];
+        }
+    }
+
+    spin_CCT_Re.iterate2( rtdata.sample_sqsum_Re, [&]( auto& CT, auto& sqsum_CT, auto& ij )
+    {
+        auto& cov_CT_i = rtdata.uncoupled_sample_cov_Re_i( ij[0], ij[1] );
+        auto& cov_CT_j = rtdata.uncoupled_sample_cov_Re_j( ij[0], ij[1] );
+        
+        CT.iterate2( sqsum_CT, [&]( auto& C, auto& sqsum_C, const auto& alphabeta )
+        {
+            auto cov_index = std::distance( cov_CT_i.m_direction_pairs.cbegin(), std::find( cov_CT_i.m_direction_pairs.cbegin(), cov_CT_i.m_direction_pairs.cend(), alphabeta ) );
+            auto& cov_C_i = cov_CT_i[cov_index];
+            auto& cov_C_j = cov_CT_j[cov_index];
+            
+            for( size_t tau_index = 0; tau_index < pspace.num_TimePoints; ++tau_index )
+            {
+                ComplexType val = uncoupled_correlation( forward_propagators[tau_index], backward_propagators[tau_index], forward_propagators.back(), ij, alphabeta );
+                RealType x = std::real( val );
+                
+                C.at( tau_index ) += x;
+                sqsum_C.at( tau_index ) += x * x;
+                cov_C_i.at( tau_index ) += x * Z_i_list[ij[0]];
+                cov_C_j.at( tau_index ) += x * Z_i_list[ij[1]];
+            }
+        } );
+    } );
+
+    spin_CCT_Im.iterate2( rtdata.sample_sqsum_Im, [&]( auto& CT, auto& sqsum_CT, auto& ij )
+    {
+        auto& cov_CT_i = rtdata.uncoupled_sample_cov_Im_i( ij[0], ij[1] );
+        auto& cov_CT_j = rtdata.uncoupled_sample_cov_Im_j( ij[0], ij[1] );
+        
+        CT.iterate2( sqsum_CT, [&]( auto& C, auto& sqsum_C, const auto& alphabeta )
+        {
+            auto cov_index = std::distance( cov_CT_i.m_direction_pairs.cbegin(), std::find( cov_CT_i.m_direction_pairs.cbegin(), cov_CT_i.m_direction_pairs.cend(), alphabeta ) );
+            auto& cov_C_i = cov_CT_i[cov_index];
+            auto& cov_C_j = cov_CT_j[cov_index];
+            
+            for( size_t tau_index = 0; tau_index < pspace.num_TimePoints; ++tau_index )
+            {
+                ComplexType val = uncoupled_correlation( forward_propagators[tau_index], backward_propagators[tau_index], forward_propagators.back(), ij, alphabeta );
+                RealType x = std::imag( val );
+                
+                C.at( tau_index ) += x;
+                sqsum_C.at( tau_index ) += x * x;
+                cov_C_i.at( tau_index ) += x * Z_i_list[ij[0]];
+                cov_C_j.at( tau_index ) += x * Z_i_list[ij[1]];
+            }
+        } );
+    } );
+}
+
+void normalize_uncoupled( CluCorrTen& CCT_Re, CluCorrTen& CCT_Im, SiteFields& spin_expvals, const std::vector<RealType>& partition_functions, const size_t num_Samples )
+{
+    for( size_t site = 0; site < spin_expvals.size(); ++site )
+    {
+        for( size_t alpha = 0; alpha < 3; ++alpha )
+        {
+            spin_expvals[site][alpha] /= partition_functions[site];
+        }
+    }
+
+    CCT_Re.iterate2( CCT_Im, [&partition_functions, num_Samples]( auto& CT_re, auto& CT_im, const auto& ij )
+    {
+        RealType Z_ij = partition_functions[ij[0]];
+        if( ij[0] != ij[1] )
+        {
+            Z_ij = partition_functions[ij[0]] * partition_functions[ij[1]] / static_cast<RealType>(num_Samples);
+        }
+        
+        CT_re.iterate2( CT_im, [Z_ij]( corr::CorrelationVector& c_re, corr::CorrelationVector& c_im, const auto& alphabeta )
+        {
+            for( auto& val : c_re ) val *= 1.0 / Z_ij;
+            for( auto& val : c_im ) val *= 1.0 / Z_ij;
+        } );
+    } );
+}
+
+void MPI_share_uncoupled_results( std::vector<RealType>& partition_functions, rtd::RunTimeData& rtdata )
+{
+    std::vector<RealType> global_partition_functions( partition_functions.size(), 0.0 );
+    MPI_Allreduce( partition_functions.data(), global_partition_functions.data(), partition_functions.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+    partition_functions = std::move( global_partition_functions );
+
+    std::vector<RealType> global_zsq( rtdata.uncoupled_Z_sqsum.size(), 0.0 );
+    MPI_Allreduce( rtdata.uncoupled_Z_sqsum.data(), global_zsq.data(), rtdata.uncoupled_Z_sqsum.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+    rtdata.uncoupled_Z_sqsum = std::move( global_zsq );
+
+    rtdata.uncoupled_Z_cov.iterate( [&]( RealType& c, const auto& )
+    {
+        RealType rcv_c;
+        MPI_Allreduce( &c, &rcv_c, 1, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+        c = rcv_c;
+    } );
+
+    std::for_each( rtdata.uncoupled_sample_cov_Re_i.begin(), rtdata.uncoupled_sample_cov_Re_i.end(), []( CorrTen& CT )
+    {
+        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
+        {
+            std::vector<RealType> rcv_buf( corr.size() );
+            MPI_Allreduce( corr.data(), rcv_buf.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+            corr = rcv_buf;
+        } );
+    } );
+
+    std::for_each( rtdata.uncoupled_sample_cov_Re_j.begin(), rtdata.uncoupled_sample_cov_Re_j.end(), []( CorrTen& CT )
+    {
+        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
+        {
+            std::vector<RealType> rcv_buf( corr.size() );
+            MPI_Allreduce( corr.data(), rcv_buf.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+            corr = rcv_buf;
+        } );
+    } );
+
+    std::for_each( rtdata.uncoupled_sample_cov_Im_i.begin(), rtdata.uncoupled_sample_cov_Im_i.end(), []( CorrTen& CT )
+    {
+        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
+        {
+            std::vector<RealType> rcv_buf( corr.size() );
+            MPI_Allreduce( corr.data(), rcv_buf.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+            corr = rcv_buf;
+        } );
+    } );
+
+    std::for_each( rtdata.uncoupled_sample_cov_Im_j.begin(), rtdata.uncoupled_sample_cov_Im_j.end(), []( CorrTen& CT )
+    {
+        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
+        {
+            std::vector<RealType> rcv_buf( corr.size() );
+            MPI_Allreduce( corr.data(), rcv_buf.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+            corr = rcv_buf;
         } );
     } );
 }

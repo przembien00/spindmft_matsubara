@@ -20,8 +20,15 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
   my_rtdata.generated_seed = rd::generate_seed( my_rtdata.get_seed_str(), my_rank );
 
   // ====== Initialize several Constant Spin Matrices on the Hilbert Space ======
-  init::write_general_spin_matrices( my_pspace.spin_float_list, my_pspace.num_HilbertSpaceDimension );
-  init::write_cluster_Hamiltonian( my_pspace.num_Spins, my_pspace.num_HilbertSpaceDimension, my_pspace.J, my_pspace.spinspin_cmodel, my_pspace.chemical_shift, my_pspace.local_extra_interaction );
+  if( !my_pspace.uncoupled_spins )
+  {
+    init::write_general_spin_matrices( my_pspace.spin_float_list, my_pspace.num_HilbertSpaceDimension );
+    init::write_cluster_Hamiltonian( my_pspace.num_Spins, my_pspace.num_HilbertSpaceDimension, my_pspace.J, my_pspace.spinspin_cmodel, my_pspace.chemical_shift, my_pspace.local_extra_interaction );
+  }
+  else
+  {
+    init::write_uncoupled_spin_matrices();
+  }
 
   // ====== Declare the Spin Cluster Correlation Functions ======
   CluCorrTen my_spin_correlations_Re = init::generate_initial_environment_spin_correlations( my_pspace, "Re" );
@@ -51,6 +58,7 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     CluCorrTen my_new_spin_correlations_Im{ my_pspace.correlation_categories, my_pspace.symmetry_type, my_pspace.num_TimePoints };
     func::SiteFields my_new_spin_expvals( my_pspace.num_Spins, FieldVector{0.,0.,0.} );
     RealType my_partition_function = RealType{0.};
+    std::vector<RealType> my_uncoupled_partition_functions( my_pspace.num_Spins, 0.0 );
 
     // ====== Build the Mean-Field Correlations from the environment spin correlations ====== 
     auto [my_meanfield_mean, my_meanfield_correlations] = my_pspace.mf_model->self_consistency( my_spin_correlations_Re, my_spin_expvals );
@@ -80,9 +88,18 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
       for( size_t sample = 0; sample < num_SamplesInThisSet; ++sample )
       {
         // ====== Propagate in imaginary time and sample thermal correlations ======
-        auto [Z, forward_propagators, backward_propagators] = func::compute_propagators( meanfield_trajectories[sample], my_meanfield_mean, my_pspace );
-        my_partition_function += Z;
-        func::compute_spin_observables( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, forward_propagators, backward_propagators, Z, my_rtdata, my_pspace );
+        if( my_pspace.uncoupled_spins )
+        {
+          auto [Z_i_list, forward_propagators, backward_propagators] = func::compute_uncoupled_propagators( meanfield_trajectories[sample], my_meanfield_mean, my_pspace );
+          func::accumulate_uncoupled_Z( my_uncoupled_partition_functions, my_rtdata, Z_i_list, my_pspace );
+          func::compute_uncoupled_spin_observables( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, forward_propagators, backward_propagators, Z_i_list, my_rtdata, my_pspace );
+        }
+        else
+        {
+          auto [Z, forward_propagators, backward_propagators] = func::compute_propagators( meanfield_trajectories[sample], my_meanfield_mean, my_pspace );
+          my_partition_function += Z;
+          func::compute_spin_observables( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, forward_propagators, backward_propagators, Z, my_rtdata, my_pspace );
+        }
         my_MC_estimator.obtain( my_clock.measure( "time evolution" ) );
       }
       my_clock.leave_loop();
@@ -94,15 +111,34 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
 
     // ====== Share the Results of Each MPI Process ======
     func::MPI_share_results( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, my_rtdata, my_partition_function );
+    if( my_pspace.uncoupled_spins )
+    {
+      func::MPI_share_uncoupled_results( my_uncoupled_partition_functions, my_rtdata );
+    }
     my_clock.measure( "MPI communication", true );
 
     // ====== Finalize the Spin Correlations and Compute the Iteration Error ======
-    func::normalize( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_partition_function );
-    for( auto& spin_expval_i : my_new_spin_expvals ){ spin_expval_i /= my_partition_function; }
+    if( my_pspace.uncoupled_spins )
+    {
+      func::normalize_uncoupled( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, my_uncoupled_partition_functions, my_rtdata.get_num_Samples() );
+    }
+    else
+    {
+      func::normalize( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_partition_function );
+      for( auto& spin_expval_i : my_new_spin_expvals ){ spin_expval_i /= my_partition_function; }
+    }
 
     // ====== Compute the Standard Deviation from the MC-simulation ======
-    my_rtdata.compute_and_process_spin_expval_stds( my_new_spin_expvals, my_partition_function );
-    my_rtdata.compute_and_process_sample_stds( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_partition_function );
+    if( my_pspace.uncoupled_spins )
+    {
+      my_rtdata.compute_and_process_uncoupled_spin_expval_stds( my_new_spin_expvals, my_uncoupled_partition_functions );
+      my_rtdata.compute_and_process_uncoupled_sample_stds( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_uncoupled_partition_functions );
+    }
+    else
+    {
+      my_rtdata.compute_and_process_spin_expval_stds( my_new_spin_expvals, my_partition_function );
+      my_rtdata.compute_and_process_sample_stds( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_partition_function );
+    }
 
     my_rtdata.compute_iteration_error( my_new_spin_correlations_Re, my_spin_correlations_Re );
     my_spin_correlations_Re = std::move( my_new_spin_correlations_Re );

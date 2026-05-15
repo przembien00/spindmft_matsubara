@@ -21,3 +21,9 @@ inline std::vector<SparseObservable> S_X_LIST{};
 inline std::vector<SparseObservable> S_Y_LIST{};
 inline std::vector<SparseObservable> S_Z_LIST{};
 inline SparseObservable H_CLUSTER{};
+
+// Uncoupled mode specific matrices
+inline Observable S_X_2x2{};
+inline Observable S_Y_2x2{};
+inline Observable S_Z_2x2{};
+inline Operator I_2x2{};

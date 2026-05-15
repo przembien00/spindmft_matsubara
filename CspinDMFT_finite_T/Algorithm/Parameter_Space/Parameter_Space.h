@@ -64,6 +64,7 @@ public:
   SymmMatrix J{};                   // local spin-spin couplings
   ph::SpinModel spinspin_cmodel{};  // spin-spin coupling model
   ph::SpinModel spinmf_cmodel{};    // spin-mean-field coupling model
+  bool uncoupled_spins{false};      // simulate as uncoupled spins (implied if J=0)
   Matrix mf_expectation_weights{};  // weights for the mean-field first moments
   ph::ChemicalShift chemical_shift{}; // chemical shift (always in z-direction)
   ph::LocalExtraInteraction local_extra_interaction{}; // extra interaction, e.g., quadrupolar 
@@ -94,6 +95,7 @@ public:
 
   // ...concerning the initial correlations 
   std::string init_corr_mode{};
+  std::string init_pair_corr_mode{};
   // ...if they are imported
   std::string imported_correlations_src_file{};
   std::string import_filename{};

@@ -26,6 +26,7 @@ class NNClusterWeights:
 
     mf_expectation_weights: np.ndarray
     correlation_weights: np.ndarray
+    canonical_pair_categories: np.ndarray  # shape (n_canonical, 2), dtype uint32
 
 
 def create_whole_categories_list(num_spins: int) -> np.ndarray:
@@ -51,6 +52,7 @@ def generate_nn_cluster_weights(
     cluster_positions: list[LatticePoint],
     nn_displacements: list[LatticePoint],
     map_to_cluster_index: ClusterIndexMap,
+    include_cluster_neighbors: bool = False,
 ) -> NNClusterWeights:
     """Build embedding weights for a nearest-neighbor cluster problem.
 
@@ -76,32 +78,54 @@ def generate_nn_cluster_weights(
     for i, cluster_site in enumerate(cluster_positions):
         for displacement in nn_displacements:
             external_neighbor = add_lattice_points(cluster_site, displacement)
-            if external_neighbor in cluster_position_set:
+            if (not include_cluster_neighbors) and external_neighbor in cluster_position_set:
                 continue
 
             external_neighbors_per_site[i].append(external_neighbor)
             representative_site = map_to_cluster_index(external_neighbor)
             mf_expectation_weights[i, representative_site] += 1.0
 
+    # Build a map from displacement to canonical cluster pair.  The canonical
+    # pair for a given displacement d is the first (lowest-index) cluster pair
+    # whose separation equals d.  Both d and -d map to the same canonical pair
+    # so that the direction of traversal does not matter.
+    #
+    # This ensures that a pair of external neighbors contributes to the cluster
+    # pair that is *geometrically equivalent* to them (same separation vector),
+    # rather than to the pair obtained by mapping each neighbor independently
+    # via translational symmetry (which can assign geometrically mismatched
+    # cluster pairs, e.g. NNN external pairs to NN cluster pairs).
+    ndim = len(cluster_positions[0])
+    displacement_to_canonical_pair: dict[tuple[int, ...], tuple[int, int]] = {}
+    for k_ in range(num_spins):
+        for l_ in range(k_, num_spins):
+            d = subtract_lattice_points(cluster_positions[l_], cluster_positions[k_])
+            if d not in displacement_to_canonical_pair:
+                displacement_to_canonical_pair[d] = (k_, l_)
+            rev_d = tuple(-x for x in d)
+            if rev_d not in displacement_to_canonical_pair:
+                displacement_to_canonical_pair[rev_d] = (k_, l_)
+
     correlation_weights = np.zeros((num_spins, num_spins, num_spins, num_spins), dtype=np.float64)
     for i in range(num_spins):
         for j in range(i, num_spins):
             for neighbor_i in external_neighbors_per_site[i]:
                 for neighbor_j in external_neighbors_per_site[j]:
-                    k = map_to_cluster_index(neighbor_i)
-                    l = map_to_cluster_index(neighbor_j)
                     external_displacement = subtract_lattice_points(neighbor_j, neighbor_i)
-                    representative_displacement = subtract_lattice_points(cluster_positions[l], cluster_positions[k])
-                    if external_displacement == representative_displacement:
-                        correlation_weights[i, j, k, l] += 1.0
-                        correlation_weights[j, i, k, l] = correlation_weights[i, j, k, l]
-                    elif external_displacement == tuple(-x for x in representative_displacement):
-                        correlation_weights[i, j, l, k] += 1.0
-                        correlation_weights[j, i, l, k] = correlation_weights[i, j, l, k]
+                    canonical = displacement_to_canonical_pair.get(external_displacement)
+                    if canonical is None:
+                        continue
+                    k_ord, l_ord = canonical
+                    correlation_weights[i, j, k_ord, l_ord] += 1.0
+                    correlation_weights[j, i, k_ord, l_ord] = correlation_weights[i, j, k_ord, l_ord]
+
+    canonical_pairs = sorted(set(displacement_to_canonical_pair.values()))
+    canonical_pair_categories = np.asarray(canonical_pairs, dtype=np.uint32)
 
     return NNClusterWeights(
         mf_expectation_weights=mf_expectation_weights,
         correlation_weights=correlation_weights,
+        canonical_pair_categories=canonical_pair_categories,
     )
 
 

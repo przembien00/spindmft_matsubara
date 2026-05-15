@@ -54,6 +54,12 @@ public:
     std::vector<FieldVector> spin_expval_cov{};   // covariance between spin expectation values and the partition function
     std::vector<FieldVector> spin_expval_stds{};   // std of the single sample spin expectation values
     RealType Z_sqsum{};           // sum of squared partition-function weights
+    std::vector<RealType> uncoupled_Z_sqsum{}; // sum of squared individual partition functions
+    clu::CorrelationCluster<RealType> uncoupled_Z_cov{}; // covariance between local partition functions
+    CluCorrTen uncoupled_sample_cov_Re_i{}; // covariance between uncoupled traces and Z_i
+    CluCorrTen uncoupled_sample_cov_Re_j{}; // covariance between uncoupled traces and Z_j
+    CluCorrTen uncoupled_sample_cov_Im_i{}; // covariance between uncoupled Im traces and Z_i
+    CluCorrTen uncoupled_sample_cov_Im_j{}; // covariance between uncoupled Im traces and Z_j
     std::vector<size_t> adaptive_num_SamplesPerCore{}; // number of samples per core in case of adaptive sample size
     bool sample_size_updated = {false}; // was the sample size updated in the last iteration step?
 
@@ -74,6 +80,8 @@ public:
     size_t get_num_SetsPerCore() const;
     void compute_and_process_sample_stds( const CluCorrTen& sample_sum_Re, const CluCorrTen& sample_sum_Im, const RealType partition_function );
     void compute_and_process_spin_expval_stds( const std::vector<FieldVector>& spin_expvals, const RealType partition_function );
+    void compute_and_process_uncoupled_sample_stds( const CluCorrTen& sample_sum_Re, const CluCorrTen& sample_sum_Im, const std::vector<RealType>& partition_functions );
+    void compute_and_process_uncoupled_spin_expval_stds( const std::vector<FieldVector>& spin_expvals, const std::vector<RealType>& partition_functions );
 
     // ...concerning the iterations
     std::string regarded(const std::string& mode){return (mode==iteration_error_mode) ? " (regarded)" : "";}

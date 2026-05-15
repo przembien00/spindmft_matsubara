@@ -60,6 +60,9 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "config", bpo::value<std::string>()->default_value(""),
     "choose the file containing the configuration data; mostly of the form <System>_csize=<Clustersize>_<Rest>"
     )(
+    "uncoupled_spins", bpo::value<bool>()->default_value(false)->implicit_value(true),
+    "simulate as uncoupled spins (implied if J=0)"
+    )(
     "spinspinmodel", bpo::value<std::string>()->default_value("ISO"),
     "set the spin coupling model || options are: ISO, Ising, XXZ, DRF, XY" 
     )(
@@ -140,11 +143,14 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "provide the filename with path in the Data folder from which the initial correlations should be taken"
     )(
     // ...if they are generated
-    "initdcorr", bpo::value<std::string>()->default_value("exponential"),
-    "set the initial diagonal correlations (gxx=gyy=gzz)"
+    "initdcorr", bpo::value<std::string>()->default_value("imagtime"),
+    "set the initial diagonal correlations (gxx=gyy=gzz); imagtime gives a quadratic profile symmetric around beta/2"
     )(
     "initndcorr", bpo::value<std::string>()->default_value("zero"),
-    "set the initial nondiagonal correlations (gab with a!=b)"
+    "set the initial on-site nondiagonal correlations (same i, gab with a!=b)"
+    )(
+    "initpaircorr", bpo::value<std::string>()->default_value("zero"),
+    "set the initial nonlocal correlations for i!=j; options are zero, positive, negative"
     )(
     //"corrtscale", bpo::value<RealType>()->default_value(RealType{1.0}),
     //"set the time scale of initial correlations"
@@ -239,6 +245,7 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     // ...concerning the cluster
     config_file             = vm["config"].as<std::string>();
     if( config_file == "" ){ error::CONFIG_NOT_SET( __PRETTY_FUNCTION__ ); } // config file must be set!
+    uncoupled_spins         = vm["uncoupled_spins"].as<bool>();
     spinspin_cmodel = ph::SpinModel{ vm["spinspinmodel"].as<std::string>(), vm["lambda"].as<RealType>(), vm["rho"].as<RealType>() };
     std::string smf = vm["spinmfmodel"].as<std::string>();
     spinmf_cmodel = (smf == "auto") ? spinspin_cmodel : ph::SpinModel{ smf, vm["smflambda"].as<RealType>(), vm["smfrho"].as<RealType>() };
@@ -270,6 +277,7 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     RealType Tmax           = beta;
     init_diag_corr    = ph::DiagonalSpinCorrelation{ vm["initdcorr"].as<std::string>(), Tmax, vm["corrperiods"].as<RealType>() };
     init_nondiag_corr = ph::NonDiagonalSpinCorrelation{ vm["initndcorr"].as<std::string>(), Tmax, vm["corrperiods"].as<RealType>() };
+    init_pair_corr_mode = vm["initpaircorr"].as<std::string>();
     // ...if they are imported
     if( init_corr_mode == "import" ) 
     { 
@@ -280,6 +288,7 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
         imported_correlations_src_file = vm["impcorrfile"].as<std::string>(); // determine src folder if necessary
         init_diag_corr.m_name = "";
         init_nondiag_corr.m_name = "";
+        init_pair_corr_mode = "";
     }
 
     // ...concerning the iteration
@@ -318,6 +327,20 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     };
     mf_model = model_map.at( mf_model_name );
     mf_model->constructor_function( *this );
+
+    // imply uncoupled spins if J is zero
+    // bool J_is_zero = true;
+    // for( size_t i = 0; i < num_Spins; ++i )
+    // {
+    //     for( size_t j = i+1; j < num_Spins; ++j )
+    //     {
+    //         if( std::abs(J(i,j)) > 1e-12 ) { J_is_zero = false; break; }
+    //     }
+    // }
+    // if( J_is_zero )
+    // {
+    //     uncoupled_spins = true;
+    // }
 
     // determine local extra interaction
     local_extra_interaction = ph::LocalExtraInteraction{ vm["extraint"].as<std::string>(), vm["intstrength"].as<RealType>(), num_Spins };
@@ -450,6 +473,10 @@ std::string ParameterSpace::create_essentials_string() const
     {
         ss << "The initial environment spin correlations are imported from from \'" << import_filename << "\'\n";
     }
+    else
+    {
+        ss << print::quantity_to_output_line( pre_colon_space, "init_pair_corr", init_pair_corr_mode );
+    }
     ss
     << print::quantity_to_output_line( pre_colon_space, "mf_model"      , mf_model_name )
     << print::quantity_to_output_line( pre_colon_space, "symmetry_type" , std::string(1, symmetry_type) )
@@ -460,6 +487,7 @@ std::string ParameterSpace::create_essentials_string() const
     << print::quantity_to_output_line( pre_colon_space, "config_file" , config_file )
     << print::quantity_to_output_line( pre_colon_space, "information_text", information_text ) 
     << print::quantity_to_output_line( pre_colon_space, "num_Spins"     , std::to_string(num_Spins) )
+    << print::quantity_to_output_line( pre_colon_space, "uncoupled_spins", uncoupled_spins ? "true" : "false" )
     << print::quantity_to_output_line( pre_colon_space, "spin_list"     , print::concatenate_string_with_delimiter(spin_list, ',') );
     if( num_Spins < 5 )
     {
