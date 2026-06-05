@@ -64,7 +64,7 @@ for N, (Lx, Ly) in GRID.items():
 
         for ax, beta in zip(axes, BETAS):
             p = data_path(mag_type, N, beta)
-            ax.set_title(rf"$\beta J={beta:g}$", fontsize=10)
+            ax.set_title(rf"$\beta J_Q={beta:g}$", fontsize=10)
 
             if not os.path.exists(p):
                 ax.text(0.5, 0.5, "N/A", ha="center", va="center",

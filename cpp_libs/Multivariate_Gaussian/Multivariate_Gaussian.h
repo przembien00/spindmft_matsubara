@@ -262,7 +262,8 @@ inline void GaussianNoiseVectors::fill( DiagonalBasisNormalDistributions& ndist,
         stda::for_2each( ndist.begin(), ndist.end(), m_noise.begin( column ),
         [&engine]( auto& dist, auto& n )
         {
-            n = dist(engine);
+            // stddev=0 is UB for std::normal_distribution; zero-variance modes contribute nothing
+            n = (dist.stddev() > RealType{0.}) ? dist(engine) : RealType{0.};
         } );
     }
 }

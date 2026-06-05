@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Compare spinDMFT (N=2,4,9) vs Chebyshev (N=20) for AFM and FM.
+"""Compare spinDMFT (N=2,4,9) vs Chebyshev (N=24) for AFM and FM.
 
-Six figures: {AFM,FM} × {local, NN, NNN}.
+Two figures (one per mag_type), each with three vertically stacked axes
+(local, NN, NNN) sharing the same x axis.
 Color = beta J (plasma_r: yellow=small, purple=large).
 Line style = N; solid = Chebyshev, dashed/dashdot/dotted = CspinDMFT.
 """
@@ -14,6 +15,8 @@ import matplotlib.cm as cm
 import matplotlib.lines as mlines
 import matplotlib.colors as mcolors
 import matplotlib.colorbar as mcolorbar
+
+plt.rcParams["figure.autolayout"] = False
 
 ROOT  = os.path.dirname(os.path.abspath(__file__))
 DATA  = os.path.join(ROOT, "Data")
@@ -67,31 +70,34 @@ def load_cheb(path: str, key: str):
 # ── correlation key specifications ────────────────────────────────────────────
 # corr_spec[corr_name] = dict(dmft_keys, cheb_key, ylabel, tag)
 # dmft_keys: N → key string (None = not available)
-CORR_SPECS = {
-    "local": dict(
+CORR_SPECS = [
+    dict(
+        name="local",
         dmft_keys={2: "0-0", 4: "0-0", 9: "0-0"},
         cheb_key="0-0",
-        ylabel=r"$g^{xx}_\mathrm{local}(\tau/\beta)$",
-        tag="local",
+        ylabel=r"$g^{xx}_\mathrm{local}(\tau)$",
     ),
-    "NN": dict(
+    dict(
+        name="NN",
         dmft_keys={2: "0-1", 4: "0-1", 9: "0-1"},
         cheb_key="1-0",
-        ylabel=r"$g^{xx}_\mathrm{NN}(\tau/\beta)$",
-        tag="NN",
+        ylabel=r"$g^{xx}_\mathrm{NN}(\tau)$",
     ),
-    "NNN": dict(
+    dict(
+        name="NNN",
         dmft_keys={2: None, 4: "0-3", 9: "0-4"},
         cheb_key="7-0",
-        ylabel=r"$g^{xx}_\mathrm{NNN}(\tau/\beta)$",
-        tag="NNN",
+        ylabel=r"$g^{xx}_\mathrm{NNN}(\tau)$",
     ),
-}
+]
 
 # ── main plotting loop ─────────────────────────────────────────────────────────
 for mag_type in ("AFM", "FM"):
-    for corr_name, spec in CORR_SPECS.items():
-        fig, ax = plt.subplots(figsize=(7, 4.5))
+    fig, axes = plt.subplots(3, 1, figsize=(7, 7.5), sharex=True,
+                             gridspec_kw={"hspace": 0})
+    fig.subplots_adjust(left=0.11, right=0.85, top=0.95, bottom=0.09)
+
+    for row, (ax, spec) in enumerate(zip(axes, CORR_SPECS)):
         ymin, ymax = np.inf, -np.inf
 
         for beta in BETAS:
@@ -108,14 +114,13 @@ for mag_type in ("AFM", "FM"):
                 except (KeyError, OSError):
                     continue
                 color = beta_color(beta)
-                ax.plot(tau, data,
-                        color=color, lw=1.2, ls=N_LSTYLE[N])
+                ax.plot(tau, data, color=color, lw=1.2, ls=N_LSTYLE[N])
                 ax.fill_between(tau, data - err, data + err,
                                 color=color, alpha=0.12)
                 ymin = min(ymin, np.min(data))
                 ymax = max(ymax, np.max(data))
 
-            # ── Chebyshev N=20 ──
+            # ── Chebyshev N=24 ──
             path = cheb_path(mag_type, beta)
             if not os.path.exists(path):
                 continue
@@ -124,8 +129,7 @@ for mag_type in ("AFM", "FM"):
             except (KeyError, OSError):
                 continue
             color = beta_color(beta)
-            ax.plot(tau, data,
-                    color=color, lw=1.2, ls=N_LSTYLE[24])
+            ax.plot(tau, data, color=color, lw=1.2, ls=N_LSTYLE[24])
             ax.fill_between(tau, data - err, data + err,
                             color=color, alpha=0.12)
             ymin = min(ymin, np.min(data))
@@ -133,33 +137,35 @@ for mag_type in ("AFM", "FM"):
 
         ax.axhline(0, color="gray", lw=0.5, ls=":")
         ax.set_xlim(0, 1)
-        margin = 0.05 * (ymax - ymin)
-        ax.set_ylim(ymin - margin, ymax + margin)
-        ax.set_xlabel(r"$\tau/\beta$")
+        if np.isfinite(ymin) and np.isfinite(ymax):
+            margin = 0.05 * (ymax - ymin)
+            ax.set_ylim(ymin - margin, ymax + margin)
         ax.set_ylabel(spec["ylabel"])
 
-        # Legend: line styles for N values
-        n_handles = []
-        for N, ls in N_LSTYLE.items():
-            lbl = f"$N={N}$" + (" (Chebyshev)" if N == 24 else " (spinDMFT)")
-            if corr_name == "NNN" and N == 2:
-                continue
-            n_handles.append(mlines.Line2D([], [], color="k", ls=ls,
-                                           lw=1.5, label=lbl))
-        ax.legend(handles=n_handles, fontsize=8, loc="best", framealpha=0.85)
+        if row < 2:
+            ax.tick_params(labelbottom=False)
 
-        # Colorbar for beta
-        sm = cm.ScalarMappable(cmap=CMAP, norm=BETA_NORM)
-        sm.set_array([])
-        cbar = fig.colorbar(sm, ax=ax, pad=0.02, aspect=30)
-        cbar.set_label(r"$\beta J$", fontsize=10)
-        cbar.set_ticks(BETAS)
-        cbar.set_ticklabels([f"{b:g}" for b in BETAS])
+    axes[-1].set_xlabel(r"$\tau/\beta$")
 
-        plt.tight_layout()
-        fname = os.path.join(PLOTS, f"size_comparison__{mag_type}__{corr_name}.pdf")
-        plt.savefig(fname, bbox_inches="tight")
-        print(f"Saved {fname}")
-        plt.close()
+    # Legend on top axis
+    n_handles = []
+    for N, ls in N_LSTYLE.items():
+        lbl = f"$N={N}$" + (" (Chebyshev)" if N == 24 else " (spinDMFT)")
+        n_handles.append(mlines.Line2D([], [], color="k", ls=ls, lw=1.5, label=lbl))
+    axes[0].legend(handles=n_handles, fontsize=8, loc="lower left", framealpha=0.85)
+
+    # Shared colorbar placed to the right of all axes
+    cbar_ax = fig.add_axes([0.88, 0.09, 0.025, 0.95 - 0.09])
+    sm = cm.ScalarMappable(cmap=CMAP, norm=BETA_NORM)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, cax=cbar_ax)
+    cbar.set_label(r"$\beta J_Q$", fontsize=13)
+    cbar.set_ticks(BETAS)
+    cbar.set_ticklabels([f"{b:g}" for b in BETAS])
+
+    fname = os.path.join(PLOTS, f"size_comparison__{mag_type}.pdf")
+    plt.savefig(fname)
+    print(f"Saved {fname}")
+    plt.close()
 
 print("Done.")
