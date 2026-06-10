@@ -1,5 +1,6 @@
 #include"Parameter_Space.h"
 #include<map>
+#include<queue>
 #include<iostream>
 #include<iomanip>
 #include<sstream>
@@ -82,7 +83,13 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "set the second anisotropy factor for the XY-model; the factor will be multiplied to the xy-couplings"
     )(
     "chemshift", bpo::value<std::string>()->default_value("none"),
-    "set the chemical shift (magnetic field in z-direction) || none or comma-separated values for all spins" 
+    "set the chemical shift (magnetic field in z-direction) || none or comma-separated values for all spins"
+    )(
+    "unifield", bpo::value<RealType>()->default_value(RealType{0.0}),
+    "set a uniform magnetic field (z-direction) applied equally to all sites; alternative to chemshift which requires per-site values"
+    )(
+    "stagfield", bpo::value<RealType>()->default_value(RealType{0.0}),
+    "set a staggered magnetic field (z-direction): sublattice A gets +h, sublattice B gets -h; sublattice assignment is derived from J via BFS 2-coloring (lattice must be bipartite and connected)"
     )(
     "extraint", bpo::value<std::string>()->default_value("none"),
     "include a local extra interaction term acting at each spin sites || options are: none, quadrupolar"
@@ -326,7 +333,65 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
         { "CorrelationReplica", std::make_shared<mfm::CorrelationReplicaModel>() },
     };
     mf_model = model_map.at( mf_model_name );
-    mf_model->constructor_function( *this );
+    mf_model->constructor_function( *this ); // sets num_Spins
+
+    // apply uniform field after num_Spins is known
+    if( !vm["unifield"].defaulted() )
+    {
+        if( chemical_shift.m_name != "none" )
+        {
+            error::CONFLICTING_OPTIONS( __PRETTY_FUNCTION__, "unifield", "chemshift" );
+        }
+        RealType h = vm["unifield"].as<RealType>();
+        chemical_shift = ph::ChemicalShift{ std::vector<RealType>(num_Spins, h) };
+        chemical_shift.m_name = "uni_" + print::remove_zeros( print::round_value_to_string(h, num_PrintDigits) );
+    }
+
+    // apply staggered field after num_Spins is known: BFS 2-coloring of J graph
+    if( !vm["stagfield"].defaulted() )
+    {
+        if( chemical_shift.m_name != "none" )
+        {
+            error::CONFLICTING_OPTIONS( __PRETTY_FUNCTION__, "stagfield", vm["unifield"].defaulted() ? "chemshift" : "unifield" );
+        }
+        RealType h = vm["stagfield"].as<RealType>();
+
+        std::vector<int> color( num_Spins, -1 );
+        std::queue<size_t> bfs_queue;
+        color[0] = 0;
+        bfs_queue.push(0);
+        while( !bfs_queue.empty() )
+        {
+            size_t u = bfs_queue.front(); bfs_queue.pop();
+            for( size_t v = 0; v < num_Spins; ++v )
+            {
+                if( std::abs( J(u,v) ) > RealType{1e-12} )
+                {
+                    if( color[v] == -1 )
+                    {
+                        color[v] = 1 - color[u];
+                        bfs_queue.push(v);
+                    }
+                    else if( color[v] == color[u] )
+                    {
+                        error::NOT_BIPARTITE( __PRETTY_FUNCTION__ );
+                    }
+                }
+            }
+        }
+        for( size_t i = 0; i < num_Spins; ++i )
+        {
+            if( color[i] == -1 ) { error::DISCONNECTED_GRAPH( __PRETTY_FUNCTION__ ); }
+        }
+
+        std::vector<RealType> field( num_Spins );
+        for( size_t i = 0; i < num_Spins; ++i )
+        {
+            field[i] = ( color[i] == 0 ) ? h : -h;
+        }
+        chemical_shift = ph::ChemicalShift{ field };
+        chemical_shift.m_name = "stag_" + print::remove_zeros( print::round_value_to_string(h, num_PrintDigits) );
+    }
 
     // imply uncoupled spins if J is zero
     // bool J_is_zero = true;

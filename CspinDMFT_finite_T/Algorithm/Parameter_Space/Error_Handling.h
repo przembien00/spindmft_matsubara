@@ -37,4 +37,19 @@ void INIT_CORRELATIONS_CONTAIN_NANS( const std::string function_name )
     throw std::runtime_error( "initial correlations contain NaN's in " + function_name );
 }
 
+void CONFLICTING_OPTIONS( const std::string function_name, const std::string opt1, const std::string opt2 )
+{
+    throw std::runtime_error( "options '" + opt1 + "' and '" + opt2 + "' cannot be used together in " + function_name );
+}
+
+void NOT_BIPARTITE( const std::string function_name )
+{
+    throw std::runtime_error( "stagfield requires a bipartite lattice, but J graph is not 2-colorable in " + function_name );
+}
+
+void DISCONNECTED_GRAPH( const std::string function_name )
+{
+    throw std::runtime_error( "stagfield requires a connected lattice, but J graph has disconnected components in " + function_name );
+}
+
 }
