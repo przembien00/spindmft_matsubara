@@ -348,60 +348,6 @@ void FrequencyCovarianceCluster::diagonalize( mvgb::EigenValuesBlocks& eig, mvgb
     } );
 }
 
-TimeTrajectories FrequencyCovarianceCluster::sample_time_trajectories( const mvgb::EigenValuesBlocks& eig, const mvgb::OrthogonalTransformationBlocks& ortho, std::mt19937& engine, const size_t num_samples ) const
-{
-    mvgb::DiagonalBasisNormalDistributionsBlocks distributions{ eig };
-    std::vector<size_t> num_noises_per_block( eig.size(), num_samples );
-    mvgb::GaussianNoiseVectorsBlocks frequency_noise{ num_noises_per_block, distributions, engine, ortho };
-
-    TimeTrajectories trajectories( num_samples );
-    for( size_t sample = 0; sample < num_samples; ++sample )
-    {
-        std::vector<std::vector<FieldVector>> frequency_values( m_num_spins, std::vector<FieldVector>( m_num_frequencies, FieldVector{0.,0.,0.} ) );
-        for( size_t frequency = 0; frequency < m_num_frequencies; ++frequency )
-        {
-            if( m_symmetry_type == 'A' || m_symmetry_type == 'B' )
-            {
-                for( size_t site = 0; site < m_num_spins; ++site )
-                {
-                    frequency_values[site][frequency][0] = frequency_noise[flat_index(frequency,0)]( site, sample );
-                    frequency_values[site][frequency][1] = frequency_noise[flat_index(frequency,1)]( site, sample );
-                    frequency_values[site][frequency][2] = frequency_noise[flat_index(frequency,2)]( site, sample );
-                }
-            }
-            else if( m_symmetry_type == 'C' )
-            {
-                for( size_t site = 0; site < m_num_spins; ++site )
-                {
-                    frequency_values[site][frequency][0] = frequency_noise[flat_index(frequency,0)]( site, sample );
-                    frequency_values[site][frequency][1] = frequency_noise[flat_index(frequency,0)]( m_num_spins + site, sample );
-                    frequency_values[site][frequency][2] = frequency_noise[flat_index(frequency,1)]( site, sample );
-                }
-            }
-            else if( m_symmetry_type == 'D' )
-            {
-                for( size_t site = 0; site < m_num_spins; ++site )
-                {
-                    frequency_values[site][frequency][0] = frequency_noise[flat_index(frequency,0)]( site, sample );
-                    frequency_values[site][frequency][1] = frequency_noise[flat_index(frequency,0)]( m_num_spins + site, sample );
-                    frequency_values[site][frequency][2] = frequency_noise[flat_index(frequency,0)]( 2*m_num_spins + site, sample );
-                }
-            }
-        }
-
-        trajectories[sample].resize( m_num_frequencies );
-        for( size_t time = 0; time < m_num_frequencies; ++time )
-        {
-            trajectories[sample][time].resize( m_num_spins );
-            for( size_t site = 0; site < m_num_spins; ++site )
-            {
-                trajectories[sample][time][site] = inverse_fourier_at_time( frequency_values[site], time );
-            }
-        }
-    }
-    return trajectories;
-}
-
 // compute the imaginary-time short-step propagator exp[-dt/2 (H_old + H_new)]
 Operator compute_shortstep_propagator( const SparseObservable& old_Hamiltonian, const SparseObservable& new_Hamiltonian, const ps::ParameterSpace& pspace )
 {
@@ -437,7 +383,10 @@ Operator compute_shortstep_propagator( const SparseObservable& old_Hamiltonian, 
     }
 }
 
-// compute all propagators U(t,0) and U(beta,t) from one sampled mean-field trajectory
+// compute the short-step propagators, the forward propagators U(t,0) and Z = tr U(beta,0)
+// from one sampled mean-field trajectory. The backward propagators U(beta,t) are NOT built
+// here: the pCN Metropolis test needs only Z, so backward (one extra N x N matmul per time
+// point) is deferred to compute_backward_propagators and built only for accepted states.
 std::tuple<RealType, std::vector<Operator>, std::vector<Operator>> compute_propagators( const TimeTrajectory& Vs_of_t, const SiteFields& mean_fields, const ps::ParameterSpace& pspace )
 {
     std::vector<Operator> shortstep_propagators{};
@@ -463,109 +412,57 @@ std::tuple<RealType, std::vector<Operator>, std::vector<Operator>> compute_propa
         forward_propagators.emplace_back( U_step * forward_propagators.back() );
     }
 
-    std::vector<Operator> backward_propagators( pspace.num_TimePoints, IDENTITY );
+    RealType Z = std::real( blaze::trace( forward_propagators.back() ) );
+    return std::make_tuple( Z, std::move( forward_propagators ), std::move( shortstep_propagators ) );
+}
+
+// build the backward propagators U(beta,t) from the short-step propagators (coupled cluster)
+std::vector<Operator> compute_backward_propagators( const std::vector<Operator>& shortstep_propagators, const size_t num_TimePoints )
+{
+    std::vector<Operator> backward_propagators( num_TimePoints, IDENTITY );
     for( size_t time = shortstep_propagators.size(); time > 0; --time )
     {
         backward_propagators[time-1] = backward_propagators[time] * shortstep_propagators[time-1];
     }
-
-    RealType Z = std::real( blaze::trace( forward_propagators.back() ) );
-    return std::make_tuple( Z, std::move( forward_propagators ), std::move( backward_propagators ) );
-}
-
-// compute an imaginary-time correlation Tr[U(beta,t) S_i^a U(t,0) S_j^b]
-inline ComplexType correlation( const Operator& forward_U, const Operator& backward_U, const ten::IndexPair& ij, const ten::IndexPair& alphabeta )
-{
-    return blaze::trace( backward_U * S_at_site_in_direction(ij[0],alphabeta[0]) * forward_U * S_at_site_in_direction(ij[1],alphabeta[1]) );
-}
-
-// computes spin expectation values and correlations within the Monte-Carlo simulation
-void compute_spin_observables( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, const std::vector<Operator>& forward_propagators, const std::vector<Operator>& backward_propagators, const RealType Z, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace )
-{
-    rtdata.Z_sqsum += Z * Z;
-
-    for( size_t site = 0; site < pspace.num_Spins; ++site )
-    {
-        for( size_t alpha = 0; alpha < 3; ++alpha )
-        {
-            ComplexType value = blaze::trace( forward_propagators.back() * S_at_site_in_direction(site,alpha) );
-            const RealType x = std::real( value );
-            spin_expvals[site][alpha] += x;
-            rtdata.spin_expval_sqsum[site][alpha] += x * x;
-            rtdata.spin_expval_cov[site][alpha] += x * Z;
-        }
-    }
-
-    spin_CCT_Re.iterate2( rtdata.sample_sqsum_Re, [&]( auto& CT, auto& sqsum_CT, auto& ij )
-    {
-        auto& cov_CT = rtdata.sample_cov_Re( ij[0], ij[1] );
-        CT.iterate2( sqsum_CT, [&]( auto& C, auto& sqsum_C, const auto& alphabeta )
-        {
-            auto cov_index = std::distance( cov_CT.m_direction_pairs.cbegin(), std::find( cov_CT.m_direction_pairs.cbegin(), cov_CT.m_direction_pairs.cend(), alphabeta ) );
-            auto& cov_C = cov_CT[cov_index];
-            for( size_t tau_index = 0; tau_index < pspace.num_TimePoints; ++tau_index )
-            {
-                ComplexType x = correlation( forward_propagators[tau_index], backward_propagators[tau_index], ij, alphabeta );
-                const RealType x_re = std::real( x );
-                C.at( tau_index ) += x_re;
-                sqsum_C.at( tau_index ) += x_re * x_re;
-                cov_C.at( tau_index ) += x_re * Z;
-            }
-        } );
-    } );
-
-    spin_CCT_Im.iterate2( rtdata.sample_sqsum_Im, [&]( auto& CT, auto& sqsum_CT, auto& ij )
-    {
-        auto& cov_CT = rtdata.sample_cov_Im( ij[0], ij[1] );
-        CT.iterate2( sqsum_CT, [&]( auto& C, auto& sqsum_C, const auto& alphabeta )
-        {
-            auto cov_index = std::distance( cov_CT.m_direction_pairs.cbegin(), std::find( cov_CT.m_direction_pairs.cbegin(), cov_CT.m_direction_pairs.cend(), alphabeta ) );
-            auto& cov_C = cov_CT[cov_index];
-            for( size_t tau_index = 0; tau_index < pspace.num_TimePoints; ++tau_index )
-            {
-                ComplexType x = correlation( forward_propagators[tau_index], backward_propagators[tau_index], ij, alphabeta );
-                const RealType x_im = std::imag( x );
-                C.at( tau_index ) += x_im;
-                sqsum_C.at( tau_index ) += x_im * x_im;
-                cov_C.at( tau_index ) += x_im * Z;
-            }
-        } );
-    } );
+    return backward_propagators;
 }
 
 // ------------------------------------------------------------------------------------------------
 // UNCOUPLED SPINS MODE
 // ------------------------------------------------------------------------------------------------
 
+// uncoupled counterpart of compute_propagators: returns Z_i, the forward propagators
+// [time][site] and the per-site short-step propagators [site][step]. Backward propagators
+// are deferred to compute_uncoupled_backward_propagators (built only for accepted states).
 std::tuple<std::vector<RealType>, std::vector<std::vector<Operator>>, std::vector<std::vector<Operator>>> compute_uncoupled_propagators( const TimeTrajectory& Vs_of_t, const SiteFields& mean_fields, const ps::ParameterSpace& pspace )
 {
 
     std::vector<std::vector<Operator>> forward_propagators( pspace.num_TimePoints, std::vector<Operator>(pspace.num_Spins) );
-    std::vector<std::vector<Operator>> backward_propagators( pspace.num_TimePoints, std::vector<Operator>(pspace.num_Spins) );
+    std::vector<std::vector<Operator>> shortstep_per_site( pspace.num_Spins );
     std::vector<RealType> Z_i_list(pspace.num_Spins);
-    
+
     Operator I2(2, 2);
     I2(0,0)=1; I2(0,1)=0; I2(1,0)=0; I2(1,1)=1;
-    
+
     for( size_t site = 0; site < pspace.num_Spins; ++site )
     {
         std::vector<Operator> shortstep_propagators{};
         shortstep_propagators.reserve( pspace.num_TimePoints - 1 );
-        
+
         FieldVector old_fields = Vs_of_t[0][site] + mean_fields[site];
         if( pspace.chemical_shift.m_name != "none" ) old_fields[2] += pspace.chemical_shift.at(site);
-        
+
         for( size_t time = 1; time < pspace.num_TimePoints - 1; ++time )
         {
             FieldVector new_fields = Vs_of_t[time][site] + mean_fields[site];
             if( pspace.chemical_shift.m_name != "none" ) new_fields[2] += pspace.chemical_shift.at(site);
-            
+
             shortstep_propagators.emplace_back( cfet::CFET4opt_for_single_spin_one_half( new_fields, old_fields, pspace.delta_t, S_X_2x2, S_Y_2x2, S_Z_2x2, I_2x2 ) );
             old_fields = new_fields;
         }
         FieldVector closing_fields = Vs_of_t[0][site] + mean_fields[site];
         if( pspace.chemical_shift.m_name != "none" ) closing_fields[2] += pspace.chemical_shift.at(site);
-        
+
         shortstep_propagators.emplace_back( cfet::CFET4opt_for_single_spin_one_half( closing_fields, old_fields, pspace.delta_t, S_X_2x2, S_Y_2x2, S_Z_2x2, I_2x2 ) );
 
         forward_propagators[0][site] = I2;
@@ -573,17 +470,32 @@ std::tuple<std::vector<RealType>, std::vector<std::vector<Operator>>, std::vecto
         {
             forward_propagators[time+1][site] = shortstep_propagators[time] * forward_propagators[time][site];
         }
-        
-        backward_propagators[pspace.num_TimePoints - 1][site] = I2;
+
+        Z_i_list[site] = std::real( blaze::trace( forward_propagators.back()[site] ) );
+        shortstep_per_site[site] = std::move( shortstep_propagators );
+    }
+
+    return std::make_tuple( Z_i_list, std::move( forward_propagators ), std::move( shortstep_per_site ) );
+}
+
+// build the backward propagators U(beta,t) [time][site] from the per-site short-step
+// propagators (uncoupled cluster)
+std::vector<std::vector<Operator>> compute_uncoupled_backward_propagators( const std::vector<std::vector<Operator>>& shortstep_per_site, const size_t num_TimePoints, const size_t num_Spins )
+{
+    Operator I2(2, 2);
+    I2(0,0)=1; I2(0,1)=0; I2(1,0)=0; I2(1,1)=1;
+
+    std::vector<std::vector<Operator>> backward_propagators( num_TimePoints, std::vector<Operator>(num_Spins) );
+    for( size_t site = 0; site < num_Spins; ++site )
+    {
+        const std::vector<Operator>& shortstep_propagators = shortstep_per_site[site];
+        backward_propagators[num_TimePoints - 1][site] = I2;
         for( size_t time = shortstep_propagators.size(); time > 0; --time )
         {
             backward_propagators[time-1][site] = backward_propagators[time][site] * shortstep_propagators[time-1];
         }
-        
-        Z_i_list[site] = std::real( blaze::trace( forward_propagators.back()[site] ) );
     }
-    
-    return std::make_tuple( Z_i_list, std::move( forward_propagators ), std::move( backward_propagators ) );
+    return backward_propagators;
 }
 
 inline const Observable& S_2x2( size_t alpha )
@@ -605,284 +517,399 @@ inline ComplexType uncoupled_correlation( const std::vector<Operator>& forward_U
     }
 }
 
-void accumulate_uncoupled_Z( std::vector<RealType>& uncoupled_partition_functions, rtd::RunTimeData& rtdata, const std::vector<RealType>& Z_i_list, const ps::ParameterSpace& pspace )
+// ========================================================================================
+// PRECONDITIONED CRANK-NICOLSON SAMPLER
+// ========================================================================================
+
+// Reconstruct one imaginary-time mean-field trajectory from a frequency-space sample given
+// in the full (non-diagonal) block basis. Mirrors the per-sample logic in
+// sample_time_trajectories but reads the coefficients from `full` instead of drawing them.
+TimeTrajectory FrequencyCovarianceCluster::trajectory_from_full_frequency( const mvgb::EigenValuesBlocks& full ) const
 {
-    for( size_t site = 0; site < pspace.num_Spins; ++site )
+    std::vector<std::vector<FieldVector>> frequency_values( m_num_spins, std::vector<FieldVector>( m_num_frequencies, FieldVector{0.,0.,0.} ) );
+    for( size_t frequency = 0; frequency < m_num_frequencies; ++frequency )
     {
-        uncoupled_partition_functions[site] += Z_i_list[site];
-        rtdata.uncoupled_Z_sqsum[site] += Z_i_list[site] * Z_i_list[site];
+        if( m_symmetry_type == 'A' || m_symmetry_type == 'B' )
+        {
+            for( size_t site = 0; site < m_num_spins; ++site )
+            {
+                frequency_values[site][frequency][0] = full[flat_index(frequency,0)][site];
+                frequency_values[site][frequency][1] = full[flat_index(frequency,1)][site];
+                frequency_values[site][frequency][2] = full[flat_index(frequency,2)][site];
+            }
+        }
+        else if( m_symmetry_type == 'C' )
+        {
+            for( size_t site = 0; site < m_num_spins; ++site )
+            {
+                frequency_values[site][frequency][0] = full[flat_index(frequency,0)][site];
+                frequency_values[site][frequency][1] = full[flat_index(frequency,0)][m_num_spins + site];
+                frequency_values[site][frequency][2] = full[flat_index(frequency,1)][site];
+            }
+        }
+        else if( m_symmetry_type == 'D' )
+        {
+            for( size_t site = 0; site < m_num_spins; ++site )
+            {
+                frequency_values[site][frequency][0] = full[flat_index(frequency,0)][site];
+                frequency_values[site][frequency][1] = full[flat_index(frequency,0)][m_num_spins + site];
+                frequency_values[site][frequency][2] = full[flat_index(frequency,0)][2*m_num_spins + site];
+            }
+        }
     }
-    rtdata.uncoupled_Z_cov.iterate( [&]( RealType& C, const auto& ij )
+
+    TimeTrajectory trajectory( m_num_frequencies );
+    for( size_t time = 0; time < m_num_frequencies; ++time )
     {
-        C += Z_i_list[ij[0]] * Z_i_list[ij[1]];
-    } );
+        trajectory[time].resize( m_num_spins );
+        for( size_t site = 0; site < m_num_spins; ++site )
+        {
+            trajectory[time][site] = inverse_fourier_at_time( frequency_values[site], time );
+        }
+    }
+    return trajectory;
 }
 
-void compute_uncoupled_spin_observables( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, const std::vector<std::vector<Operator>>& forward_propagators, const std::vector<std::vector<Operator>>& backward_propagators, const std::vector<RealType>& Z_i_list, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace )
+// pCN observable accumulator (coupled cluster): fold O_raw / Z into the running sums.
+void compute_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, const std::vector<Operator>& forward_propagators, const std::vector<Operator>& backward_propagators, const RealType Z, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace )
 {
+    const RealType inv_Z = ( Z != RealType{0.} ) ? RealType{1.} / Z : RealType{0.};
+
     for( size_t site = 0; site < pspace.num_Spins; ++site )
     {
         for( size_t alpha = 0; alpha < 3; ++alpha )
         {
-            ComplexType value = blaze::trace( forward_propagators.back()[site] * S_2x2(alpha) );
-            RealType x = std::real( value );
+            const RealType x = std::real( blaze::trace( forward_propagators.back() * S_at_site_in_direction(site,alpha) ) ) * inv_Z;
             spin_expvals[site][alpha] += x;
             rtdata.spin_expval_sqsum[site][alpha] += x * x;
-            rtdata.spin_expval_cov[site][alpha] += x * Z_i_list[site];
         }
     }
 
-    spin_CCT_Re.iterate2( rtdata.sample_sqsum_Re, [&]( auto& CT, auto& sqsum_CT, auto& ij )
-    {
-        auto& cov_CT_i = rtdata.uncoupled_sample_cov_Re_i( ij[0], ij[1] );
-        auto& cov_CT_j = rtdata.uncoupled_sample_cov_Re_j( ij[0], ij[1] );
-        
-        CT.iterate2( sqsum_CT, [&]( auto& C, auto& sqsum_C, const auto& alphabeta )
-        {
-            auto cov_index = std::distance( cov_CT_i.m_direction_pairs.cbegin(), std::find( cov_CT_i.m_direction_pairs.cbegin(), cov_CT_i.m_direction_pairs.cend(), alphabeta ) );
-            auto& cov_C_i = cov_CT_i[cov_index];
-            auto& cov_C_j = cov_CT_j[cov_index];
-            
-            for( size_t tau_index = 0; tau_index < pspace.num_TimePoints; ++tau_index )
-            {
-                ComplexType val = uncoupled_correlation( forward_propagators[tau_index], backward_propagators[tau_index], forward_propagators.back(), ij, alphabeta );
-                RealType x = std::real( val );
-                
-                C.at( tau_index ) += x;
-                sqsum_C.at( tau_index ) += x * x;
-                cov_C_i.at( tau_index ) += x * Z_i_list[ij[0]];
-                cov_C_j.at( tau_index ) += x * Z_i_list[ij[1]];
-            }
-        } );
-    } );
+    // Each correlation is Tr[ U(beta,t) S_i^a U(t,0) S_j^b ] = Tr[ M_{i,a} N_{j,b} ] with
+    // M_{i,a} = U(beta,t) S_i^a and N_{j,b} = U(t,0) S_j^b. The left factor M depends only
+    // on (i,a), the right factor N only on (j,b), so we build each once per tau and reuse it
+    // across all site/direction pairs, then close with Tr[M N] = sum_{kl} M_kl N_lk =
+    // sum( M % trans(N) ) -- an O(D^2) reduction instead of a third O(D^3) matrix product.
+    //
+    // Which (site,direction) operators are actually required is dictated by the symmetry type
+    // via the stored site- and direction-pair lists: e.g. type A keeps only the (0,0) pair, so
+    // only S_x enters here, while type D needs all three directions.
+    const ten::IndexPairList& site_pairs = spin_CCT_Re.get_site_pairs();
+    const ten::IndexPairList& dir_pairs  = spin_CCT_Re[0].get_direction_pairs();
+    const size_t num_site_pairs = site_pairs.size();
+    const size_t num_dir_pairs  = dir_pairs.size();
 
-    spin_CCT_Im.iterate2( rtdata.sample_sqsum_Im, [&]( auto& CT, auto& sqsum_CT, auto& ij )
+    // flag the left (M) and right (N) operators the symmetry type actually demands
+    std::vector<std::array<bool,3>> need_left( pspace.num_Spins, {false,false,false} );
+    std::vector<std::array<bool,3>> need_right( pspace.num_Spins, {false,false,false} );
+    for( const auto& ij : site_pairs )
     {
-        auto& cov_CT_i = rtdata.uncoupled_sample_cov_Im_i( ij[0], ij[1] );
-        auto& cov_CT_j = rtdata.uncoupled_sample_cov_Im_j( ij[0], ij[1] );
-        
-        CT.iterate2( sqsum_CT, [&]( auto& C, auto& sqsum_C, const auto& alphabeta )
+        for( const auto& alphabeta : dir_pairs )
         {
-            auto cov_index = std::distance( cov_CT_i.m_direction_pairs.cbegin(), std::find( cov_CT_i.m_direction_pairs.cbegin(), cov_CT_i.m_direction_pairs.cend(), alphabeta ) );
-            auto& cov_C_i = cov_CT_i[cov_index];
-            auto& cov_C_j = cov_CT_j[cov_index];
-            
-            for( size_t tau_index = 0; tau_index < pspace.num_TimePoints; ++tau_index )
+            need_left[ ij[0] ][ alphabeta[0] ]  = true;
+            need_right[ ij[1] ][ alphabeta[1] ] = true;
+        }
+    }
+
+    // caches reused across tau; only the flagged (site,direction) entries are ever filled
+    std::vector<std::array<Operator,3>> M( pspace.num_Spins );
+    std::vector<std::array<Operator,3>> N( pspace.num_Spins );
+
+    for( size_t tau_index = 0; tau_index < pspace.num_TimePoints; ++tau_index )
+    {
+        const Operator& bwd = backward_propagators[tau_index];
+        const Operator& fwd = forward_propagators[tau_index];
+        for( size_t site = 0; site < pspace.num_Spins; ++site )
+        {
+            for( size_t dir = 0; dir < 3; ++dir )
             {
-                ComplexType val = uncoupled_correlation( forward_propagators[tau_index], backward_propagators[tau_index], forward_propagators.back(), ij, alphabeta );
-                RealType x = std::imag( val );
-                
-                C.at( tau_index ) += x;
-                sqsum_C.at( tau_index ) += x * x;
-                cov_C_i.at( tau_index ) += x * Z_i_list[ij[0]];
-                cov_C_j.at( tau_index ) += x * Z_i_list[ij[1]];
+                if( need_left[site][dir] )  { M[site][dir] = bwd * S_at_site_in_direction(site,dir); }
+                if( need_right[site][dir] ) { N[site][dir] = fwd * S_at_site_in_direction(site,dir); }
             }
-        } );
-    } );
+        }
+
+        for( size_t p = 0; p < num_site_pairs; ++p )
+        {
+            const auto& ij = site_pairs[p];
+            CorrTen& CT_Re = spin_CCT_Re[p];
+            CorrTen& CT_Im = spin_CCT_Im[p];
+            CorrTen& sq_Re = rtdata.sample_sqsum_Re[p];
+            CorrTen& sq_Im = rtdata.sample_sqsum_Im[p];
+            for( size_t d = 0; d < num_dir_pairs; ++d )
+            {
+                const auto& alphabeta = dir_pairs[d];
+                const ComplexType o = blaze::sum( M[ ij[0] ][ alphabeta[0] ] % blaze::trans( N[ ij[1] ][ alphabeta[1] ] ) ) * inv_Z;
+                const RealType re = std::real( o );
+                const RealType im = std::imag( o );
+                CT_Re[d].at( tau_index ) += re;  sq_Re[d].at( tau_index ) += re * re;
+                CT_Im[d].at( tau_index ) += im;  sq_Im[d].at( tau_index ) += im * im;
+            }
+        }
+    }
 }
 
-void normalize_uncoupled( CluCorrTen& CCT_Re, CluCorrTen& CCT_Im, SiteFields& spin_expvals, const std::vector<RealType>& partition_functions, const size_t num_Samples )
+// pCN observable accumulator (uncoupled cluster): divide each contribution site-by-site,
+// i.e. by Z_i for on-site (i==j) correlations and by Z_i Z_j for inter-site correlations.
+void compute_uncoupled_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, const std::vector<std::vector<Operator>>& forward_propagators, const std::vector<std::vector<Operator>>& backward_propagators, const std::vector<RealType>& Z_i_list, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace )
 {
-    for( size_t site = 0; site < spin_expvals.size(); ++site )
+    for( size_t site = 0; site < pspace.num_Spins; ++site )
     {
+        const RealType inv_Z_i = ( Z_i_list[site] != RealType{0.} ) ? RealType{1.} / Z_i_list[site] : RealType{0.};
         for( size_t alpha = 0; alpha < 3; ++alpha )
         {
-            spin_expvals[site][alpha] /= partition_functions[site];
+            const RealType x = std::real( blaze::trace( forward_propagators.back()[site] * S_2x2(alpha) ) ) * inv_Z_i;
+            spin_expvals[site][alpha] += x;
+            rtdata.spin_expval_sqsum[site][alpha] += x * x;
         }
     }
 
-    CCT_Re.iterate2( CCT_Im, [&partition_functions, num_Samples]( auto& CT_re, auto& CT_im, const auto& ij )
+    auto accumulate = [&]( CluCorrTen& spin_CCT, CluCorrTen& sqsum_CCT, const bool real_part )
     {
-        RealType Z_ij = partition_functions[ij[0]];
-        if( ij[0] != ij[1] )
+        spin_CCT.iterate2( sqsum_CCT, [&]( auto& CT, auto& sqsum_CT, auto& ij )
         {
-            Z_ij = partition_functions[ij[0]] * partition_functions[ij[1]] / static_cast<RealType>(num_Samples);
+            const RealType inv_Z_i = ( Z_i_list[ij[0]] != RealType{0.} ) ? RealType{1.} / Z_i_list[ij[0]] : RealType{0.};
+            const RealType inv_Z_j = ( Z_i_list[ij[1]] != RealType{0.} ) ? RealType{1.} / Z_i_list[ij[1]] : RealType{0.};
+            const RealType inv_weight = ( ij[0] == ij[1] ) ? inv_Z_i : inv_Z_i * inv_Z_j;
+            CT.iterate2( sqsum_CT, [&]( auto& C, auto& sqsum_C, const auto& alphabeta )
+            {
+                for( size_t tau_index = 0; tau_index < pspace.num_TimePoints; ++tau_index )
+                {
+                    const ComplexType val = uncoupled_correlation( forward_propagators[tau_index], backward_propagators[tau_index], forward_propagators.back(), ij, alphabeta );
+                    const RealType o = ( real_part ? std::real( val ) : std::imag( val ) ) * inv_weight;
+                    C.at( tau_index ) += o;
+                    sqsum_C.at( tau_index ) += o * o;
+                }
+            } );
+        } );
+    };
+    accumulate( spin_CCT_Re, rtdata.sample_sqsum_Re, true );
+    accumulate( spin_CCT_Im, rtdata.sample_sqsum_Im, false );
+}
+
+// reduce one CluCorrTen of per-(i,j,alpha,beta,tau) sums across MPI ranks
+static void mpi_sum_clucorrtensor( CluCorrTen& CCT )
+{
+    std::for_each( CCT.begin(), CCT.end(), []( CorrTen& CT )
+    {
+        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
+        {
+            std::vector<RealType> rcv( corr.size() );
+            MPI_Allreduce( corr.data(), rcv.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+            corr = rcv;
+        } );
+    } );
+}
+
+void MPI_share_results_mh( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, SiteFields& spin_expvals, rtd::RunTimeData& rtdata )
+{
+    auto reduce_fieldvectors = []( std::vector<FieldVector>& v )
+    {
+        for( auto& f : v )
+        {
+            std::vector<RealType> send = { f[0], f[1], f[2] };
+            std::vector<RealType> recv( 3 );
+            MPI_Allreduce( send.data(), recv.data(), 3, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+            f = FieldVector{ recv[0], recv[1], recv[2] };
         }
-        
-        CT_re.iterate2( CT_im, [Z_ij]( corr::CorrelationVector& c_re, corr::CorrelationVector& c_im, const auto& alphabeta )
-        {
-            for( auto& val : c_re ) val *= 1.0 / Z_ij;
-            for( auto& val : c_im ) val *= 1.0 / Z_ij;
-        } );
-    } );
+    };
+    reduce_fieldvectors( spin_expvals );
+    reduce_fieldvectors( rtdata.spin_expval_sqsum );
+
+    mpi_sum_clucorrtensor( spin_corr_Re );
+    mpi_sum_clucorrtensor( spin_corr_Im );
+    mpi_sum_clucorrtensor( rtdata.sample_sqsum_Re );
+    mpi_sum_clucorrtensor( rtdata.sample_sqsum_Im );
 }
 
-void MPI_share_uncoupled_results( std::vector<RealType>& partition_functions, rtd::RunTimeData& rtdata )
+void normalize_mh( CluCorrTen& CCT_Re, CluCorrTen& CCT_Im, const RealType N )
 {
-    std::vector<RealType> global_partition_functions( partition_functions.size(), 0.0 );
-    MPI_Allreduce( partition_functions.data(), global_partition_functions.data(), partition_functions.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-    partition_functions = std::move( global_partition_functions );
-
-    std::vector<RealType> global_zsq( rtdata.uncoupled_Z_sqsum.size(), 0.0 );
-    MPI_Allreduce( rtdata.uncoupled_Z_sqsum.data(), global_zsq.data(), rtdata.uncoupled_Z_sqsum.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-    rtdata.uncoupled_Z_sqsum = std::move( global_zsq );
-
-    rtdata.uncoupled_Z_cov.iterate( [&]( RealType& c, const auto& )
+    const RealType inv_N = RealType{1.} / N;
+    auto scale = [inv_N]( CluCorrTen& CCT )
     {
-        RealType rcv_c;
-        MPI_Allreduce( &c, &rcv_c, 1, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-        c = rcv_c;
-    } );
-
-    std::for_each( rtdata.uncoupled_sample_cov_Re_i.begin(), rtdata.uncoupled_sample_cov_Re_i.end(), []( CorrTen& CT )
-    {
-        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
+        CCT.iterate( [&]( CorrTen& CT, auto& )
         {
-            std::vector<RealType> rcv_buf( corr.size() );
-            MPI_Allreduce( corr.data(), rcv_buf.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-            corr = rcv_buf;
+            CT.iterate( [&]( corr::CorrelationVector& corr, auto& )
+            {
+                std::for_each( corr.begin(), corr.end(), [inv_N]( RealType& c ){ c *= inv_N; } );
+            } );
         } );
-    } );
-
-    std::for_each( rtdata.uncoupled_sample_cov_Re_j.begin(), rtdata.uncoupled_sample_cov_Re_j.end(), []( CorrTen& CT )
-    {
-        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
-        {
-            std::vector<RealType> rcv_buf( corr.size() );
-            MPI_Allreduce( corr.data(), rcv_buf.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-            corr = rcv_buf;
-        } );
-    } );
-
-    std::for_each( rtdata.uncoupled_sample_cov_Im_i.begin(), rtdata.uncoupled_sample_cov_Im_i.end(), []( CorrTen& CT )
-    {
-        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
-        {
-            std::vector<RealType> rcv_buf( corr.size() );
-            MPI_Allreduce( corr.data(), rcv_buf.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-            corr = rcv_buf;
-        } );
-    } );
-
-    std::for_each( rtdata.uncoupled_sample_cov_Im_j.begin(), rtdata.uncoupled_sample_cov_Im_j.end(), []( CorrTen& CT )
-    {
-        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
-        {
-            std::vector<RealType> rcv_buf( corr.size() );
-            MPI_Allreduce( corr.data(), rcv_buf.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-            corr = rcv_buf;
-        } );
-    } );
+    };
+    scale( CCT_Re );
+    scale( CCT_Im );
 }
 
-// shares the average and stddev results among the cores
-void MPI_share_results( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, SiteFields& spin_expvals, rtd::RunTimeData& rtdata, RealType& partition_function )
+// ----------------------------- PCNChainCluster implementation -----------------------------
+
+void PCNChainCluster::build_prior()
 {
-    for( auto& spin_expval_i : spin_expvals )
+    m_prior_dists.assign( m_eig.size(), {} );
+    for( size_t f = 0; f < m_eig.size(); ++f )
     {
-        std::vector<RealType> send_buf = { spin_expval_i[0], spin_expval_i[1], spin_expval_i[2] };
-        std::vector<RealType> receive_buf( 3 );
-        MPI_Allreduce( send_buf.data(), receive_buf.data(), 3, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-        spin_expval_i = FieldVector{ receive_buf[0], receive_buf[1], receive_buf[2] };
+        m_prior_dists[f].resize( m_eig[f].size() );
+        for( size_t i = 0; i < m_eig[f].size(); ++i )
+        {
+            const RealType sigma = ( m_eig[f][i] > RealType{0.} ) ? std::sqrt( m_eig[f][i] ) : RealType{0.};
+            m_prior_dists[f][i] = std::normal_distribution<RealType>( RealType{0.}, sigma );
+        }
     }
-
-    for( auto& spin_expval_i : rtdata.spin_expval_sqsum )
-    {
-        std::vector<RealType> send_buf = { spin_expval_i[0], spin_expval_i[1], spin_expval_i[2] };
-        std::vector<RealType> receive_buf( 3 );
-        MPI_Allreduce( send_buf.data(), receive_buf.data(), 3, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-        spin_expval_i = FieldVector{ receive_buf[0], receive_buf[1], receive_buf[2] };
-    }
-
-    for( auto& spin_expval_i : rtdata.spin_expval_cov )
-    {
-        std::vector<RealType> send_buf = { spin_expval_i[0], spin_expval_i[1], spin_expval_i[2] };
-        std::vector<RealType> receive_buf( 3 );
-        MPI_Allreduce( send_buf.data(), receive_buf.data(), 3, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-        spin_expval_i = FieldVector{ receive_buf[0], receive_buf[1], receive_buf[2] };
-    }
-
-    // share regular results
-    std::for_each( spin_corr_Re.begin(), spin_corr_Re.end(), []( CorrTen& CT )
-    {
-        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
-        {
-            std::vector<RealType> rcv_buf( corr.size() ); 
-            MPI_Allreduce( corr.data(), rcv_buf.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-            corr = rcv_buf; // at time zero the correlation value is set later
-        } );
-    } );
-
-    std::for_each( spin_corr_Im.begin(), spin_corr_Im.end(), []( CorrTen& CT )
-    {
-        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
-        {
-            std::vector<RealType> rcv_buf( corr.size() ); 
-            MPI_Allreduce( corr.data(), rcv_buf.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-            corr = rcv_buf; // at time zero the correlation value is set later
-        } );
-    } );
-
-    // share squared average for sample average (for numerical analysis of the statistical error)
-    std::for_each( rtdata.sample_sqsum_Re.begin(), rtdata.sample_sqsum_Re.end(), []( CorrTen& CT )
-    {
-        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
-        {
-            std::vector<RealType> rcv_buf( corr.size() ); 
-            MPI_Allreduce( corr.data(), rcv_buf.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-            corr = rcv_buf; // at time zero the std is set to zero later
-        } );
-    } );
-
-    std::for_each( rtdata.sample_sqsum_Im.begin(), rtdata.sample_sqsum_Im.end(), []( CorrTen& CT )
-    {
-        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
-        {
-            std::vector<RealType> rcv_buf( corr.size() );
-            MPI_Allreduce( corr.data(), rcv_buf.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-            corr = rcv_buf;
-        } );
-    } );
-
-    std::for_each( rtdata.sample_cov_Re.begin(), rtdata.sample_cov_Re.end(), []( CorrTen& CT )
-    {
-        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
-        {
-            std::vector<RealType> rcv_buf( corr.size() );
-            MPI_Allreduce( corr.data(), rcv_buf.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-            corr = rcv_buf;
-        } );
-    } );
-
-    std::for_each( rtdata.sample_cov_Im.begin(), rtdata.sample_cov_Im.end(), []( CorrTen& CT )
-    {
-        std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& corr )
-        {
-            std::vector<RealType> rcv_buf( corr.size() );
-            MPI_Allreduce( corr.data(), rcv_buf.data(), corr.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-            corr = rcv_buf;
-        } );
-    } );
-
-    RealType Z_sqsum_local = rtdata.Z_sqsum;
-    MPI_Allreduce( &Z_sqsum_local, &rtdata.Z_sqsum, 1, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-    RealType Z_local = partition_function;
-    MPI_Allreduce( &Z_local, &partition_function, 1, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
 }
 
-// normalize the spin correlations with respect to the partition function
-void normalize( CluCorrTen& CCT_Re, CluCorrTen& CCT_Im, const RealType partition_function )
+void PCNChainCluster::draw_prior_into( mvgb::EigenValuesBlocks& V_diag )
 {
-  CCT_Re.iterate( [&]( CorrTen& CT, auto& )
-  {
-    CT.iterate( [&]( corr::CorrelationVector& corr, auto& )
+    V_diag.resize( m_eig.size() );
+    for( size_t f = 0; f < m_eig.size(); ++f )
     {
-      std::for_each( corr.begin(), corr.end(), [partition_function]( RealType& c )
-      {
-        c = c / partition_function;
-      } );
-    } );
-  } );
-  CCT_Im.iterate( [&]( CorrTen& CT, auto& )
-  {
-    CT.iterate( [&]( corr::CorrelationVector& corr, auto& )
+        V_diag[f].resize( m_eig[f].size() );
+        for( size_t i = 0; i < m_eig[f].size(); ++i )
+        {
+            V_diag[f][i] = ( m_prior_dists[f][i].stddev() > RealType{0.} ) ? m_prior_dists[f][i]( m_engine ) : RealType{0.};
+        }
+    }
+}
+
+mvgb::EigenValuesBlocks PCNChainCluster::rotate_to_full( const mvgb::EigenValuesBlocks& V_diag ) const
+{
+    mvgb::EigenValuesBlocks full( m_eig.size() );
+    for( size_t f = 0; f < m_eig.size(); ++f )
     {
-      std::for_each( corr.begin(), corr.end(), [partition_function]( RealType& c )
-      {
-        c = c / partition_function;
-      } );
-    } );
-  } );
+        full[f] = m_ortho[f] * V_diag[f];
+    }
+    return full;
+}
+
+void PCNChainCluster::evaluate( const mvgb::EigenValuesBlocks& V_diag, RealType& Z, RealType& logZ,
+                                std::vector<Operator>& fwd, std::vector<Operator>& shortstep,
+                                std::vector<RealType>& Z_i, std::vector<std::vector<Operator>>& fwd_unc,
+                                std::vector<std::vector<Operator>>& shortstep_unc ) const
+{
+    const TimeTrajectory traj = m_cov.trajectory_from_full_frequency( rotate_to_full( V_diag ) );
+    if( m_uncoupled )
+    {
+        std::tie( Z_i, fwd_unc, shortstep_unc ) = compute_uncoupled_propagators( traj, m_mean_fields, m_pspace );
+        logZ = RealType{0.};
+        bool positive = true;
+        for( const RealType zi : Z_i )
+        {
+            if( zi > RealType{0.} ) { logZ += std::log( zi ); }
+            else { positive = false; }
+        }
+        Z = positive ? RealType{1.} : RealType{0.}; // validity flag; observables use Z_i directly
+    }
+    else
+    {
+        std::tie( Z, fwd, shortstep ) = compute_propagators( traj, m_mean_fields, m_pspace );
+        logZ = ( Z > RealType{0.} ) ? std::log( Z ) : RealType{0.};
+    }
+}
+
+void PCNChainCluster::refresh_backward()
+{
+    if( m_uncoupled )
+    {
+        m_backward_unc = compute_uncoupled_backward_propagators( m_shortstep_unc, m_pspace.num_TimePoints, m_pspace.num_Spins );
+    }
+    else
+    {
+        m_backward = compute_backward_propagators( m_shortstep, m_pspace.num_TimePoints );
+    }
+}
+
+PCNChainCluster::PCNChainCluster( const ps::ParameterSpace& pspace,
+                                  const FrequencyCovarianceCluster& cov,
+                                  const mvgb::EigenValuesBlocks& eig,
+                                  const mvgb::OrthogonalTransformationBlocks& ortho,
+                                  const SiteFields& mean_fields,
+                                  RealType pcn_beta,
+                                  std::mt19937& engine )
+    : m_pspace( pspace ), m_cov( cov ), m_eig( eig ), m_ortho( ortho ), m_mean_fields( mean_fields ),
+      m_engine( engine ), m_uncoupled( pspace.uncoupled_spins ),
+      m_pcn_beta( pcn_beta ),
+      m_pcn_root( std::sqrt( std::max( RealType{0.}, RealType{1.} - pcn_beta * pcn_beta ) ) )
+{
+    build_prior();
+
+    // cold start: draw from the prior; retry on a non-positive Z (numerically degenerate)
+    draw_prior_into( m_V_diag );
+    evaluate( m_V_diag, m_Z, m_logZ, m_forward, m_shortstep, m_Z_i_list, m_forward_unc, m_shortstep_unc );
+    for( size_t retries = 0; !( m_Z > RealType{0.} ) && retries < 32; ++retries )
+    {
+        draw_prior_into( m_V_diag );
+        evaluate( m_V_diag, m_Z, m_logZ, m_forward, m_shortstep, m_Z_i_list, m_forward_unc, m_shortstep_unc );
+    }
+    refresh_backward(); // build the backward propagators for the initial accepted state
+}
+
+PCNChainCluster::PCNChainCluster( const ps::ParameterSpace& pspace,
+                                  const FrequencyCovarianceCluster& cov,
+                                  const mvgb::EigenValuesBlocks& eig,
+                                  const mvgb::OrthogonalTransformationBlocks& ortho,
+                                  const SiteFields& mean_fields,
+                                  RealType pcn_beta,
+                                  std::mt19937& engine,
+                                  const mvgb::EigenValuesBlocks& full_freq_initial )
+    : PCNChainCluster( pspace, cov, eig, ortho, mean_fields, pcn_beta, engine )
+{
+    // warm start: rotate the carried-over full-basis state into the new diagonal basis,
+    // zeroing modes the new prior cannot support (eig <= 0), then refresh the caches.
+    m_V_diag.resize( m_eig.size() );
+    for( size_t f = 0; f < m_eig.size(); ++f )
+    {
+        const Multivariate_Gaussian::EigenValues V_diag_f = blaze::trans( m_ortho[f] ) * full_freq_initial[f];
+        m_V_diag[f].resize( m_eig[f].size() );
+        for( size_t i = 0; i < m_eig[f].size(); ++i )
+        {
+            m_V_diag[f][i] = ( m_prior_dists[f][i].stddev() > RealType{0.} ) ? V_diag_f[i] : RealType{0.};
+        }
+    }
+    evaluate( m_V_diag, m_Z, m_logZ, m_forward, m_shortstep, m_Z_i_list, m_forward_unc, m_shortstep_unc );
+    refresh_backward();
+}
+
+mvgb::EigenValuesBlocks PCNChainCluster::full_frequency() const
+{
+    return rotate_to_full( m_V_diag );
+}
+
+bool PCNChainCluster::step()
+{
+    // 1.) pCN proposal in the diagonal basis: V' = sqrt(1-beta^2) V + beta xi, xi ~ p(V)
+    mvgb::EigenValuesBlocks V_diag_prop( m_eig.size() );
+    for( size_t f = 0; f < m_eig.size(); ++f )
+    {
+        Multivariate_Gaussian::EigenValues xi( m_eig[f].size() );
+        for( size_t i = 0; i < m_eig[f].size(); ++i )
+        {
+            xi[i] = ( m_prior_dists[f][i].stddev() > RealType{0.} ) ? m_prior_dists[f][i]( m_engine ) : RealType{0.};
+        }
+        V_diag_prop[f] = m_pcn_root * m_V_diag[f] + m_pcn_beta * xi;
+    }
+
+    // 2.) evaluate the target at the proposal (forward propagators + Z only; backward is
+    //     skipped here since the Metropolis test below needs only Z)
+    RealType Z_prop{}, logZ_prop{};
+    std::vector<Operator> fwd_prop, shortstep_prop;
+    std::vector<RealType> Z_i_prop;
+    std::vector<std::vector<Operator>> fwd_unc_prop, shortstep_unc_prop;
+    evaluate( V_diag_prop, Z_prop, logZ_prop, fwd_prop, shortstep_prop, Z_i_prop, fwd_unc_prop, shortstep_unc_prop );
+
+    // 3.) pCN acceptance: the Gaussian prior factors cancel, leaving min(1, Z'/Z).
+    //     A non-positive Z marks a forbidden region.
+    if( !( Z_prop > RealType{0.} ) || !( m_Z > RealType{0.} ) ) return false;
+    const RealType log_alpha = logZ_prop - m_logZ;
+    if( std::log( m_uniform01( m_engine ) ) >= log_alpha ) return false;
+
+    // 4.) accept: swap in the proposed state and its cached propagators, then build the
+    //     backward propagators for the newly accepted state (needed by the observables)
+    m_V_diag = std::move( V_diag_prop );
+    m_Z = Z_prop;
+    m_logZ = logZ_prop;
+    m_forward = std::move( fwd_prop );
+    m_shortstep = std::move( shortstep_prop );
+    m_Z_i_list = std::move( Z_i_prop );
+    m_forward_unc = std::move( fwd_unc_prop );
+    m_shortstep_unc = std::move( shortstep_unc_prop );
+    refresh_backward();
+    return true;
 }
 
 };

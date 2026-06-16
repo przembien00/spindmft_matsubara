@@ -182,7 +182,12 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace, const rtd::RunT
 
     hdf5r::store_string( ps_group_id, "seed",                       pspace.seed );
 
-    // ...concerning the iteration 
+    // ...concerning the pCN sampler
+    hdf5r::store_scalar( ps_group_id, "mh_step_size",               pspace.mh_step_size );
+    hdf5r::store_scalar( ps_group_id, "mh_burn_in",                 pspace.mh_burn_in );
+    hdf5r::store_scalar( ps_group_id, "mh_warm_burn_in_frac",       pspace.mh_warm_burn_in_frac );
+
+    // ...concerning the iteration
     hdf5r::store_scalar( ps_group_id, "absolute_iteration_error_threshold",     pspace.absolute_iteration_error_threshold );
     hdf5r::store_scalar( ps_group_id, "Iteration_Limit",            pspace.Iteration_Limit ); 
 
@@ -229,8 +234,9 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace, const rtd::RunT
     hdf5r::store_list( rtd_group_id, "negative_eigenvalue_ratios",  rtdata.negative_eigenvalue_ratios );
 
     // ...concerning the statistics
-    store_correlation_tensor( rtdata.sample_stds_Re, rtd_group_id, "Re_correlation_sample_stds", "Standard deviations of the correlations <S^alpha(t)S^beta(0)>, stored according to the hierarchy alpha-beta, t" );
-    store_correlation_tensor( rtdata.sample_stds_Im, rtd_group_id, "Im_correlation_sample_stds", "Standard deviations of the correlations <S^alpha(t)S^beta(0)>, stored according to the hierarchy alpha-beta, t" );
+    const std::string autocorr_remark = " Scaled by the AR(1) autocorrelation factor sqrt((1+rho1)/(1-rho1)), with the lag-1 autocorrelation rho1 estimated from the pCN acceptance rate a and step size beta as rho1 ~ 1 - a*(1 - sqrt(1-beta^2)). This is a crude single-mode correction and underestimates the error when the chain has a slow/trapped mode.";
+    store_correlation_tensor( rtdata.sample_stds_Re, rtd_group_id, "Re_correlation_sample_stds", "Standard deviations of the correlations <S^alpha(t)S^beta(0)>, stored according to the hierarchy alpha-beta, t." + autocorr_remark );
+    store_correlation_tensor( rtdata.sample_stds_Im, rtd_group_id, "Im_correlation_sample_stds", "Standard deviations of the correlations <S^alpha(t)S^beta(0)>, stored according to the hierarchy alpha-beta, t." + autocorr_remark );
 
     // ...spin expectation value sample stds
     hdf5r::store_scalar( rtd_group_id, "S_x_sample_std", rtdata.spin_expval_stds[0] );
@@ -242,6 +248,9 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace, const rtd::RunT
     hdf5r::store_scalar( rtd_group_id, "num_Iterations",            rtdata.num_Iterations );
     hdf5r::store_string( rtd_group_id, "termination",               rtdata.termination );
     hdf5r::store_list( rtd_group_id, "absolute_iteration_errors",   rtdata.absolute_iteration_errors );
+
+    // ...concerning the MH chain diagnostics: per-iteration global acceptance rate
+    hdf5r::store_list( rtd_group_id, "mh_acceptance_rates",         rtdata.acceptance_rates );
     H5Gclose( rtd_group_id );
 
 

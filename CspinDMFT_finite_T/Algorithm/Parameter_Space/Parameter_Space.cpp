@@ -138,7 +138,18 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "set the absolute error tolerance for the statistical error, which is employed in case of an adaptive sample size"
     )(
 
-    // ...concerning the initial correlations 
+    // ...concerning the preconditioned Crank-Nicolson sampler
+    "mhStepSize", bpo::value<RealType>()->default_value(RealType{0.3}),
+    "set the pCN proposal step parameter beta in (0, 1]; proposals are V' = sqrt(1 - beta^2) V + beta xi with xi ~ p(V) drawn fresh in the diagonal frequency basis (beta=1 reduces to independence sampling, beta->0 to infinitesimal moves)"
+    )(
+    "mhBurnIn", bpo::value<size_t>()->default_value(size_t{100}),
+    "cold-start burn-in length (pCN steps per core, used in the first self-consistent iteration)"
+    )(
+    "mhWarmBurnIn", bpo::value<RealType>()->default_value(RealType{1.0}),
+    "warm-start burn-in as a fraction of mhBurnIn (in [0, 1]) used from the second self-consistent iteration onwards. Default 1 = full burn-in every iteration (safe)"
+    )(
+
+    // ...concerning the initial correlations
     "initmode", bpo::value<std::string>()->default_value("generate"),
     "import = import the initial spin correlations from generated spin correlations \
     generate = generate the initial spin correlations from defined analytic functions"
@@ -277,6 +288,9 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     seed                    = vm["seed"].as<std::string>();
     if(vm.count("adaptive")){ adaptive_sample_size = true; }
     statistical_error_tolerance = vm["staterrtolerance"].as<RealType>();
+    mh_step_size            = vm["mhStepSize"].as<RealType>();
+    mh_burn_in              = vm["mhBurnIn"].as<size_t>();
+    mh_warm_burn_in_frac    = vm["mhWarmBurnIn"].as<RealType>();
 
     // ...concerning the initial correlations 
     init_corr_mode = vm["initmode"].as<std::string>();

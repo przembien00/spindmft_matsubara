@@ -20,8 +20,6 @@ DerivedTimeMeasure::DerivedTimeMeasure( const int my_rank, const int world_size 
     // generate temporaries (for duration measurements in deeper loops)
     m_tmp_measures.emplace_back( IterationDurationQuantity{"mean-field distribution"} );
     m_tmp_measures.emplace_back( IterationDurationQuantity{"mean-field sampling"} );
-    m_tmp_measures.emplace_back( IterationDurationQuantity{"time propagation"} );
-    m_tmp_measures.emplace_back( IterationDurationQuantity{"expectation values"} );
     m_tmp_measures.emplace_back( IterationDurationQuantity{"Monte-Carlo simulation"} );
     m_tmp_measures.emplace_back( IterationDurationQuantity{"MPI communication"} );
     m_tmp_measures.emplace_back( IterationDurationQuantity{"iteration-step finalization"} );  

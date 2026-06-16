@@ -46,20 +46,10 @@ public:
     size_t generated_seed{};
     CluCorrTen sample_sqsum_Re{}; // sum of squared real-part correlation samples
     CluCorrTen sample_sqsum_Im{}; // sum of squared imaginary-part correlation samples
-    CluCorrTen sample_cov_Re{};   // covariance between real-part correlation samples and the partition function
-    CluCorrTen sample_cov_Im{};   // covariance between imaginary-part correlation samples and the partition function
     CluCorrTen sample_stds_Re{};  // std of the single sample real-part correlations
     CluCorrTen sample_stds_Im{};  // std of the single sample imaginary-part correlations
     std::vector<FieldVector> spin_expval_sqsum{}; // sum of squared single sample spin expectation values
-    std::vector<FieldVector> spin_expval_cov{};   // covariance between spin expectation values and the partition function
     std::vector<FieldVector> spin_expval_stds{};   // std of the single sample spin expectation values
-    RealType Z_sqsum{};           // sum of squared partition-function weights
-    std::vector<RealType> uncoupled_Z_sqsum{}; // sum of squared individual partition functions
-    clu::CorrelationCluster<RealType> uncoupled_Z_cov{}; // covariance between local partition functions
-    CluCorrTen uncoupled_sample_cov_Re_i{}; // covariance between uncoupled traces and Z_i
-    CluCorrTen uncoupled_sample_cov_Re_j{}; // covariance between uncoupled traces and Z_j
-    CluCorrTen uncoupled_sample_cov_Im_i{}; // covariance between uncoupled Im traces and Z_i
-    CluCorrTen uncoupled_sample_cov_Im_j{}; // covariance between uncoupled Im traces and Z_j
     std::vector<size_t> adaptive_num_SamplesPerCore{}; // number of samples per core in case of adaptive sample size
     bool sample_size_updated = {false}; // was the sample size updated in the last iteration step?
 
@@ -68,6 +58,15 @@ public:
     std::string termination{};
     Vec relative_iteration_error_list{};
     Vec absolute_iteration_error_list{};
+
+    // ...concerning the preconditioned Crank-Nicolson chain diagnostics
+    // mh_accepted_count and mh_proposed_count are accumulated per MPI core during one
+    // iteration; record_mh_acceptance() reduces them across MPI ranks and appends the
+    // resulting global acceptance ratio to acceptance_rates.
+    size_t mh_accepted_count{};
+    size_t mh_proposed_count{};
+    std::vector<RealType> acceptance_rates{};
+    void record_mh_acceptance();
 
     // PUBLIC METHODS
     // ...concerning the eigenvalues
@@ -78,10 +77,23 @@ public:
     size_t get_num_SamplesPerCore() const;
     size_t get_num_Samples() const;
     size_t get_num_SetsPerCore() const;
-    void compute_and_process_sample_stds( const CluCorrTen& sample_sum_Re, const CluCorrTen& sample_sum_Im, const RealType partition_function );
-    void compute_and_process_spin_expval_stds( const std::vector<FieldVector>& spin_expvals, const RealType partition_function );
-    void compute_and_process_uncoupled_sample_stds( const CluCorrTen& sample_sum_Re, const CluCorrTen& sample_sum_Im, const std::vector<RealType>& partition_functions );
-    void compute_and_process_uncoupled_spin_expval_stds( const std::vector<FieldVector>& spin_expvals, const std::vector<RealType>& partition_functions );
+    // pCN estimators are plain chain means, so the i.i.d. standard error of the mean is
+    //   stderr(<o>) = sqrt( ( <o^2> - <o>^2 ) / N ).
+    // The pCN samples are autocorrelated, so this underestimates the true error. We multiply
+    // it by sqrt( (1+rho1)/(1-rho1) ), the AR(1) variance-inflation factor, where rho1 is the
+    // lag-1 autocorrelation (see pcn_autocorrelation_factor). sample_mean_* hold the already-
+    // normalized means (sum_i o_i / N); sample_sqsum_* hold the MPI-reduced raw sum_i o_i^2;
+    // N is the global sample count; pcn_step_size is the pCN beta used to estimate rho1.
+    void compute_and_process_sample_stds( const CluCorrTen& sample_mean_Re, const CluCorrTen& sample_mean_Im, const RealType N, const RealType pcn_step_size );
+    void compute_and_process_spin_expval_stds( const std::vector<FieldVector>& spin_mean, const RealType N, const RealType pcn_step_size );
+
+    // AR(1) autocorrelation correction factor sqrt( (1+rho1)/(1-rho1) ) for the pCN stds.
+    // rho1 is estimated from the latest acceptance rate a and the pCN step size beta via the
+    // pCN move: a rejected step copies the state, an accepted one retains a fraction
+    // sqrt(1-beta^2) of it, giving rho1 ~ 1 - a*(1 - sqrt(1-beta^2)). This is a crude single-
+    // exponential estimate: it assumes one relaxation timescale and UNDERESTIMATES the true
+    // autocorrelation when the chain has a slow / trapped mode.
+    RealType pcn_autocorrelation_factor( const RealType pcn_step_size ) const;
 
     // ...concerning the iterations
     std::string regarded(const std::string& mode){return (mode==iteration_error_mode) ? " (regarded)" : "";}

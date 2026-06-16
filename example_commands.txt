@@ -1,0 +1,82 @@
+================================================================================
+ Example run commands  (pCN / Metropolis algorithms, executable_DOUBLE.out)
+================================================================================
+
+Notes
+-----
+- Build first (per-algorithm):
+      cd <algorithm>/Algorithm
+      cp CMakeLists.txt_ CMakeLists.txt      # only if CMakeLists.txt is missing
+      mkdir -p build && cd build && cmake .. && make
+  This produces  <algorithm>/executable_DOUBLE.out  (no "MH" suffix anymore;
+  the pCN sampler is now the default algorithm).
+
+- RUN FROM THE ALGORITHM'S TOP-LEVEL FOLDER (e.g. CspinDMFT_finite_T/ or
+  spinDMFT/), NOT from the repo root. The executable resolves Configuration_Data/
+  and Data/ paths relative to the current working directory.
+
+- Output HDF5 is written under Data/<project>/ ; non-converged runs go to
+  Data/<project>/NOT_CONVERGED/. Inspect with quickreader.py / h5py.
+
+- -n <N> sets the number of MPI cores; total samples = N * numSamplesPerCore.
+
+pCN sampler parameters (both algorithms)
+----------------------------------------
+  --mhStepSize=<beta>     pCN step beta in (0,1].  V' = sqrt(1-beta^2) V + beta*xi
+                          beta=1 -> independence sampler; beta->0 -> tiny moves.
+  --mhBurnIn=<N>          burn-in steps per core in the first self-consistency iter.
+  --mhWarmBurnIn=<frac>   burn-in fraction (0..1) reused from iteration 2 onward
+                          (warm-started from the previous iteration's final state).
+
+
+================================================================================
+ CspinDMFT_finite_T   (finite-T cluster, Matsubara)
+================================================================================
+# Run from:  CspinDMFT_finite_T/
+# Needs a cluster config in Configuration_Data/<lattice>/ (here Square_2D_N=2_NN_J=0.5).
+
+mpirun -n 4 executable_DOUBLE.out \
+  --config=Square_2D_N=2_NN_J=0.5 \
+  --spinspinmodel=ISO \
+  --stype=A \
+  --beta=1 \
+  --numTimeSteps=99 \
+  --numSamplesPerCore=2500 \
+  --mhStepSize=0.3 \
+  --mhBurnIn=500 \
+  --iterlimit=20 \
+  --project=SquareLattice --dstproject=SquareLattice \
+  --fileext=test
+
+# Common variants:
+#   --uncoupled_spins        simulate as independent single spins (per-site Z_i)
+#   --chemshift=0.5,-0.5     per-site magnetic field in z (or --unifield / --stagfield)
+#   --stype=B|C|D            correlation symmetry type (A is most constrained, D least)
+#   --adaptive --staterrtolerance=0.0025   grow sample size to hit a target error
+# See all options:   ./executable_DOUBLE.out --help
+
+
+================================================================================
+ spinDMFT   (single-site spinDMFT)
+================================================================================
+# Run from:  spinDMFT/
+# Single-site: no lattice --config needed.
+
+mpirun -n 4 executable_DOUBLE.out \
+  --spinmodel=ISO \
+  --cstype=A \
+  --beta=1 \
+  --numTimeSteps=99 \
+  --numSamplesPerCore=2500 \
+  --mhStepSize=0.3 \
+  --mhBurnIn=500 \
+  --mhWarmBurnIn=1.0 \
+  --iterlimit=20 \
+  --project=MyProject \
+  --fileext=my_run
+
+# Common variants:
+#   --Bname=<field> --Babs=<h> --Btheta=<deg> --Bphi=<deg>   external field
+#   --spin=1   (spin-1 instead of spin-1/2)
+#   --cstype=A|B|C|D                                          correlation symmetry
+# See all options:   ./executable_DOUBLE.out --help   (and --helpNum for numerics)

@@ -2,6 +2,9 @@
 
 #include<string>
 #include<fstream>
+#include<memory>
+#include<random>
+#include<array>
 #include<Globals/Types.h>
 #include"../matrices.h"
 
@@ -31,7 +34,6 @@ using IndexPair = std::array<size_t,2>;
 using IndexPairList = std::vector<IndexPair>;
 using SiteFields = std::vector<FieldVector>;
 using TimeTrajectory = std::vector<SiteFields>;
-using TimeTrajectories = std::vector<TimeTrajectory>;
 using Corr = corr::CorrelationVector;
 using CorrTen = ten::CorrelationTensor<Corr>;
 using CluCorrTen = clu::CorrelationCluster<CorrTen>;
@@ -44,7 +46,12 @@ public:
 
     void fill( const CluCorrTen& correlations, const char symmetry_type, const size_t num_spins );
     void diagonalize( mvgb::EigenValuesBlocks& eig, mvgb::OrthogonalTransformationBlocks& ortho ) const;
-    TimeTrajectories sample_time_trajectories( const mvgb::EigenValuesBlocks& eig, const mvgb::OrthogonalTransformationBlocks& ortho, std::mt19937& engine, const size_t num_samples ) const;
+
+    // Build a single imaginary-time mean-field trajectory from one frequency-space sample
+    // given in the full (non-diagonal) block basis: full[flat_index(frequency,block)][row]
+    // holds the same coefficients that sample_time_trajectories reads from the rotated
+    // Gaussian noise. Used by the pCN sampler, which keeps its state in frequency space.
+    TimeTrajectory trajectory_from_full_frequency( const mvgb::EigenValuesBlocks& full ) const;
 
 private:
     char m_symmetry_type{};
@@ -70,18 +77,111 @@ Operator compute_shortstep_propagator( const SparseObservable& old_Hamiltonian, 
 
 std::tuple<RealType, std::vector<Operator>, std::vector<Operator>> compute_propagators( const TimeTrajectory& Vs_of_t, const SiteFields& mean_fields, const ps::ParameterSpace& pspace );
 
-void compute_spin_observables( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, const std::vector<Operator>& forward_propagators, const std::vector<Operator>& backward_propagators, const RealType Z, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace );
-
 std::tuple<std::vector<RealType>, std::vector<std::vector<Operator>>, std::vector<std::vector<Operator>>> compute_uncoupled_propagators( const TimeTrajectory& Vs_of_t, const SiteFields& mean_fields, const ps::ParameterSpace& pspace );
 
-void accumulate_uncoupled_Z( std::vector<RealType>& uncoupled_partition_functions, rtd::RunTimeData& rtdata, const std::vector<RealType>& Z_i_list, const ps::ParameterSpace& pspace );
+// ======================== preconditioned Crank-Nicolson sampler ========================
+// Instead of importance sampling V ~ p(V) and reweighting by Z(V), the pCN chain targets
+// pi(V) propto p(V) Z(V) directly, where Z(V) is the cluster partition function for the
+// sampled mean-field trajectory. The chain state lives in the diagonal frequency basis,
+// where p(V) factorizes into independent N(0, eig) Gaussians per block component, so the
+// pCN proposal V' = sqrt(1-beta^2) V + beta xi (xi ~ p(V)) preserves p(V) exactly and the
+// Metropolis ratio collapses to min(1, Z(V')/Z(V)).
+//
+// In the uncoupled-spins mode Z(V) factorizes over sites, Z = prod_i Z_i, and per-sample
+// observables are divided site-by-site (Z_i for on-site, Z_i Z_j for inter-site).
 
-void compute_uncoupled_spin_observables( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, const std::vector<std::vector<Operator>>& forward_propagators, const std::vector<std::vector<Operator>>& backward_propagators, const std::vector<RealType>& Z_i_list, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace );
+// pCN versions of the observable accumulators: they fold the per-sample value O_raw / Z
+// into the running correlation sums and the sum of squares (used for the standard error).
+// No covariance/partition-function accumulation is needed because V ~ pi already.
+void compute_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, const std::vector<Operator>& forward_propagators, const std::vector<Operator>& backward_propagators, const RealType Z, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace );
+void compute_uncoupled_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, const std::vector<std::vector<Operator>>& forward_propagators, const std::vector<std::vector<Operator>>& backward_propagators, const std::vector<RealType>& Z_i_list, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace );
 
+// sum the per-core pCN accumulators (means and sums of squares) across all MPI cores
+void MPI_share_results_mh( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, SiteFields& spin_expvals, rtd::RunTimeData& rtdata );
 
-void MPI_share_results( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, SiteFields& spin_expvals, rtd::RunTimeData& rtdata, RealType& partition_function );
-void MPI_share_uncoupled_results( std::vector<RealType>& partition_functions, rtd::RunTimeData& rtdata );
+// divide the summed-over-samples accumulators by the global sample count N
+void normalize_mh( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, const RealType N );
 
-void normalize( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, const RealType partition_function );
-void normalize_uncoupled( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, SiteFields& spin_expvals, const std::vector<RealType>& partition_functions, const size_t num_Samples );
+// A single preconditioned-Crank-Nicolson chain for sampling V ~ pi propto p(V) Z(V).
+// The chain owns its frequency-space state and the cached imaginary-time propagators, and
+// exposes them through accessors so the observable accumulators can read off the current
+// state every production step. Both the coupled and uncoupled cluster paths are supported.
+class PCNChainCluster
+{
+ public:
+    // Cold-start constructor: draws V from the prior and retries on a non-positive Z.
+    PCNChainCluster( const ps::ParameterSpace& pspace,
+                     const FrequencyCovarianceCluster& cov,
+                     const mvgb::EigenValuesBlocks& eig,
+                     const mvgb::OrthogonalTransformationBlocks& ortho,
+                     const SiteFields& mean_fields,
+                     RealType pcn_beta,
+                     std::mt19937& engine );
+
+    // Warm-start constructor: seeds the chain from a frequency-space state carried over
+    // from the previous self-consistent iteration (full_freq[flat] in the full block basis).
+    PCNChainCluster( const ps::ParameterSpace& pspace,
+                     const FrequencyCovarianceCluster& cov,
+                     const mvgb::EigenValuesBlocks& eig,
+                     const mvgb::OrthogonalTransformationBlocks& ortho,
+                     const SiteFields& mean_fields,
+                     RealType pcn_beta,
+                     std::mt19937& engine,
+                     const mvgb::EigenValuesBlocks& full_freq_initial );
+
+    // One pCN proposal + Metropolis accept/reject. Returns true on acceptance.
+    bool step();
+
+    // Accessors for the coupled path.
+    RealType Z() const { return m_Z; }
+    const std::vector<Operator>& forward() const { return m_forward; }
+    const std::vector<Operator>& backward() const { return m_backward; }
+
+    // Accessors for the uncoupled path.
+    const std::vector<RealType>& Z_i_list() const { return m_Z_i_list; }
+    const std::vector<std::vector<Operator>>& forward_uncoupled() const { return m_forward_unc; }
+    const std::vector<std::vector<Operator>>& backward_uncoupled() const { return m_backward_unc; }
+
+    // Current state in the basis-independent full frequency representation,
+    //   full_freq[flat] = ortho[flat] * V_diag[flat],
+    // used to carry state across self-consistent iterations.
+    mvgb::EigenValuesBlocks full_frequency() const;
+
+ private:
+    void build_prior();
+    void draw_prior_into( mvgb::EigenValuesBlocks& V_diag );
+    mvgb::EigenValuesBlocks rotate_to_full( const mvgb::EigenValuesBlocks& V_diag ) const;
+    // evaluate Z (and log Z), the forward propagators and the short-step propagators for a
+    // given diagonal-basis state. Backward propagators are NOT built here: the Metropolis
+    // test needs only Z, so they are deferred to refresh_backward (called on acceptance).
+    void evaluate( const mvgb::EigenValuesBlocks& V_diag, RealType& Z, RealType& logZ,
+                   std::vector<Operator>& fwd, std::vector<Operator>& shortstep,
+                   std::vector<RealType>& Z_i, std::vector<std::vector<Operator>>& fwd_unc,
+                   std::vector<std::vector<Operator>>& shortstep_unc ) const;
+    // build the cached backward propagators from the cached (accepted) short-step propagators
+    void refresh_backward();
+
+    // borrowed references (lifetime owned by main)
+    const ps::ParameterSpace& m_pspace;
+    const FrequencyCovarianceCluster& m_cov;
+    const mvgb::EigenValuesBlocks& m_eig;
+    const mvgb::OrthogonalTransformationBlocks& m_ortho;
+    SiteFields m_mean_fields;
+    std::mt19937& m_engine;
+
+    // sampling configuration
+    bool m_uncoupled{};
+    RealType m_pcn_beta{};
+    RealType m_pcn_root{}; // sqrt(1 - pcn_beta^2)
+    std::vector<std::vector<std::normal_distribution<RealType>>> m_prior_dists; // per flat block, per component
+    std::uniform_real_distribution<RealType> m_uniform01{ RealType{0.}, RealType{1.} };
+
+    // chain state (frequency space + cached imaginary-time quantities)
+    mvgb::EigenValuesBlocks m_V_diag;
+    RealType m_Z{};
+    RealType m_logZ{};
+    std::vector<Operator> m_forward, m_backward, m_shortstep;                              // coupled path
+    std::vector<RealType> m_Z_i_list;                                                      // uncoupled path
+    std::vector<std::vector<Operator>> m_forward_unc, m_backward_unc, m_shortstep_unc;     // uncoupled path
+};
 }

@@ -135,6 +135,15 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "seed", bpo::value<std::string>()->default_value("random"),
     "set the seed for the random generator (random : seed is determined by clock)"
     )(
+    "mhStepSize", bpo::value<RealType>()->default_value(RealType{0.3}),
+    "set the pCN proposal step parameter beta in (0, 1]; proposals are V' = sqrt(1 - beta^2) V + beta xi with xi ~ p(V) drawn fresh in the diagonal frequency basis (beta=1 reduces to independence sampling, beta->0 to infinitesimal moves)"
+    )(
+    "mhBurnIn", bpo::value<size_t>()->default_value(size_t{100}),
+    "cold-start burn-in length (pCN steps per core, used in the first self-consistent iteration)"
+    )(
+    "mhWarmBurnIn", bpo::value<RealType>()->default_value(RealType{1.0}),
+    "warm-start burn-in as a fraction of mhBurnIn (in [0, 1]) used from the second self-consistent iteration onwards. WARNING: lowering this below 1 can cascade bias across self-consistent iterations when early-iteration acceptance is low (deep low-T regime). Default 1 = full burn-in every iteration (safe); set to 0 only after verifying convergence vs. a reference"
+    )(
     // ...concerning the iteration 
     "reliterror", bpo::value<RealType>()->default_value(RealType{5.0}),
     "set the the threshold for the iteration error relative to the estimated Monte-Carlo std devs"
@@ -248,6 +257,9 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     num_SetsPerCore         = (size_t) std::ceil( static_cast<RealType>(num_SamplesPerCore) / static_cast<RealType>(num_SamplesPerSet) ); 
     num_Samples             = world_size * num_SamplesPerCore;
     seed                    = vm["seed"].as<std::string>();
+    mh_step_size            = vm["mhStepSize"].as<RealType>();
+    mh_burn_in              = vm["mhBurnIn"].as<size_t>();
+    mh_warm_burn_in_frac    = vm["mhWarmBurnIn"].as<RealType>();
 
     // ...concerning the initially inserted correlations and the iteration 
     absolute_iteration_error_threshold = vm["reliterror"].as<RealType>() / std::sqrt( RealType{3.0} * static_cast<RealType>(num_Samples) ) * spin_float * (spin_float+1.) / 3.;

@@ -38,6 +38,13 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
 
 
   print::print_R0( my_rank, "+++++++++++++++++++++++++ Self-Consistent Iteration ++++++++++++++++++++++++++\n" );
+
+  // Persistent pCN chain state across self-consistent iterations, kept in the basis-
+  // independent full frequency representation (the per-block diagonalization changes
+  // between iterations but the Matsubara frequencies do not). Empty before the first
+  // iteration; carried forward thereafter to warm-start the chain.
+  mvgb::EigenValuesBlocks my_full_freq_persistent;
+
   my_clock.enter_loop();
   do
   {
@@ -46,9 +53,9 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     print::print_R0( my_rank, "|\n|\n--------------------------- Iteration Step " + it_str + " ---------------------------\n" );
 
     // ====== Initialize Duration Estimator ======
-    std::vector<size_t> loop_sizes{ my_rtdata.get_num_SetsPerCore(), my_rtdata.get_num_SamplesPerCore() };
-    std::vector<std::string> loop_names{ "mean-field sampling", "time evolution" };
-    tmm::DurationEstimator my_MC_estimator( my_rank, "Monte-Carlo simulation", loop_sizes, loop_names, true );
+    std::vector<size_t> loop_sizes{ my_rtdata.get_num_SamplesPerCore() };
+    std::vector<std::string> loop_names{ "pCN production" };
+    tmm::DurationEstimator my_MC_estimator( my_rank, "pCN simulation", loop_sizes, loop_names, true );
 
     // ====== Build the Random Generator ======
     std::mt19937 engine{ static_cast<uint>(rd::throw_seed( my_rtdata.generated_seed, my_rtdata.num_Iterations, my_rank )) };
@@ -57,10 +64,8 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     CluCorrTen my_new_spin_correlations_Re{ my_pspace.correlation_categories, my_pspace.symmetry_type, my_pspace.num_TimePoints };
     CluCorrTen my_new_spin_correlations_Im{ my_pspace.correlation_categories, my_pspace.symmetry_type, my_pspace.num_TimePoints };
     func::SiteFields my_new_spin_expvals( my_pspace.num_Spins, FieldVector{0.,0.,0.} );
-    RealType my_partition_function = RealType{0.};
-    std::vector<RealType> my_uncoupled_partition_functions( my_pspace.num_Spins, 0.0 );
 
-    // ====== Build the Mean-Field Correlations from the environment spin correlations ====== 
+    // ====== Build the Mean-Field Correlations from the environment spin correlations ======
     auto [my_meanfield_mean, my_meanfield_correlations] = my_pspace.mf_model->self_consistency( my_spin_correlations_Re, my_spin_expvals );
     func::FrequencyCovarianceCluster my_meanfield_covariances{ my_meanfield_correlations, my_pspace.symmetry_type, my_pspace.num_Spins };
 
@@ -68,77 +73,70 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     mvgb::EigenValuesBlocks my_eig;
     mvgb::OrthogonalTransformationBlocks my_ortho;
     my_meanfield_covariances.diagonalize( my_eig, my_ortho ); // diagonalization on cluster with eigen does not work yet
-    my_rtdata.process_and_check_eigenvalues( my_eig );
-    mvgb::DiagonalBasisNormalDistributionsBlocks my_dist{ my_eig };
+    my_rtdata.process_and_check_eigenvalues( my_eig );        // truncates negative eigenvalues in-place
     my_clock.measure( "mean-field distribution", true );
 
-    // -------------------------- Monte-Carlo Simulation -------------------------
-    size_t remaining_samples{ my_rtdata.get_num_SamplesPerCore() };
-    my_clock.enter_loop();
-    while( remaining_samples > 0 ) // efficiency gain through cache coherence : the noise is sampled in sets beforehand 
+    // ---------------------- Preconditioned Crank-Nicolson Simulation ----------------------
+    // One pCN chain per MPI core targets pi(V) propto p(V) Z(V). From the second self-
+    // consistent iteration onwards the chain is warm-started from the previous iteration's
+    // final state (rotated into the new diagonal basis), skipping most of the burn-in.
+    const bool warm_start = !my_full_freq_persistent.empty();
+    func::PCNChainCluster chain = warm_start
+        ? func::PCNChainCluster( my_pspace, my_meanfield_covariances, my_eig, my_ortho, my_meanfield_mean, my_pspace.mh_step_size, engine, my_full_freq_persistent )
+        : func::PCNChainCluster( my_pspace, my_meanfield_covariances, my_eig, my_ortho, my_meanfield_mean, my_pspace.mh_step_size, engine );
+
+    // ====== Burn-In ======
+    const size_t num_burn_in = warm_start
+        ? static_cast<size_t>( my_pspace.mh_warm_burn_in_frac * static_cast<RealType>( my_pspace.mh_burn_in ) )
+        : my_pspace.mh_burn_in;
+    for( size_t s = 0; s < num_burn_in; ++s )
     {
-      size_t num_SamplesInThisSet = std::min( remaining_samples, my_pspace.num_SamplesPerSet );
-      remaining_samples = (size_t) std::max( (int)0, (int)remaining_samples-(int)my_pspace.num_SamplesPerSet );
+      bool accepted = chain.step();
+      my_rtdata.mh_proposed_count++;
+      if( accepted ) my_rtdata.mh_accepted_count++;
+    }
+    my_clock.measure( "pCN burn-in", true );
 
-      // ====== Sample the Mean-Field Noise in Matsubara/Frequency Space ======
-      auto meanfield_trajectories = my_meanfield_covariances.sample_time_trajectories( my_eig, my_ortho, engine, num_SamplesInThisSet );
+    // ====== Production Sweep ======
+    // Observables are accumulated from the current chain state every step after burn-in;
+    // on a rejected proposal the cached state is re-accumulated (holding-time weighting).
+    my_clock.enter_loop();
+    for( size_t s = 0; s < my_rtdata.get_num_SamplesPerCore(); ++s )
+    {
+      bool accepted = chain.step();
+      my_rtdata.mh_proposed_count++;
+      if( accepted ) my_rtdata.mh_accepted_count++;
 
-      my_MC_estimator.obtain( my_clock.measure( "mean-field sampling" ) );
-      my_clock.enter_loop();
-      for( size_t sample = 0; sample < num_SamplesInThisSet; ++sample )
+      if( my_pspace.uncoupled_spins )
       {
-        // ====== Propagate in imaginary time and sample thermal correlations ======
-        if( my_pspace.uncoupled_spins )
-        {
-          auto [Z_i_list, forward_propagators, backward_propagators] = func::compute_uncoupled_propagators( meanfield_trajectories[sample], my_meanfield_mean, my_pspace );
-          func::accumulate_uncoupled_Z( my_uncoupled_partition_functions, my_rtdata, Z_i_list, my_pspace );
-          func::compute_uncoupled_spin_observables( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, forward_propagators, backward_propagators, Z_i_list, my_rtdata, my_pspace );
-        }
-        else
-        {
-          auto [Z, forward_propagators, backward_propagators] = func::compute_propagators( meanfield_trajectories[sample], my_meanfield_mean, my_pspace );
-          my_partition_function += Z;
-          func::compute_spin_observables( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, forward_propagators, backward_propagators, Z, my_rtdata, my_pspace );
-        }
-        my_MC_estimator.obtain( my_clock.measure( "time evolution" ) );
+        func::compute_uncoupled_spin_observables_mh( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, chain.forward_uncoupled(), chain.backward_uncoupled(), chain.Z_i_list(), my_rtdata, my_pspace );
       }
-      my_clock.leave_loop();
-      my_clock.update_time();
+      else
+      {
+        func::compute_spin_observables_mh( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, chain.forward(), chain.backward(), chain.Z(), my_rtdata, my_pspace );
+      }
+      my_MC_estimator.obtain( my_clock.measure( "pCN production" ) );
     }
     my_clock.leave_loop();
-    my_clock.measure( "Monte-Carlo simulation", true );
-    // -----------------------End of Monte-Carlo Simulation ----------------------
+    my_clock.measure( "pCN simulation", true );
+
+    // Save the chain's final state (basis-independent) to seed the next iteration's warm start.
+    my_full_freq_persistent = chain.full_frequency();
+    // ---------------------- End of Preconditioned Crank-Nicolson Simulation ---------------
 
     // ====== Share the Results of Each MPI Process ======
-    func::MPI_share_results( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, my_rtdata, my_partition_function );
-    if( my_pspace.uncoupled_spins )
-    {
-      func::MPI_share_uncoupled_results( my_uncoupled_partition_functions, my_rtdata );
-    }
+    func::MPI_share_results_mh( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, my_rtdata );
+    my_rtdata.record_mh_acceptance();
     my_clock.measure( "MPI communication", true );
 
     // ====== Finalize the Spin Correlations and Compute the Iteration Error ======
-    if( my_pspace.uncoupled_spins )
-    {
-      func::normalize_uncoupled( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, my_uncoupled_partition_functions, my_rtdata.get_num_Samples() );
-    }
-    else
-    {
-      func::normalize( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_partition_function );
-      for( auto& spin_expval_i : my_new_spin_expvals ){ spin_expval_i /= my_partition_function; }
-    }
+    const RealType N = static_cast<RealType>( my_rtdata.get_num_Samples() );
+    func::normalize_mh( my_new_spin_correlations_Re, my_new_spin_correlations_Im, N );
+    for( auto& spin_expval_i : my_new_spin_expvals ){ spin_expval_i /= N; }
 
-    // ====== Compute the Standard Deviation from the MC-simulation ======
-    if( my_pspace.uncoupled_spins )
-    {
-      my_rtdata.compute_and_process_uncoupled_spin_expval_stds( my_new_spin_expvals, my_uncoupled_partition_functions );
-      my_rtdata.compute_and_process_uncoupled_sample_stds( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_uncoupled_partition_functions );
-    }
-    else
-    {
-      my_rtdata.compute_and_process_spin_expval_stds( my_new_spin_expvals, my_partition_function );
-      my_rtdata.compute_and_process_sample_stds( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_partition_function );
-    }
+    // ====== Compute the Standard Error from the pCN simulation ======
+    my_rtdata.compute_and_process_spin_expval_stds( my_new_spin_expvals, N, my_pspace.mh_step_size );
+    my_rtdata.compute_and_process_sample_stds( my_new_spin_correlations_Re, my_new_spin_correlations_Im, N, my_pspace.mh_step_size );
 
     my_rtdata.compute_iteration_error( my_new_spin_correlations_Re, my_spin_correlations_Re );
     my_spin_correlations_Re = std::move( my_new_spin_correlations_Re );

@@ -193,136 +193,246 @@ ComplexType correlation( const std::vector<Operator>& vS_t1, const std::vector<O
     return blaze::trace( vS_t1[direction[0]] * vS_t2[direction[1]] ); // <S^alpha(t_1)S^beta(t_2)>
 }
 
-// compute the spin correlations for a single MC sample
-void compute_spin_correlations( const ps::ParameterSpace& pspace, rtd::RunTimeData& rtdata,
-    CorrTen& spin_correlations_R, CorrTen& spin_correlations_I, FieldVector& spin_expval, RealType& Z,
-    FieldVector& spin_expval_sqsum, FieldVector& spin_expval_cov,
+// Accumulate per-sample contributions from one pCN chain state.
+// For each direction (alpha, beta) and each time t we add
+//     o = Tr[ U(beta-t; V) S^alpha U(t; V) S^beta ] / Z(V)
+// to the running sum (spin_correlations), and o^2 to spin_expval_sqsum / sample_sqsum
+// for a textbook standard-error-of-the-mean estimate.
+void compute_spin_correlations( rtd::RunTimeData& rtdata,
+    CorrTen& spin_correlations_R, CorrTen& spin_correlations_I,
+    FieldVector& spin_expval, FieldVector& spin_expval_sqsum,
+    const RealType Z,
     const std::vector<Operator>& S_x_of_t,
-    const std::vector<Operator>& S_y_of_t, 
+    const std::vector<Operator>& S_y_of_t,
     const std::vector<Operator>& S_z_of_t )
 {
-    std::vector<Operator> vS_at_zero = {S_X, S_Y, S_Z}; // spin vector at time 0
+    std::vector<Operator> vS_at_zero = {S_X, S_Y, S_Z};
+    const RealType inv_Z = ( Z != RealType{0.} ) ? RealType{1.} / Z : RealType{0.};
 
-    RealType s0 = std::real( blaze::trace(S_x_of_t[0]) ); // <Sx>
-    RealType s1 = std::real( blaze::trace(S_y_of_t[0]) ); // <Sy>
-    RealType s2 = std::real( blaze::trace(S_z_of_t[0]) ); // <Sz>
-    spin_expval[0] += s0;
-    spin_expval[1] += s1;
-    spin_expval[2] += s2;
-    // accumulate spin square sums and spin-Z covariance into per-core accumulators
-    spin_expval_sqsum[0] += s0*s0;
-    spin_expval_sqsum[1] += s1*s1;
-    spin_expval_sqsum[2] += s2*s2;
-    spin_expval_cov[0] += s0 * Z;
-    spin_expval_cov[1] += s1 * Z;
-    spin_expval_cov[2] += s2 * Z;
+    const RealType s0 = std::real( blaze::trace(S_x_of_t[0]) ) * inv_Z;
+    const RealType s1 = std::real( blaze::trace(S_y_of_t[0]) ) * inv_Z;
+    const RealType s2 = std::real( blaze::trace(S_z_of_t[0]) ) * inv_Z;
+    spin_expval[0] += s0;       spin_expval[1] += s1;       spin_expval[2] += s2;
+    spin_expval_sqsum[0] += s0*s0; spin_expval_sqsum[1] += s1*s1; spin_expval_sqsum[2] += s2*s2;
 
-    // loop over all directions, then over all times
-    stda::for_n_each( [&]( auto& re_g_alphabeta_of_t, auto& im_g_alphabeta_of_t, auto& re_gsq_alphabeta_of_t, auto& im_gsq_alphabeta_of_t, auto& re_cov_alphabeta_of_t, auto& im_cov_alphabeta_of_t, auto& alphabeta )
-    {    
-        stda::for_n_each( [&]( auto& re_g_alphabeta_at_t, auto& im_g_alphabeta_at_t, auto& re_gsq_alphabeta_at_t, auto& im_gsq_alphabeta_at_t, auto& re_cov_alphabeta_at_t, auto& im_cov_alphabeta_at_t, auto& S_x_at_t, auto& S_y_at_t, auto& S_z_at_t )
+    stda::for_n_each( [&]( auto& re_g_of_t, auto& im_g_of_t, auto& re_gsq_of_t, auto& im_gsq_of_t, auto& alphabeta )
+    {
+        stda::for_n_each( [&]( auto& re_g_at_t, auto& im_g_at_t, auto& re_gsq_at_t, auto& im_gsq_at_t, auto& S_x_at_t, auto& S_y_at_t, auto& S_z_at_t )
         {
-            std::vector<Operator> vS_at_t = {S_x_at_t, S_y_at_t, S_z_at_t}; // spin vector at time t
-            ComplexType single_sample_result = correlation( vS_at_t, vS_at_zero, alphabeta ); // compute the correlation for the single sample
-            im_g_alphabeta_at_t += std::imag(single_sample_result);
-            re_g_alphabeta_at_t += std::real(single_sample_result); // add the single sample results to the correlations
-            re_gsq_alphabeta_at_t += std::pow(std::real(single_sample_result),2); // add the squared single sample results to the sample sqsums
-            im_gsq_alphabeta_at_t += std::pow(std::imag(single_sample_result),2); // add the squared single sample results to the sample sqsums
-            re_cov_alphabeta_at_t += std::real(single_sample_result) * Z; // add the covariance part for real part
-            im_cov_alphabeta_at_t += std::imag(single_sample_result) * Z; // add the covariance part for imag part
+            std::vector<Operator> vS_at_t = {S_x_at_t, S_y_at_t, S_z_at_t};
+            ComplexType single_sample_result = correlation( vS_at_t, vS_at_zero, alphabeta );
+            const RealType re_o = std::real(single_sample_result) * inv_Z;
+            const RealType im_o = std::imag(single_sample_result) * inv_Z;
+            re_g_at_t   += re_o;
+            im_g_at_t   += im_o;
+            re_gsq_at_t += re_o * re_o;
+            im_gsq_at_t += im_o * im_o;
         },
-        re_g_alphabeta_of_t.begin(), re_g_alphabeta_of_t.end(), im_g_alphabeta_of_t.begin(), re_gsq_alphabeta_of_t.begin(), im_gsq_alphabeta_of_t.begin(), re_cov_alphabeta_of_t.begin(), im_cov_alphabeta_of_t.begin(), S_x_of_t.cbegin(), S_y_of_t.cbegin(), S_z_of_t.cbegin() ); // loop over time
-    }, spin_correlations_R.begin(), spin_correlations_R.end(), spin_correlations_I.begin(), rtdata.sample_sqsum_Re.begin(), rtdata.sample_sqsum_Im.begin(), rtdata.sample_cov_Re.begin(), rtdata.sample_cov_Im.begin(), spin_correlations_R.m_direction_pairs.begin() ); 
+        re_g_of_t.begin(), re_g_of_t.end(), im_g_of_t.begin(), re_gsq_of_t.begin(), im_gsq_of_t.begin(),
+        S_x_of_t.cbegin(), S_y_of_t.cbegin(), S_z_of_t.cbegin() );
+    },
+    spin_correlations_R.begin(), spin_correlations_R.end(), spin_correlations_I.begin(),
+    rtdata.sample_sqsum_Re.begin(), rtdata.sample_sqsum_Im.begin(),
+    spin_correlations_R.m_direction_pairs.begin() );
 }
 
-// sum the results of all cores and broadcast the sum to all cores with MPI_Allreduce 
-void MPI_share_results( rtd::RunTimeData& rtdata, CorrTen& spin_correlations_R, CorrTen& spin_correlations_I, FieldVector& spin_expval, RealType& partition_function, FieldVector& spin_expval_sqsum, FieldVector& spin_expval_cov )
+// helper: MPI_Allreduce a CorrTen of per-(alpha,beta,t) sums
+static void mpi_sum_corrtensor( CorrTen& CT )
 {
-    // share mag moment results
-    std::vector<RealType> rcv_buf(3);
-    std::vector<RealType> snd_buf = { spin_expval[0], spin_expval[1], spin_expval[2] };
-    MPI_Allreduce( snd_buf.data(), rcv_buf.data(), 3, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-    spin_expval = { rcv_buf[0], rcv_buf[1], rcv_buf[2] };
-
-    // share spin sums of squares and spin-Z covariances
-    std::vector<RealType> snd_sq = { spin_expval_sqsum[0], spin_expval_sqsum[1], spin_expval_sqsum[2] };
-    std::vector<RealType> rcv_sq(3);
-    MPI_Allreduce( snd_sq.data(), rcv_sq.data(), 3, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-    rtdata.spin_expval_sqsum = { rcv_sq[0], rcv_sq[1], rcv_sq[2] };
-
-    std::vector<RealType> snd_cov = { spin_expval_cov[0], spin_expval_cov[1], spin_expval_cov[2] };
-    std::vector<RealType> rcv_cov(3);
-    MPI_Allreduce( snd_cov.data(), rcv_cov.data(), 3, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-    rtdata.spin_expval_cov = { rcv_cov[0], rcv_cov[1], rcv_cov[2] };
-
-    // share correlation results
-    std::for_each( spin_correlations_R.begin(), spin_correlations_R.end(), []( corr::CorrelationVector& spin_c ) 
+    std::for_each( CT.begin(), CT.end(), []( corr::CorrelationVector& v )
     {
-        std::vector<RealType> rcv_buf( spin_c.size() ); 
-        MPI_Allreduce( spin_c.data(), rcv_buf.data(), spin_c.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-        spin_c = rcv_buf;
+        std::vector<RealType> rcv( v.size() );
+        MPI_Allreduce( v.data(), rcv.data(), v.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+        v = rcv;
     } );
-
-    // share correlation results
-    std::for_each( spin_correlations_I.begin(), spin_correlations_I.end(), []( corr::CorrelationVector& spin_c ) 
-    {
-        std::vector<RealType> rcv_buf( spin_c.size() ); 
-        MPI_Allreduce( spin_c.data(), rcv_buf.data(), spin_c.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-        spin_c = rcv_buf;
-    } );
-
-    // share sample sqsum results
-    std::for_each( rtdata.sample_sqsum_Re.begin(), rtdata.sample_sqsum_Re.end(), []( corr::CorrelationVector& spin_c ) 
-    {
-        std::vector<RealType> rcv_buf( spin_c.size() ); 
-        MPI_Allreduce( spin_c.data(), rcv_buf.data(), spin_c.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-        spin_c = rcv_buf;
-    } );
-
-    // share sample sqsum results
-    std::for_each( rtdata.sample_sqsum_Im.begin(), rtdata.sample_sqsum_Im.end(), []( corr::CorrelationVector& spin_c ) 
-    {
-        std::vector<RealType> rcv_buf( spin_c.size() ); 
-        MPI_Allreduce( spin_c.data(), rcv_buf.data(), spin_c.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-        spin_c = rcv_buf;
-    } );
-
-    // share covariance results
-    std::for_each( rtdata.sample_cov_Re.begin(), rtdata.sample_cov_Re.end(), []( corr::CorrelationVector& spin_c ) 
-    {
-        std::vector<RealType> rcv_buf( spin_c.size() ); 
-        MPI_Allreduce( spin_c.data(), rcv_buf.data(), spin_c.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-        spin_c = rcv_buf;
-    } );
-
-    // share covariance results
-    std::for_each( rtdata.sample_cov_Im.begin(), rtdata.sample_cov_Im.end(), []( corr::CorrelationVector& spin_c ) 
-    {
-        std::vector<RealType> rcv_buf( spin_c.size() ); 
-        MPI_Allreduce( spin_c.data(), rcv_buf.data(), spin_c.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-        spin_c = rcv_buf;
-    } );    
-
-    std::vector<RealType> send_buf = { partition_function };
-    std::vector<RealType> receive_buf( 1 );
-    // share partition function results
-    MPI_Allreduce( send_buf.data(), receive_buf.data(), 1, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-    partition_function = receive_buf.at(0);
-
-    send_buf = { rtdata.Z_sqsum };
-    // share partition function results
-    MPI_Allreduce( send_buf.data(), receive_buf.data(), 1, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-    rtdata.Z_sqsum = receive_buf.at(0);
 }
 
-// normalize the results of the MC-simulation by dividing them with the partition function
-void normalize( rtd::RunTimeData& rtdata, CorrTen& spin_correlations, RealType& partition_function )
+// in-place MPI_Allreduce of a 3-component FieldVector
+static void mpi_sum_fieldvector( FieldVector& v )
 {
-    // normalize correlation results
-    std::for_each( spin_correlations.begin(), spin_correlations.end(), [&partition_function]( corr::CorrelationVector& spin_c ) 
+    FieldVector rcv{ 0., 0., 0. };
+    MPI_Allreduce( v.data(), rcv.data(), 3, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+    v = rcv;
+}
+
+// sum the per-core accumulators across all MPI cores
+void MPI_share_results( rtd::RunTimeData& rtdata, CorrTen& spin_correlations_R, CorrTen& spin_correlations_I, FieldVector& spin_expval, FieldVector& spin_expval_sqsum )
+{
+    mpi_sum_fieldvector( spin_expval );
+    mpi_sum_fieldvector( spin_expval_sqsum );
+    rtdata.spin_expval_sqsum = spin_expval_sqsum;
+
+    mpi_sum_corrtensor( spin_correlations_R );
+    mpi_sum_corrtensor( spin_correlations_I );
+    mpi_sum_corrtensor( rtdata.sample_sqsum_Re );
+    mpi_sum_corrtensor( rtdata.sample_sqsum_Im );
+}
+
+// divide the summed-over-samples accumulator by N to obtain the Monte-Carlo mean
+void normalize( CorrTen& spin_correlations, RealType N )
+{
+    const RealType inv_N = RealType{1.} / N;
+    std::for_each( spin_correlations.begin(), spin_correlations.end(), [inv_N]( corr::CorrelationVector& spin_c )
     {
-        spin_c *= 1/partition_function;
+        spin_c *= inv_N;
     } );
+}
+
+// --- pCN sampler helpers ---
+
+// Inverse DFT mirroring fmvg::FrequencyNoiseVectors::fourier_back_transform but acting
+// on a single sample given in the diagonal frequency basis.
+std::vector<FieldVector> diag_freq_to_time( const std::vector<fmvg::Vector>& V_diag,
+                                            const fmvg::OrthogonalTransformationList& ortho )
+{
+    size_t N = V_diag.size();
+    // 1.) rotate each block back into the full Matsubara basis
+    std::vector<fmvg::Vector> V_full( N );
+    for( size_t b = 0; b < N; ++b )
+    {
+        V_full[b] = ortho[b] * V_diag[b];
+    }
+    // 2.) inverse DFT, same conventions as fmvg::FrequencyNoiseVectors::fourier_back_transform
+    std::vector<FieldVector> V_time( N );
+    const RealType norm0  = std::sqrt( static_cast<RealType>(N) );
+    const RealType normNZ = std::sqrt( static_cast<RealType>(N) / RealType{2.} );
+    for( size_t t = 0; t < N; ++t )
+    {
+        FieldVector result{ 0., 0., 0. };
+        result += V_full[0] / norm0; // n = 0 term
+        for( size_t n = 1; n < N/2 + 1; ++n )
+        {
+            result += V_full[n] * std::cos( (2.*M_PI*t*n)/static_cast<RealType>(N) ) / normNZ;
+        }
+        for( size_t n = N/2 + 1; n < N; ++n )
+        {
+            result += - V_full[n] * std::sin( (2.*M_PI*t*n)/static_cast<RealType>(N) ) / normNZ;
+        }
+        V_time[t] = result;
+    }
+    return V_time;
+}
+
+// ======================== PCNChain implementation ========================
+
+void PCNChain::draw_prior_into( std::vector<fmvg::Vector>& V_diag )
+{
+    for( size_t b = 0; b < V_diag.size(); ++b )
+    {
+        fmvg::Vector v;
+        for( size_t i = 0; i < 3; ++i ) v[i] = m_prior_dists[b][i]( m_engine );
+        V_diag[b] = v;
+    }
+}
+
+void PCNChain::rebuild_propagators_and_S()
+{
+    std::vector<FieldVector> V_time = diag_freq_to_time( m_V_diag, m_ortho );
+    std::tie( m_Z, m_propagators, m_propagators_inv ) = compute_propagators( m_pspace, V_time, m_mf_mean );
+    compute_S_of_t( m_pspace, m_propagators, m_propagators_inv, m_S_x, m_S_y, m_S_z );
+}
+
+// Common construction: store references and build the per-block prior distributions
+// from the (possibly truncated) eigenvalues.
+PCNChain::PCNChain( const ps::ParameterSpace& pspace,
+                    const fmvg::EigenValuesList& eig,
+                    const fmvg::OrthogonalTransformationList& ortho,
+                    const FieldVector& mf_mean,
+                    RealType pcn_beta,
+                    std::mt19937& engine )
+    : m_pspace( pspace ),
+      m_ortho( ortho ),
+      m_mf_mean( mf_mean ),
+      m_engine( engine ),
+      m_pcn_beta( pcn_beta ),
+      m_pcn_root( std::sqrt( std::max( RealType{0.}, RealType{1.} - pcn_beta * pcn_beta ) ) ),
+      m_prior_dists( ortho.size() ),
+      m_uniform01( RealType{0.}, RealType{1.} ),
+      m_V_diag( ortho.size() )
+{
+    // Per-block, per-component prior distribution xi ~ N(0, sqrt(eig)). Truncated
+    // (non-positive) eigenvalues give a degenerate proposal at zero, freezing those
+    // modes -- consistent with the prior having no support there.
+    for( size_t b = 0; b < eig.size(); ++b )
+    {
+        for( size_t i = 0; i < 3; ++i )
+        {
+            const RealType sigma = ( eig[b][i] > RealType{0.} ) ? std::sqrt( eig[b][i] ) : RealType{0.};
+            m_prior_dists[b][i] = std::normal_distribution<RealType>( RealType{0.}, sigma );
+        }
+    }
+
+    // Cold start: draw an initial state; retry on Z <= 0 (a numerically degenerate region).
+    draw_prior_into( m_V_diag );
+    rebuild_propagators_and_S();
+    for( size_t retries = 0; !(m_Z > RealType{0.}) && retries < 32; ++retries )
+    {
+        draw_prior_into( m_V_diag );
+        rebuild_propagators_and_S();
+    }
+}
+
+// Warm start: same construction, but seed V_diag from the supplied state instead of
+// drawing from the prior. Frozen modes (eig <= 0) are zeroed for consistency.
+PCNChain::PCNChain( const ps::ParameterSpace& pspace,
+                    const fmvg::EigenValuesList& eig,
+                    const fmvg::OrthogonalTransformationList& ortho,
+                    const FieldVector& mf_mean,
+                    RealType pcn_beta,
+                    std::mt19937& engine,
+                    std::vector<fmvg::Vector> V_diag_initial )
+    : PCNChain( pspace, eig, ortho, mf_mean, pcn_beta, engine )
+{
+    // Replace the cold-start state with the supplied warm state, zeroing components
+    // where the new prior has no support, then rebuild Z, propagators, and S^a(t).
+    for( size_t b = 0; b < m_V_diag.size(); ++b )
+    {
+        for( size_t i = 0; i < 3; ++i )
+        {
+            m_V_diag[b][i] = ( eig[b][i] > RealType{0.} ) ? V_diag_initial[b][i] : RealType{0.};
+        }
+    }
+    rebuild_propagators_and_S();
+}
+
+std::vector<fmvg::Vector> PCNChain::V_full() const
+{
+    std::vector<fmvg::Vector> result( m_V_diag.size() );
+    for( size_t b = 0; b < m_V_diag.size(); ++b )
+    {
+        result[b] = m_ortho[b] * m_V_diag[b];
+    }
+    return result;
+}
+
+bool PCNChain::step()
+{
+    // 1.) pCN proposal in the diagonal basis: V' = sqrt(1-beta^2) V + beta xi, xi ~ p(V)
+    std::vector<fmvg::Vector> V_diag_prop( m_V_diag.size() );
+    for( size_t b = 0; b < m_V_diag.size(); ++b )
+    {
+        fmvg::Vector xi;
+        for( size_t i = 0; i < 3; ++i ) xi[i] = m_prior_dists[b][i]( m_engine );
+        V_diag_prop[b] = m_pcn_root * m_V_diag[b] + m_pcn_beta * xi;
+    }
+
+    // 2.) evaluate target at the proposal
+    std::vector<FieldVector> V_time_prop = diag_freq_to_time( V_diag_prop, m_ortho );
+    auto [Z_prop, propagators_prop, propagators_inv_prop] = compute_propagators( m_pspace, V_time_prop, m_mf_mean );
+
+    // 3.) pCN acceptance: the Gaussian prior factors cancel, leaving min(1, Z'/Z).
+    //     Z <= 0 is treated as a forbidden region.
+    if( !(Z_prop > RealType{0.}) || !(m_Z > RealType{0.}) ) return false;
+    const RealType log_alpha = std::log( Z_prop ) - std::log( m_Z );
+    if( std::log( m_uniform01( m_engine ) ) >= log_alpha ) return false;
+
+    // 4.) on acceptance, swap in the new state and refresh the cached S^a(t)
+    m_V_diag = std::move( V_diag_prop );
+    m_Z = Z_prop;
+    m_propagators = std::move( propagators_prop );
+    m_propagators_inv = std::move( propagators_inv_prop );
+    compute_S_of_t( m_pspace, m_propagators, m_propagators_inv, m_S_x, m_S_y, m_S_z );
+    return true;
 }
 
 };

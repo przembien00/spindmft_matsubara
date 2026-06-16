@@ -64,23 +64,10 @@ RunTimeData::RunTimeData(const ps::ParameterSpace& pspace, const int my_rank ):
     // ...concerning the statistics
     sample_sqsum_Re = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
     sample_sqsum_Im = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
-    sample_cov_Re   = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
-    sample_cov_Im   = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
     sample_stds_Re  = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
     sample_stds_Im  = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
     spin_expval_sqsum = std::vector<FieldVector>( pspace.num_Spins, FieldVector{0.,0.,0.} );
-    spin_expval_cov   = std::vector<FieldVector>( pspace.num_Spins, FieldVector{0.,0.,0.} );
     spin_expval_stds  = std::vector<FieldVector>( pspace.num_Spins, FieldVector{0.,0.,0.} );
-    Z_sqsum = RealType{0.};
-    if ( pspace.uncoupled_spins )
-    {
-        uncoupled_Z_sqsum = std::vector<RealType>( pspace.num_Spins, 0.0 );
-        uncoupled_Z_cov = clu::CorrelationCluster<RealType>{ pspace.num_Spins };
-        uncoupled_sample_cov_Re_i = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
-        uncoupled_sample_cov_Re_j = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
-        uncoupled_sample_cov_Im_i = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
-        uncoupled_sample_cov_Im_j = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
-    }
     if( pspace.adaptive_sample_size ){ adaptive_num_SamplesPerCore.emplace_back( num_SamplesPerCore ); }
 }
 
@@ -161,234 +148,61 @@ size_t RunTimeData::get_num_SetsPerCore() const
     return (size_t) std::ceil( static_cast<double>(get_num_SamplesPerCore()) / static_cast<double>(num_SamplesPerSet) ); 
 }
 
-// compute the standard deviation of a single correlation Monte-Carlo sample, adapt the sample size if desired
-void RunTimeData::compute_and_process_sample_stds( const CluCorrTen& sample_sum_Re, const CluCorrTen& sample_sum_Im, const RealType partition_function )
+// Estimate the lag-1 autocorrelation rho1 of the pCN chain from the latest acceptance rate
+// and the step size, and return the AR(1) variance-inflation factor sqrt( (1+rho1)/(1-rho1) ).
+// A rejected pCN step copies the state, an accepted one retains a fraction sqrt(1-beta^2) of
+// it, so rho1 ~ 1 - a*(1 - sqrt(1-beta^2)). This is a crude single-exponential estimate: it
+// assumes one relaxation timescale and underestimates the true autocorrelation when the chain
+// has a slow / trapped mode. rho1 is clamped below 1 so the factor stays finite when the chain
+// barely moves.
+RealType RunTimeData::pcn_autocorrelation_factor( const RealType pcn_step_size ) const
 {
-    const RealType Z_sqsum_local = Z_sqsum;
-    sample_stds_Re.iterate2( sample_sqsum_Re, [&]( auto& std_CT, auto& sqsum_CT, const auto& ij )
-    {
-        const auto& sum_CT = sample_sum_Re( ij[0], ij[1] );
-        const auto& cov_CT = sample_cov_Re( ij[0], ij[1] );
-        std_CT.iterate2( sqsum_CT, [&]( auto& std_C, auto& sqsum_C, const auto& alphabeta )
-        {
-            const auto sum_C = sum_CT( alphabeta[0], alphabeta[1] );
-            const auto cov_C = cov_CT( alphabeta[0], alphabeta[1] );
-            for( size_t tau_index = 0; tau_index < std_C.size(); ++tau_index )
-            {
-                std_C[tau_index] = std::sqrt( std::abs( sqsum_C[tau_index] + std::pow(sum_C[tau_index],2) * Z_sqsum_local - RealType{2.} * sum_C[tau_index] * cov_C[tau_index] ) / std::pow( partition_function, 2 ) );
-            }
-        } );
-    } );
+    if( acceptance_rates.empty() ) return RealType{1.};
+    const RealType a = acceptance_rates.back();
+    const RealType retained = std::sqrt( std::max( RealType{0.}, RealType{1.} - pcn_step_size * pcn_step_size ) );
+    RealType rho1 = RealType{1.} - a * ( RealType{1.} - retained );
+    rho1 = std::min( std::max( rho1, RealType{0.} ), RealType{1.} - RealType{1e-12} );
+    return std::sqrt( ( RealType{1.} + rho1 ) / ( RealType{1.} - rho1 ) );
+}
 
-    sample_stds_Im.iterate2( sample_sqsum_Im, [&]( auto& std_CT, auto& sqsum_CT, const auto& ij )
+// pCN estimators are plain chain means; the i.i.d. standard error of the mean is
+// stderr( <o> ) = sqrt( ( <o^2> - <o>^2 ) / N ). Because the samples are autocorrelated this
+// is scaled by the AR(1) factor from pcn_autocorrelation_factor. sample_mean_* hold the
+// already normalized means and sample_sqsum_* the MPI-reduced raw sum_i o_i^2.
+void RunTimeData::compute_and_process_sample_stds( const CluCorrTen& sample_mean_Re, const CluCorrTen& sample_mean_Im, const RealType N, const RealType pcn_step_size )
+{
+    const RealType autocorr_factor = pcn_autocorrelation_factor( pcn_step_size );
+    auto per_point_stderr = [N, autocorr_factor]( const RealType sample_mean, const RealType sample_sqsum ) -> RealType
     {
-        const auto& sum_CT = sample_sum_Im( ij[0], ij[1] );
-        const auto& cov_CT = sample_cov_Im( ij[0], ij[1] );
-        std_CT.iterate2( sqsum_CT, [&]( auto& std_C, auto& sqsum_C, const auto& alphabeta )
-        {
-            const auto sum_C = sum_CT( alphabeta[0], alphabeta[1] );
-            const auto cov_C = cov_CT( alphabeta[0], alphabeta[1] );
-            for( size_t tau_index = 0; tau_index < std_C.size(); ++tau_index )
-            {
-                std_C[tau_index] = std::sqrt( std::abs( sqsum_C[tau_index] + std::pow(sum_C[tau_index],2) * Z_sqsum_local - RealType{2.} * sum_C[tau_index] * cov_C[tau_index] ) / std::pow( partition_function, 2 ) );
-            }
-        } );
-    } );
+        const RealType var = std::abs( sample_sqsum / N - sample_mean * sample_mean );
+        return autocorr_factor * std::sqrt( var / N );
+    };
 
-    // reset the square sum for the next iteration step:
-    sample_sqsum_Re = CluCorrTen{ sample_sum_Re.get_site_pairs(), sample_sum_Re[0].get_symmetry(), sample_sum_Re[0][0].size() };
-    sample_sqsum_Im = CluCorrTen{ sample_sum_Im.get_site_pairs(), sample_sum_Im[0].get_symmetry(), sample_sum_Im[0][0].size() };
-    sample_cov_Re   = CluCorrTen{ sample_sum_Re.get_site_pairs(), sample_sum_Re[0].get_symmetry(), sample_sum_Re[0][0].size() };
-    sample_cov_Im   = CluCorrTen{ sample_sum_Im.get_site_pairs(), sample_sum_Im[0].get_symmetry(), sample_sum_Im[0][0].size() };
-    Z_sqsum      = RealType{0.};
-
-    // determine a new sample size for the next iteration step in case of adaptive settings
-    if( adaptive_sample_size ) 
+    auto fill_stderr = [&]( const CluCorrTen& mean_CCT, CluCorrTen& sqsum_CCT, CluCorrTen& std_CCT )
     {
-        // determine the maximum standard deviation sigma_max = max_{ij} max_{ab} max_{t} sigma^ab_ij(t,0)
-        std::vector<RealType> max_std_per_CCT{};
-        std::transform( sample_stds_Re.cbegin(), sample_stds_Re.cend(), std::back_inserter(max_std_per_CCT), []( const CorrTen& std_CT )
+        std_CCT.iterate2( sqsum_CCT, [&]( auto& std_CT, auto& sqsum_CT, const auto& ij )
         {
-            std::vector<RealType> max_std_per_CT{};
-            std::transform( std_CT.cbegin(), std_CT.cend(), std::back_inserter(max_std_per_CT), []( const Corr& std_C )
+            const auto& mean_CT = mean_CCT( ij[0], ij[1] );
+            std_CT.iterate2( sqsum_CT, [&]( auto& std_C, auto& sqsum_C, const auto& alphabeta )
             {
-                return *std::max_element( std_C.cbegin(), std_C.cend() );
+                const auto mean_C = mean_CT( alphabeta[0], alphabeta[1] );
+                for( size_t tau_index = 0; tau_index < std_C.size(); ++tau_index )
+                {
+                    std_C[tau_index] = per_point_stderr( mean_C[tau_index], sqsum_C[tau_index] );
+                }
             } );
-            return *std::max_element( max_std_per_CT.cbegin(), max_std_per_CT.cend() );
         } );
-        RealType max_std = *std::max_element( max_std_per_CCT.cbegin(), max_std_per_CCT.cend() );
-        RealType max_std_of_sum = max_std; // Sigma_max
+    };
 
-        // check if the previous sample size was large enough and update the sample size
-        size_t new_num_SamplesPerCore{};
-        if( max_std_of_sum < statistical_error_tolerance ) // then leave the number of samples constant
-        {
-            sample_size_updated = false;
-            new_num_SamplesPerCore = this->get_num_SamplesPerCore();
-        }
-        else // otherwise set the new sample size so that the threshold will be approximately fulfilled in the next iteration
-        {
-            sample_size_updated = true;
-            RealType ratio = max_std_of_sum / statistical_error_tolerance;
-            new_num_SamplesPerCore = (size_t) ( static_cast<RealType>( this->get_num_SamplesPerCore() ) * pow(ratio,2) + 1.0 );
-        }
-        adaptive_num_SamplesPerCore.emplace_back( new_num_SamplesPerCore );   
-    }
-}
+    fill_stderr( sample_mean_Re, sample_sqsum_Re, sample_stds_Re );
+    fill_stderr( sample_mean_Im, sample_sqsum_Im, sample_stds_Im );
 
-void RunTimeData::compute_and_process_spin_expval_stds( const std::vector<FieldVector>& spin_expvals, const RealType partition_function )
-{
-    for( size_t site = 0; site < spin_expvals.size(); ++site )
-    {
-        for( size_t alpha = 0; alpha < 3; ++alpha )
-        {
-            const RealType sum = spin_expvals[site][alpha];
-            const RealType sqsum = spin_expval_sqsum[site][alpha];
-            const RealType cov = spin_expval_cov[site][alpha];
-            spin_expval_stds[site][alpha] = std::sqrt( std::abs( sqsum + std::pow(sum,2) * Z_sqsum - RealType{2.} * sum * cov ) / std::pow( partition_function, 2 ) );
-        }
-    }
-
-    spin_expval_sqsum = std::vector<FieldVector>( spin_expvals.size(), FieldVector{0.,0.,0.} );
-    spin_expval_cov   = std::vector<FieldVector>( spin_expvals.size(), FieldVector{0.,0.,0.} );
-}
-
-void RunTimeData::compute_and_process_uncoupled_spin_expval_stds( const std::vector<FieldVector>& spin_expvals, const std::vector<RealType>& partition_functions )
-{
-    for( size_t site = 0; site < spin_expvals.size(); ++site )
-    {
-        for( size_t alpha = 0; alpha < 3; ++alpha )
-        {
-            const RealType sum = spin_expvals[site][alpha];
-            const RealType sqsum = spin_expval_sqsum[site][alpha];
-            const RealType cov = spin_expval_cov[site][alpha];
-            const RealType Z_sq = uncoupled_Z_sqsum[site];
-            const RealType Z_sum = partition_functions[site];
-            
-            spin_expval_stds[site][alpha] = std::sqrt( std::abs( sqsum + std::pow(sum,2) * Z_sq - RealType{2.} * sum * cov ) / std::pow( Z_sum, 2 ) );
-        }
-    }
-
-    spin_expval_sqsum = std::vector<FieldVector>( spin_expvals.size(), FieldVector{0.,0.,0.} );
-    spin_expval_cov   = std::vector<FieldVector>( spin_expvals.size(), FieldVector{0.,0.,0.} );
-    // uncoupled_Z_sqsum is reset in the sample_stds function below
-}
-
-void RunTimeData::compute_and_process_uncoupled_sample_stds( const CluCorrTen& sample_sum_Re, const CluCorrTen& sample_sum_Im, const std::vector<RealType>& partition_functions )
-{
-    const auto& Z_sq_local = uncoupled_Z_sqsum;
-    const auto& Z_cov_local = uncoupled_Z_cov;
-
-    sample_stds_Re.iterate2( sample_sqsum_Re, [&]( auto& std_CT, auto& sqsum_CT, const auto& ij )
-    {
-        const auto& sum_CT = sample_sum_Re( ij[0], ij[1] );
-        const auto& cov_CT_i = uncoupled_sample_cov_Re_i( ij[0], ij[1] );
-        const auto& cov_CT_j = uncoupled_sample_cov_Re_j( ij[0], ij[1] );
-        
-        const RealType Z_i = partition_functions[ij[0]];
-        const RealType Z_j = partition_functions[ij[1]];
-        const RealType Z_i_sq = Z_sq_local[ij[0]];
-        const RealType Z_j_sq = Z_sq_local[ij[1]];
-        const RealType Z_ij_cov = Z_cov_local(ij[0], ij[1]);
-
-        std_CT.iterate2( sqsum_CT, [&]( auto& std_C, auto& sqsum_C, const auto& alphabeta )
-        {
-            const auto sum_C = sum_CT( alphabeta[0], alphabeta[1] );
-            const auto cov_C_i = cov_CT_i( alphabeta[0], alphabeta[1] );
-            const auto cov_C_j = cov_CT_j( alphabeta[0], alphabeta[1] );
-            
-            RealType M = static_cast<RealType>( this->get_num_Samples() );
-            
-            for( size_t tau_index = 0; tau_index < std_C.size(); ++tau_index )
-            {
-                const RealType X_norm = sum_C[tau_index]; // Already normalized value!
-                
-                if( ij[0] != ij[1] )
-                {
-                    // X_norm = M * (S_X) / (Z_i * Z_j). 
-                    // So unnormalized ratio R_X = S_X / (Z_i * Z_j) = X_norm / M
-                    RealType R_X = X_norm / M;
-                    
-                    // Full Delta-Method bracket for Var(S_X / (Z_i * Z_j))
-                    RealType var = sqsum_C[tau_index] 
-                                 + std::pow(R_X * Z_j, 2) * Z_i_sq 
-                                 + std::pow(R_X * Z_i, 2) * Z_j_sq
-                                 - RealType{2.} * (R_X * Z_j) * cov_C_i[tau_index]
-                                 - RealType{2.} * (R_X * Z_i) * cov_C_j[tau_index]
-                                 + RealType{2.} * std::pow(R_X, 2) * Z_i * Z_j * Z_ij_cov;
-                                 
-                    std_C[tau_index] = std::sqrt( std::abs(var) * std::pow( M / (Z_i * Z_j), 2 ) );
-                }
-                else
-                {
-                    // X_norm = S_X / Z_i. Simple ratio Delta method bracket!
-                    std_C[tau_index] = std::sqrt( std::abs( sqsum_C[tau_index] + std::pow(X_norm, 2) * Z_i_sq - RealType{2.} * X_norm * cov_C_i[tau_index] ) / std::pow( Z_i, 2 ) );
-                }
-            }
-        } );
-    } );
-
-    sample_stds_Im.iterate2( sample_sqsum_Im, [&]( auto& std_CT, auto& sqsum_CT, const auto& ij )
-    {
-        const auto& sum_CT = sample_sum_Im( ij[0], ij[1] );
-        const auto& cov_CT_i = uncoupled_sample_cov_Im_i( ij[0], ij[1] );
-        const auto& cov_CT_j = uncoupled_sample_cov_Im_j( ij[0], ij[1] );
-        
-        const RealType Z_i = partition_functions[ij[0]];
-        const RealType Z_j = partition_functions[ij[1]];
-        const RealType Z_i_sq = Z_sq_local[ij[0]];
-        const RealType Z_j_sq = Z_sq_local[ij[1]];
-        const RealType Z_ij_cov = Z_cov_local(ij[0], ij[1]);
-
-        std_CT.iterate2( sqsum_CT, [&]( auto& std_C, auto& sqsum_C, const auto& alphabeta )
-        {
-            const auto sum_C = sum_CT( alphabeta[0], alphabeta[1] );
-            const auto cov_C_i = cov_CT_i( alphabeta[0], alphabeta[1] );
-            const auto cov_C_j = cov_CT_j( alphabeta[0], alphabeta[1] );
-            
-            RealType M = static_cast<RealType>( this->get_num_Samples() );
-            
-            for( size_t tau_index = 0; tau_index < std_C.size(); ++tau_index )
-            {
-                const RealType X_norm = sum_C[tau_index]; // Already normalized value!
-                
-                if( ij[0] != ij[1] )
-                {
-                    // X_norm = M * (S_X) / (Z_i * Z_j). 
-                    // So unnormalized ratio R_X = S_X / (Z_i * Z_j) = X_norm / M
-                    RealType R_X = X_norm / M;
-                    
-                    // Full Delta-Method bracket for Var(S_X / (Z_i * Z_j))
-                    RealType var = sqsum_C[tau_index] 
-                                 + std::pow(R_X * Z_j, 2) * Z_i_sq 
-                                 + std::pow(R_X * Z_i, 2) * Z_j_sq
-                                 - RealType{2.} * (R_X * Z_j) * cov_C_i[tau_index]
-                                 - RealType{2.} * (R_X * Z_i) * cov_C_j[tau_index]
-                                 + RealType{2.} * std::pow(R_X, 2) * Z_i * Z_j * Z_ij_cov;
-                                 
-                    std_C[tau_index] = std::sqrt( std::abs(var) * std::pow( M / (Z_i * Z_j), 2 ) );
-                }
-                else
-                {
-                    // X_norm = S_X / Z_i. Simple ratio Delta method bracket!
-                    std_C[tau_index] = std::sqrt( std::abs( sqsum_C[tau_index] + std::pow(X_norm, 2) * Z_i_sq - RealType{2.} * X_norm * cov_C_i[tau_index] ) / std::pow( Z_i, 2 ) );
-                }
-            }
-        } );
-    } );
-
-    // reset the square sum for the next iteration step:
-    sample_sqsum_Re = CluCorrTen{ sample_sum_Re.get_site_pairs(), sample_sum_Re[0].get_symmetry(), sample_sum_Re[0][0].size() };
-    sample_sqsum_Im = CluCorrTen{ sample_sum_Im.get_site_pairs(), sample_sum_Im[0].get_symmetry(), sample_sum_Im[0][0].size() };
-    uncoupled_sample_cov_Re_i = CluCorrTen{ sample_sum_Re.get_site_pairs(), sample_sum_Re[0].get_symmetry(), sample_sum_Re[0][0].size() };
-    uncoupled_sample_cov_Re_j = CluCorrTen{ sample_sum_Re.get_site_pairs(), sample_sum_Re[0].get_symmetry(), sample_sum_Re[0][0].size() };
-    uncoupled_sample_cov_Im_i = CluCorrTen{ sample_sum_Im.get_site_pairs(), sample_sum_Im[0].get_symmetry(), sample_sum_Im[0][0].size() };
-    uncoupled_sample_cov_Im_j = CluCorrTen{ sample_sum_Im.get_site_pairs(), sample_sum_Im[0].get_symmetry(), sample_sum_Im[0][0].size() };
-    std::fill(uncoupled_Z_sqsum.begin(), uncoupled_Z_sqsum.end(), 0.0);
-    uncoupled_Z_cov = clu::CorrelationCluster<RealType>{ uncoupled_Z_cov.get_site_pairs() };
+    // reset the per-iteration accumulators
+    sample_sqsum_Re = CluCorrTen{ sample_mean_Re.get_site_pairs(), sample_mean_Re[0].get_symmetry(), sample_mean_Re[0][0].size() };
+    sample_sqsum_Im = CluCorrTen{ sample_mean_Im.get_site_pairs(), sample_mean_Im[0].get_symmetry(), sample_mean_Im[0][0].size() };
 
     // determine a new sample size for the next iteration step in case of adaptive settings
-    if( adaptive_sample_size ) 
+    if( adaptive_sample_size )
     {
         std::vector<RealType> max_std_per_CCT{};
         std::transform( sample_stds_Re.cbegin(), sample_stds_Re.cend(), std::back_inserter(max_std_per_CCT), []( const CorrTen& std_CT )
@@ -403,19 +217,36 @@ void RunTimeData::compute_and_process_uncoupled_sample_stds( const CluCorrTen& s
         RealType max_std_of_sum = *std::max_element( max_std_per_CCT.cbegin(), max_std_per_CCT.cend() );
 
         size_t new_num_SamplesPerCore{};
-        if( max_std_of_sum < statistical_error_tolerance ) 
+        if( max_std_of_sum < statistical_error_tolerance )
         {
             sample_size_updated = false;
             new_num_SamplesPerCore = this->get_num_SamplesPerCore();
         }
-        else 
+        else
         {
             sample_size_updated = true;
             RealType ratio = max_std_of_sum / statistical_error_tolerance;
             new_num_SamplesPerCore = (size_t) ( static_cast<RealType>( this->get_num_SamplesPerCore() ) * pow(ratio,2) + 1.0 );
         }
-        adaptive_num_SamplesPerCore.emplace_back( new_num_SamplesPerCore );   
+        adaptive_num_SamplesPerCore.emplace_back( new_num_SamplesPerCore );
     }
+}
+
+void RunTimeData::compute_and_process_spin_expval_stds( const std::vector<FieldVector>& spin_mean, const RealType N, const RealType pcn_step_size )
+{
+    const RealType autocorr_factor = pcn_autocorrelation_factor( pcn_step_size );
+    for( size_t site = 0; site < spin_mean.size(); ++site )
+    {
+        for( size_t alpha = 0; alpha < 3; ++alpha )
+        {
+            const RealType mean = spin_mean[site][alpha];
+            const RealType sqsum = spin_expval_sqsum[site][alpha];
+            const RealType var = std::abs( sqsum / N - mean * mean );
+            spin_expval_stds[site][alpha] = autocorr_factor * std::sqrt( var / N );
+        }
+    }
+
+    spin_expval_sqsum = std::vector<FieldVector>( spin_mean.size(), FieldVector{0.,0.,0.} );
 }
 
 // compute the absolute time average of a correlation
@@ -492,9 +323,27 @@ void RunTimeData::finalize_iteration_step()
         << print::quantity_to_output_line( pc_space, "relative iteration error tolerance" + regarded("relative"), print::round_value_to_string( relative_iteration_error_tolerance, num_PrintDigits ) )
         << print::quantity_to_output_line( pc_space, "current absolute iteration error", print::round_value_to_string( absolute_iteration_error_list.back(), num_PrintDigits ) )
         << print::quantity_to_output_line( pc_space, "absolute iteration error tolerance" + regarded("absolute"), print::round_value_to_string( absolute_iteration_error_tolerance, num_PrintDigits ) );
+        if( !acceptance_rates.empty() )
+        {
+            std::cout << print::quantity_to_output_line( pc_space, "pCN acceptance rate", print::round_value_to_string( acceptance_rates.back(), num_PrintDigits ) );
+        }
     }
 
-    num_Iterations++; 
+    num_Iterations++;
+}
+
+// MPI-reduce the per-core pCN acceptance counters and append the global acceptance rate.
+void RunTimeData::record_mh_acceptance()
+{
+    long long local[2] = { static_cast<long long>(mh_accepted_count),
+                           static_cast<long long>(mh_proposed_count) };
+    long long global[2] = { 0, 0 };
+    MPI_Allreduce( local, global, 2, MPI_LONG_LONG, MPI_SUM, MPI_COMM_WORLD );
+    RealType rate = ( global[1] > 0 ) ? static_cast<RealType>(global[0]) / static_cast<RealType>(global[1])
+                                      : RealType{0.};
+    acceptance_rates.emplace_back( rate );
+    mh_accepted_count = 0;
+    mh_proposed_count = 0;
 }
 
 // check whether the results are converged

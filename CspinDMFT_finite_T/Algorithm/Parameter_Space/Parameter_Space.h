@@ -90,8 +90,13 @@ public:
   size_t num_SamplesPerSet{};
   size_t num_Samples{};
   std::string seed{};
-  bool adaptive_sample_size{ false }; 
-  RealType statistical_error_tolerance{}; 
+  bool adaptive_sample_size{ false };
+  RealType statistical_error_tolerance{};
+
+  // ...concerning the preconditioned Crank-Nicolson (pCN) sampler (frequency-space)
+  RealType mh_step_size{};         // pCN step parameter beta in (0, 1]
+  size_t mh_burn_in{};             // cold-start burn-in (first self-consistent iteration)
+  RealType mh_warm_burn_in_frac{}; // fraction in [0, 1] of mh_burn_in used from iter 2+
 
   // ...concerning the initial correlations 
   std::string init_corr_mode{};

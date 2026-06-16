@@ -37,22 +37,27 @@ class RunTimeData
 
    // ...concerning the statistics
    size_t generated_seed{};
-   CorrTen sample_sqsum_Re{};    // M*<x^2> (<x> is not saved in runtimedata)
-   CorrTen sample_sqsum_Im{};    // M*<x^2> (<x> is not saved in runtimedata)
-   RealType Z_sqsum{};          // M*<Z^2> (<Z> is not saved in runtimedata)
-   CorrTen sample_cov_Re{};    // covariance between real part and Z
-   CorrTen sample_cov_Im{};    // covariance between imag part and Z
-   CorrTen sample_stds_Re{};     // sqrt(<x^2> - <x>^2)
-   CorrTen sample_stds_Im{};     // sqrt(<x^2> - <x>^2)
-  // ...spin expectation value statistics (S_x, S_y, S_z)
-  FieldVector spin_expval_sqsum{}; // M*<S^2>
-  FieldVector spin_expval_cov{};   // covariance between S and Z
-  FieldVector spin_expval_stds{};  // standard deviations of S
+   CorrTen sample_sqsum_Re{};       // sum_i o_i^2 (raw, MPI-reduced before compute_sample_stds)
+   CorrTen sample_sqsum_Im{};
+   CorrTen sample_stds_Re{};        // standard error of the mean, sqrt( (<o^2> - <o>^2) / N )
+   CorrTen sample_stds_Im{};
+   // ...spin expectation value statistics (S_x, S_y, S_z)
+   FieldVector spin_expval_sqsum{}; // sum_i s_i^2 (raw, MPI-reduced before compute_sample_stds)
+   FieldVector spin_expval_stds{};  // standard error of the mean for <S^alpha>
 
    // ...concerning the iteration
    size_t num_Iterations{};
    std::vector<RealType> absolute_iteration_errors{};
    std::string termination{};
+
+   // ...concerning the Metropolis-Hastings chain diagnostics
+   // mh_accepted_count and mh_proposed_count are accumulated per MPI core during one
+   // iteration; record_mh_acceptance() reduces them across MPI ranks and appends the
+   // resulting global acceptance ratio to acceptance_rates.
+   size_t mh_accepted_count{};
+   size_t mh_proposed_count{};
+   std::vector<RealType> acceptance_rates{};
+   void record_mh_acceptance();
 
    // PUBLIC METHODS
    // ...concerning the eigenvalues
@@ -60,7 +65,21 @@ class RunTimeData
 
    // ...concerning the statistics
    std::string get_seed_str();
-  void compute_sample_stds( const CorrTen& sample_sum_Re, const CorrTen& sample_sum_Im, const RealType& Z, const FieldVector& spin_sample_sum );
+   // Given the normalized means (sample_mean_*) and the global sample count N, compute the
+   // standard error of the mean for each correlation and each spin component. The pCN samples
+   // are autocorrelated, so the i.i.d. stderr is scaled by the AR(1) variance-inflation factor
+   // sqrt( (1+rho1)/(1-rho1) ) (see pcn_autocorrelation_factor); pcn_step_size is the pCN beta
+   // used to estimate rho1.
+   void compute_sample_stds( const CorrTen& sample_mean_Re, const CorrTen& sample_mean_Im,
+                             const FieldVector& spin_mean, RealType N, RealType pcn_step_size );
+
+   // AR(1) autocorrelation correction factor sqrt( (1+rho1)/(1-rho1) ) for the pCN stds.
+   // rho1 is estimated from the latest acceptance rate a and the pCN step size beta via the
+   // pCN move: a rejected step copies the state, an accepted one retains a fraction
+   // sqrt(1-beta^2) of it, giving rho1 ~ 1 - a*(1 - sqrt(1-beta^2)). This is a crude single-
+   // exponential estimate: it assumes one relaxation timescale and UNDERESTIMATES the true
+   // autocorrelation when the chain has a slow / trapped mode.
+   RealType pcn_autocorrelation_factor( RealType pcn_step_size ) const;
    size_t get_num_SamplesPerCore() const;
    size_t get_num_Samples() const;
 

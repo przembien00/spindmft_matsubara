@@ -1,6 +1,8 @@
 #include"Run_Time_Data.h"
 #include<fstream>
 #include<iomanip>
+#include<mpi.h>
+#include<Globals/MPI_Types.h>
 
 #include<Standard_Algorithms/Print_Routines.h>
 namespace print = Print_Routines;
@@ -31,11 +33,7 @@ RunTimeData::RunTimeData( const ps::ParameterSpace& pspace, const int my_rank ):
     sample_sqsum_Im = CorrTen{ pspace.correlation_symmetry_type, pspace.num_TimePoints };
     sample_stds_Re  = CorrTen{ pspace.correlation_symmetry_type, pspace.num_TimePoints };
     sample_stds_Im  = CorrTen{ pspace.correlation_symmetry_type, pspace.num_TimePoints };
-    sample_cov_Re   = CorrTen{ pspace.correlation_symmetry_type, pspace.num_TimePoints };
-    sample_cov_Im   = CorrTen{ pspace.correlation_symmetry_type, pspace.num_TimePoints };
-    Z_sqsum = RealType{0.};
     spin_expval_sqsum = FieldVector{0.,0.,0.};
-    spin_expval_cov   = FieldVector{0.,0.,0.};
     spin_expval_stds  = FieldVector{0.,0.,0.};
 
     // set the truncation scheme for negative eigenvalues:
@@ -110,63 +108,64 @@ size_t RunTimeData::get_num_Samples() const
     return this->get_num_SamplesPerCore() * num_Cores;
 }
 
-template <class InputIterator1, class InputIterator2, class InputIterator3,
-          class OutputIterator, class TrenaryOperation>
-  OutputIterator transform3(InputIterator1 first1, InputIterator1 last1,
-                            InputIterator2 first2, InputIterator3 first3, OutputIterator result,
-                            TrenaryOperation trenary_op)
+// Estimate the lag-1 autocorrelation rho1 of the pCN chain from the latest acceptance rate
+// and the step size, and return the AR(1) variance-inflation factor sqrt( (1+rho1)/(1-rho1) ).
+// A rejected pCN step copies the state, an accepted one retains a fraction sqrt(1-beta^2) of
+// it, so rho1 ~ 1 - a*(1 - sqrt(1-beta^2)). This is a crude single-exponential estimate: it
+// assumes one relaxation timescale and underestimates the true autocorrelation when the chain
+// has a slow / trapped mode. rho1 is clamped below 1 so the factor stays finite when the chain
+// barely moves.
+RealType RunTimeData::pcn_autocorrelation_factor( RealType pcn_step_size ) const
 {
-  while (first1 != last1) {
-    *result = trenary_op(*first1, *first2, *first3);
-    ++result; ++first1; ++first2; ++first3;
-  }
-  return result;
+    if( acceptance_rates.empty() ) return RealType{1.};
+    const RealType a = acceptance_rates.back();
+    const RealType retained = std::sqrt( std::max( RealType{0.}, RealType{1.} - pcn_step_size * pcn_step_size ) );
+    RealType rho1 = RealType{1.} - a * ( RealType{1.} - retained );
+    rho1 = std::min( std::max( rho1, RealType{0.} ), RealType{1.} - RealType{1e-12} );
+    return std::sqrt( ( RealType{1.} + rho1 ) / ( RealType{1.} - rho1 ) );
 }
 
-// compute the single sample standard deviations
-void RunTimeData::compute_sample_stds( const CorrTen& sample_sum_Re, const CorrTen& sample_sum_Im, const RealType& Z, const FieldVector& spin_sample_sum )
+// Standard error of the mean: stderr( <o> ) = sqrt( ( <o^2> - <o>^2 ) / N ), scaled by the
+// AR(1) autocorrelation factor from pcn_autocorrelation_factor since the pCN samples are
+// correlated. `sample_mean_*` holds <o> (already divided by N in main.cpp via normalize()),
+// `sample_sqsum_*` holds sum_i o_i^2 (MPI-reduced, raw).
+void RunTimeData::compute_sample_stds( const CorrTen& sample_mean_Re, const CorrTen& sample_mean_Im,
+                                       const FieldVector& spin_mean, RealType N, RealType pcn_step_size )
 {
-    // RealType M = static_cast<RealType>( this->get_num_Samples() );
-
-    transform3( sample_sum_Re.cbegin(), sample_sum_Re.cend(), sample_sqsum_Re.cbegin(), sample_cov_Re.cbegin(), sample_stds_Re.begin(), [&]( const Corr& sample_sum_C, const Corr& sample_sqsum_C, const Corr& sample_cov_CZ )
+    const RealType autocorr_factor = pcn_autocorrelation_factor( pcn_step_size );
+    auto per_point_stderr = [N, autocorr_factor]( const RealType& sample_mean, const RealType& sample_sqsum ) -> RealType
     {
-        Corr std_C( sample_sum_C.size() );
-        transform3( sample_sum_C.cbegin(), sample_sum_C.cend(), sample_sqsum_C.cbegin(), sample_cov_CZ.cbegin(), std_C.begin(), [&]( const auto& sample_sum, const auto& sample_sqsum, const auto& sample_cov )
-        {
-            return std::sqrt(std::abs( sample_sqsum + std::pow(sample_sum,2)*Z_sqsum - 2 * sample_sum * sample_cov ) / std::pow(Z,2));
-        } );
-        return std_C;
-    } );
+        const RealType var = std::abs( sample_sqsum / N - sample_mean * sample_mean );
+        return autocorr_factor * std::sqrt( var / N );
+    };
 
-    transform3( sample_sum_Im.cbegin(), sample_sum_Im.cend(), sample_sqsum_Im.cbegin(), sample_cov_Im.cbegin(), sample_stds_Im.begin(), [&]( const Corr& sample_sum_C, const Corr& sample_sqsum_C, const Corr& sample_cov_CZ )
+    auto stderr_correlation = [&]( const CorrTen& mean, const CorrTen& sqsum, CorrTen& out )
     {
-        Corr std_C( sample_sum_C.size() );
-        transform3( sample_sum_C.cbegin(), sample_sum_C.cend(), sample_sqsum_C.cbegin(), sample_cov_CZ.cbegin(), std_C.begin(), [&]( const auto& sample_sum, const auto& sample_sqsum, const auto& sample_cov )
+        auto mean_dir = mean.cbegin();
+        auto sqsum_dir = sqsum.cbegin();
+        auto out_dir = out.begin();
+        for( ; mean_dir != mean.cend(); ++mean_dir, ++sqsum_dir, ++out_dir )
         {
-            return std::sqrt(std::abs( sample_sqsum + std::pow(sample_sum,2)*Z_sqsum - 2 * sample_sum * sample_cov ) / std::pow(Z,2));
-        } );
-        return std_C;
-    } );
-
-    sample_sqsum_Re = CorrTen{ sample_sum_Re.get_symmetry(), sample_sum_Re[0].size() }; // reset the square sum for the next iteration
-    sample_sqsum_Im = CorrTen{ sample_sum_Re.get_symmetry(), sample_sum_Re[0].size() }; // reset the square sum for the next iteration
-    sample_cov_Re = CorrTen{ sample_sum_Re.get_symmetry(), sample_sum_Re[0].size() }; // reset the covariance for the next iteration
-    sample_cov_Im = CorrTen{ sample_sum_Re.get_symmetry(), sample_sum_Re[0].size() }; // reset the covariance for the next iteration
-
-    // compute and reset spin expectation value stds using provided spin_sample_sum (M*<S>)
-    if( Z > RealType{0.} )
-    {
-        for( size_t i=0; i<3; ++i )
-        {
-            // formula analogous to correlations: sqrt( <S^2> - <S>^2 ) but using sums and Z
-            spin_expval_stds[i] = std::sqrt( std::abs( spin_expval_sqsum[i] + std::pow(spin_sample_sum[i],2) * Z_sqsum - 2. * spin_sample_sum[i] * spin_expval_cov[i] ) / std::pow(Z,2) );
-            spin_expval_sqsum[i] = RealType{0.};
-            spin_expval_cov[i] = RealType{0.};
+            Corr buf( mean_dir->size() );
+            auto m_it = mean_dir->cbegin();
+            auto q_it = sqsum_dir->cbegin();
+            auto b_it = buf.begin();
+            for( ; m_it != mean_dir->cend(); ++m_it, ++q_it, ++b_it )
+                *b_it = per_point_stderr( *m_it, *q_it );
+            *out_dir = std::move( buf );
         }
-    }
-    Z_sqsum = RealType{0.}; // reset the Z square sum for the next iteration
+    };
 
+    stderr_correlation( sample_mean_Re, sample_sqsum_Re, sample_stds_Re );
+    stderr_correlation( sample_mean_Im, sample_sqsum_Im, sample_stds_Im );
 
+    for( size_t i = 0; i < 3; ++i )
+        spin_expval_stds[i] = per_point_stderr( spin_mean[i], spin_expval_sqsum[i] );
+
+    // reset per-iteration accumulators
+    sample_sqsum_Re = CorrTen{ sample_mean_Re.get_symmetry(), sample_mean_Re[0].size() };
+    sample_sqsum_Im = CorrTen{ sample_mean_Re.get_symmetry(), sample_mean_Re[0].size() };
+    spin_expval_sqsum = FieldVector{ 0., 0., 0. };
 }
 
 
@@ -195,8 +194,26 @@ void RunTimeData::finalize_iteration_step()
         std::cout << "Iteration step finished:\n"
         << print::quantity_to_output_line( pc_space, "current absolute iteration error",    print::round_value_to_string( absolute_iteration_errors.back(), num_PrintDigits ) )
         << print::quantity_to_output_line( pc_space, "absolute iteration error threshold",  print::round_value_to_string( absolute_iteration_error_threshold, num_PrintDigits ) );
+        if( !acceptance_rates.empty() )
+        {
+            std::cout << print::quantity_to_output_line( pc_space, "MH acceptance rate",    print::round_value_to_string( acceptance_rates.back(), num_PrintDigits ) );
+        }
     }
-    num_Iterations++; 
+    num_Iterations++;
+}
+
+// MPI-reduce the per-core MH acceptance counters and append the global rate.
+void RunTimeData::record_mh_acceptance()
+{
+    long long local[2] = { static_cast<long long>(mh_accepted_count),
+                           static_cast<long long>(mh_proposed_count) };
+    long long global[2] = { 0, 0 };
+    MPI_Allreduce( local, global, 2, MPI_LONG_LONG, MPI_SUM, MPI_COMM_WORLD );
+    RealType rate = ( global[1] > 0 ) ? static_cast<RealType>(global[0]) / static_cast<RealType>(global[1])
+                                      : RealType{0.};
+    acceptance_rates.emplace_back( rate );
+    mh_accepted_count = 0;
+    mh_proposed_count = 0;
 }
 
 // determine whether the iteration should be terminated

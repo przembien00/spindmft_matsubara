@@ -245,6 +245,11 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace, rtd::RunTimeDat
     hdf5r::store_scalar( ps_group_id, "statistical_error_tolerance",pspace.statistical_error_tolerance );
     hdf5r::store_string( ps_group_id, "seed type",                  pspace.seed );
 
+    // ...concerning the preconditioned Crank-Nicolson sampler
+    hdf5r::store_scalar( ps_group_id, "mh_step_size",               pspace.mh_step_size );
+    hdf5r::store_scalar( ps_group_id, "mh_burn_in",                 pspace.mh_burn_in );
+    hdf5r::store_scalar( ps_group_id, "mh_warm_burn_in_frac",       pspace.mh_warm_burn_in_frac );
+
     // ...concerning the initial correlations
     hdf5r::store_string( ps_group_id, "init_corr_mode",             pspace.init_corr_mode );
     hdf5r::store_string( ps_group_id, "init_pair_corr_mode",        hdf5r::none_if_empty(pspace.init_pair_corr_mode) );
@@ -307,12 +312,19 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace, rtd::RunTimeDat
 
     // ...concerning the statistics
     hdf5r::store_scalar( rtd_group_id, "generated_seed",                        rtdata.generated_seed );
-    store_correlation_tensor_cluster( rtdata.sample_stds_Re, rtd_group_id, "Re_correlation_sample_stds", "Standard deviations of the real part of the imaginary-time correlations <S^alpha_i(tau)S^beta_j(0)>, stored according to the hierarchy i-j, alpha-beta, tau" );
-    store_correlation_tensor_cluster( rtdata.sample_stds_Im, rtd_group_id, "Im_correlation_sample_stds", "Standard deviations of the imaginary part of the imaginary-time correlations <S^alpha_i(tau)S^beta_j(0)>, stored according to the hierarchy i-j, alpha-beta, tau" );
-    hdf5r::store_2D_tensor<RealType>( rtd_group_id, "spin_expectation_values_stds", H5_REAL_TYPE, site_fields_to_vmatrix( rtdata.spin_expval_stds ), "Standard deviations of the thermal spin expectation values <S_i^alpha>, stored according to the hierarchy i, alpha" );
+    const std::string autocorr_remark = " Scaled by the AR(1) autocorrelation factor sqrt((1+rho1)/(1-rho1)), with the lag-1 autocorrelation rho1 estimated from the pCN acceptance rate a and step size beta as rho1 ~ 1 - a*(1 - sqrt(1-beta^2)). This is a crude single-mode correction and underestimates the error when the chain has a slow/trapped mode.";
+    store_correlation_tensor_cluster( rtdata.sample_stds_Re, rtd_group_id, "Re_correlation_sample_stds", "Standard deviations of the real part of the imaginary-time correlations <S^alpha_i(tau)S^beta_j(0)>, stored according to the hierarchy i-j, alpha-beta, tau." + autocorr_remark );
+    store_correlation_tensor_cluster( rtdata.sample_stds_Im, rtd_group_id, "Im_correlation_sample_stds", "Standard deviations of the imaginary part of the imaginary-time correlations <S^alpha_i(tau)S^beta_j(0)>, stored according to the hierarchy i-j, alpha-beta, tau." + autocorr_remark );
+    hdf5r::store_2D_tensor<RealType>( rtd_group_id, "spin_expectation_values_stds", H5_REAL_TYPE, site_fields_to_vmatrix( rtdata.spin_expval_stds ), "Standard deviations of the thermal spin expectation values <S_i^alpha>, stored according to the hierarchy i, alpha." + autocorr_remark );
     if( pspace.adaptive_sample_size )
     {
         hdf5r::store_list( rtd_group_id, "adaptive sample size per core (including hypothetical next iteration step)", rtdata.adaptive_num_SamplesPerCore );
+    }
+
+    // ...pCN chain diagnostics: per-iteration global acceptance rate
+    if( !rtdata.acceptance_rates.empty() )
+    {
+        hdf5r::store_list( rtd_group_id, "mh_acceptance_rates", rtdata.acceptance_rates );
     }
 
     // ...concerning the iterations

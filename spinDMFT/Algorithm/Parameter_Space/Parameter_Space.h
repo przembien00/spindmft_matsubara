@@ -65,6 +65,11 @@ class ParameterSpace
   size_t num_Samples{};
   std::string seed{};
 
+  // ...concerning the preconditioned Crank-Nicolson sampler (frequency-space)
+  RealType mh_step_size{};         // pCN step parameter beta in (0, 1]
+  size_t mh_burn_in{};             // cold-start burn-in (first self-consistent iteration)
+  RealType mh_warm_burn_in_frac{}; // fraction in [0, 1] of mh_burn_in used from iter 2+
+
   // ...concerning the iteration 
   RealType absolute_iteration_error_threshold{};
   size_t Iteration_Limit{};
