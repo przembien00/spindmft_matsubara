@@ -100,8 +100,12 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     // ====== Production Sweep ======
     // Observables are accumulated from the current chain state every step after burn-in;
     // on a rejected proposal the cached state is re-accumulated (holding-time weighting).
+    // The samples are split into batch-mean blocks for the error estimate; init_blocks sets
+    // the block length and close_block() finalizes one block every block_length steps.
+    const size_t num_SamplesPerCore = my_rtdata.get_num_SamplesPerCore();
+    my_rtdata.init_blocks( my_new_spin_correlations_Re, num_SamplesPerCore );
     my_clock.enter_loop();
-    for( size_t s = 0; s < my_rtdata.get_num_SamplesPerCore(); ++s )
+    for( size_t s = 0; s < num_SamplesPerCore; ++s )
     {
       bool accepted = chain.step();
       my_rtdata.mh_proposed_count++;
@@ -115,6 +119,7 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
       {
         func::compute_spin_observables_mh( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, chain.forward(), chain.backward(), chain.Z(), my_rtdata, my_pspace );
       }
+      if( ( s + 1 ) % my_rtdata.block_length == 0 ) my_rtdata.close_block();
       my_MC_estimator.obtain( my_clock.measure( "pCN production" ) );
     }
     my_clock.leave_loop();
@@ -135,8 +140,13 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     for( auto& spin_expval_i : my_new_spin_expvals ){ spin_expval_i /= N; }
 
     // ====== Compute the Standard Error from the pCN simulation ======
-    my_rtdata.compute_and_process_spin_expval_stds( my_new_spin_expvals, N, my_pspace.mh_step_size );
-    my_rtdata.compute_and_process_sample_stds( my_new_spin_correlations_Re, my_new_spin_correlations_Im, N, my_pspace.mh_step_size );
+    // Dispatches on errmethod: 'blocking' (batch means, default; robust to autocorrelation and
+    // also fills tau_int) or 'ar1' (legacy acceptance-based single-mode factor).
+    my_rtdata.compute_sample_stds( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, N, my_pspace.mh_step_size );
+
+    // Only [0, beta/2] was sampled; fill the upper half (and its std errors / tau_int) by the
+    // reflection symmetry g^{ab}_{ij}(beta-tau) = g^{ab}_{ij}(tau)^* before the convergence check.
+    func::symmetrize_upper_half( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_rtdata.sample_stds_Re, my_rtdata.sample_stds_Im, my_rtdata.tau_int_Re, my_rtdata.tau_int_Im );
 
     my_rtdata.compute_iteration_error( my_new_spin_correlations_Re, my_spin_correlations_Re );
     my_spin_correlations_Re = std::move( my_new_spin_correlations_Re );

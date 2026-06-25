@@ -148,6 +148,12 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "mhWarmBurnIn", bpo::value<RealType>()->default_value(RealType{1.0}),
     "warm-start burn-in as a fraction of mhBurnIn (in [0, 1]) used from the second self-consistent iteration onwards. Default 1 = full burn-in every iteration (safe)"
     )(
+    "numBlocks", bpo::value<size_t>()->default_value(size_t{32}),
+    "number of batch-mean blocks per core used to estimate correlation std errors (blocking / batch means). Each block must be much longer than the chain autocorrelation time; the blocking_curve diagnostic in the output reports whether that holds"
+    )(
+    "errmethod", bpo::value<std::string>()->default_value("blocking"),
+    "error-bar estimator: 'blocking' (batch means pooled over blocks and cores; robust to autocorrelation, default) or 'ar1' (legacy acceptance-based single-mode factor, underestimates the error for slow/trapped chains)"
+    )(
 
     // ...concerning the initial correlations
     "initmode", bpo::value<std::string>()->default_value("generate"),
@@ -291,6 +297,8 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     mh_step_size            = vm["mhStepSize"].as<RealType>();
     mh_burn_in              = vm["mhBurnIn"].as<size_t>();
     mh_warm_burn_in_frac    = vm["mhWarmBurnIn"].as<RealType>();
+    mh_num_blocks           = vm["numBlocks"].as<size_t>();
+    error_method            = vm["errmethod"].as<std::string>();
 
     // ...concerning the initial correlations 
     init_corr_mode = vm["initmode"].as<std::string>();

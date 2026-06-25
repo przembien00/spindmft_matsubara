@@ -10,6 +10,7 @@
 
 #include<Multivariate_Gaussian/Multivariate_Gaussian_Blocks.h>
 #include<Multivariate_Gaussian/Symmetry_Schemes.h>
+#include<FFT/RealFFT.h>
 #include<Observables/Correlations.h>
 #include<Observables/Tensors.h>
 #include<Observables/Clusters.h>
@@ -59,6 +60,10 @@ private:
     size_t m_num_frequencies{};
     std::vector<size_t> m_block_sizes{};
     std::vector<Multivariate_Gaussian::SymmetricMatrix> m_covariances{};
+    // reusable FFTW plan for the per-site, per-component freq -> imaginary-time transform;
+    // built in fill() once m_num_frequencies is known (shared_ptr so the class stays copyable
+    // and the plan is reused across all pCN steps of one self-consistent iteration).
+    std::shared_ptr<FFT::InverseRealDFT> m_fft{};
 
     size_t flat_index( const size_t frequency, const size_t block ) const;
 };
@@ -101,6 +106,14 @@ void MPI_share_results_mh( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, S
 
 // divide the summed-over-samples accumulators by the global sample count N
 void normalize_mh( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, const RealType N );
+
+// Reconstruct the upper-half (tau > beta/2) correlations from the computed lower half via the
+// per-component reflection symmetry g^{ab}_{ij}(beta-tau) = g^{ab}_{ij}(tau)^* (Re even, Im
+// odd about beta/2). This follows from trace cyclicity g^{ab}_{ij}(beta-tau) = g^{ba}_{ji}(tau)
+// together with Hermiticity g^{ab}_{ij}(tau)^* = g^{ba}_{ji}(tau), so it is a SAME-component
+// relation (no site/direction transpose). The observable accumulators only fill [0, beta/2];
+// this fills the rest (and mirrors the per-point standard errors, with no sign change).
+void symmetrize_upper_half( CluCorrTen& Re, CluCorrTen& Im, CluCorrTen& Re_std, CluCorrTen& Im_std, CluCorrTen& Re_tau, CluCorrTen& Im_tau );
 
 // A single preconditioned-Crank-Nicolson chain for sampling V ~ pi propto p(V) Z(V).
 // The chain owns its frequency-space state and the cached imaginary-time propagators, and

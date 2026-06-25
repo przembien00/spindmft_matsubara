@@ -123,6 +123,9 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     // compute_spin_correlations accumulates the per-sample correlation
     //   Tr[U(beta-t) S U(t) S] / Z(V)
     // (no IS reweighting is needed because V is drawn from pi propto p(V) Z(V)).
+    // The samples are split into batch-mean blocks for the error estimate; init_blocks
+    // sets the block length and close_block() finalizes one block every block_length steps.
+    my_rtdata.init_blocks( my_new_spin_correlations_Re, my_pspace.num_SamplesPerCore );
     my_clock.enter_loop();
     for( size_t s = 0; s < my_pspace.num_SamplesPerCore; ++s )
     {
@@ -136,6 +139,7 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
           my_new_spin_correlations_Re, my_new_spin_correlations_Im,
           my_new_spin_expval, my_spin_expval_sqsum, chain.Z(),
           chain.S_x(), chain.S_y(), chain.S_z() );
+      if( ( s + 1 ) % my_rtdata.block_length == 0 ) my_rtdata.close_block();
       my_MC_estimator.obtain( my_clock.measure( "mean-field sampling" ) );
     }
     my_clock.leave_loop();
@@ -157,6 +161,9 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     func::normalize( my_new_spin_correlations_Im, my_pspace.num_Samples );
     my_new_spin_expval /= my_pspace.num_Samples;
     my_rtdata.compute_sample_stds( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expval, my_pspace.num_Samples, my_pspace.mh_step_size );
+    // Only [0, beta/2] was sampled; fill the upper half (and its std errors) by the
+    // reflection symmetry g^{ab}(beta-tau) = g^{ba}(tau)^* before the convergence check.
+    func::symmetrize_upper_half( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_rtdata.sample_stds_Re, my_rtdata.sample_stds_Im, my_rtdata.tau_int_Re, my_rtdata.tau_int_Im );
     my_rtdata.compute_iteration_error( my_spin_correlations_Re, my_new_spin_correlations_Re );
     my_spin_correlations_Re = std::move( my_new_spin_correlations_Re );
     my_spin_correlations_Im = std::move( my_new_spin_correlations_Im );

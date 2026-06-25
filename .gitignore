@@ -1,11 +1,6 @@
-# do not upload data
-nl-spinDMFT/Data/*
-CspinDMFT/Data/*
-p-spinDMFT/Data/*
-ExactDiagonalization/Data/*
-
 #do not upload plots
 spinDMFT/Plots/*
+CspinDMFT_finite_T/Plots/*
 
 # do not upload CMakeLists.txt
 CMakeLists.txt
@@ -23,3 +18,6 @@ build/
 # do not upload cache
 __pycache__/
 
+# do not upload DS_Store files
+.DS_Store
+**/.DS_Store

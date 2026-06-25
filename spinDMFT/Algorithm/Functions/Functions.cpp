@@ -175,16 +175,22 @@ std::tuple<RealType, std::vector<Operator>, std::vector<Operator>> compute_propa
 void compute_S_of_t( const ps::ParameterSpace& pspace, const std::vector<Operator>& propagators, const std::vector<Operator>& propagators_inv, 
     std::vector<Operator>& S_x_of_t, std::vector<Operator>& S_y_of_t, std::vector<Operator>& S_z_of_t )
 {
-    S_x_of_t.clear(); S_x_of_t.resize( pspace.num_TimePoints );
-    S_y_of_t.clear(); S_y_of_t.resize( pspace.num_TimePoints );
-    S_z_of_t.clear(); S_z_of_t.resize( pspace.num_TimePoints );
+    // Only the lower half [0, beta/2] is built: the rest follows from the reflection
+    // symmetry g^{ab}(beta-tau) = g^{ba}(tau)^* and is reconstructed once per iteration
+    // (see symmetrize_upper_half). n_half counts the points in [0, beta/2] inclusive,
+    // and the loop over propagators is truncated accordingly. The mirror partner of
+    // point k is propagators_inv[N-1-k], supplied by propagators_inv.crbegin().
+    const size_t n_half = pspace.num_TimePoints - pspace.num_TimePoints / 2;
+    S_x_of_t.clear(); S_x_of_t.resize( n_half );
+    S_y_of_t.clear(); S_y_of_t.resize( n_half );
+    S_z_of_t.clear(); S_z_of_t.resize( n_half );
     stda::for_n_each( []( const Operator& U, const Operator& U_inv, Operator& S_x, Operator& S_y, Operator& S_z )
     {
         S_x = U_inv * S_X * U;
         S_y = U_inv * S_Y * U;
         S_z = U_inv * S_Z * U;
     },
-    propagators.cbegin(), propagators.cend(), propagators_inv.crbegin(), S_x_of_t.begin(), S_y_of_t.begin(), S_z_of_t.begin() );
+    propagators.cbegin(), propagators.cbegin() + n_half, propagators_inv.crbegin(), S_x_of_t.begin(), S_y_of_t.begin(), S_z_of_t.begin() );
 }
 
 // compute the autocorrelation at two specific times t1 and t2 in dependence of alphabeta
@@ -214,10 +220,14 @@ void compute_spin_correlations( rtd::RunTimeData& rtdata,
     const RealType s2 = std::real( blaze::trace(S_z_of_t[0]) ) * inv_Z;
     spin_expval[0] += s0;       spin_expval[1] += s1;       spin_expval[2] += s2;
     spin_expval_sqsum[0] += s0*s0; spin_expval_sqsum[1] += s1*s1; spin_expval_sqsum[2] += s2*s2;
+    rtdata.cur_block_spin[0] += s0; rtdata.cur_block_spin[1] += s1; rtdata.cur_block_spin[2] += s2; // batch-means accumulation
 
-    stda::for_n_each( [&]( auto& re_g_of_t, auto& im_g_of_t, auto& re_gsq_of_t, auto& im_gsq_of_t, auto& alphabeta )
+    // Only the lower-half time points [0, beta/2] are accumulated; the inner loop is
+    // driven by the (half-sized) S^a(t) caches, so re_g_of_t etc. are filled only up to
+    // beta/2. The upper half is filled afterwards by symmetrize_upper_half.
+    stda::for_n_each( [&]( auto& re_g_of_t, auto& im_g_of_t, auto& re_gsq_of_t, auto& im_gsq_of_t, auto& re_blk_of_t, auto& im_blk_of_t, auto& alphabeta )
     {
-        stda::for_n_each( [&]( auto& re_g_at_t, auto& im_g_at_t, auto& re_gsq_at_t, auto& im_gsq_at_t, auto& S_x_at_t, auto& S_y_at_t, auto& S_z_at_t )
+        stda::for_n_each( [&]( auto& S_x_at_t, auto& S_y_at_t, auto& S_z_at_t, auto& re_g_at_t, auto& im_g_at_t, auto& re_gsq_at_t, auto& im_gsq_at_t, auto& re_blk_at_t, auto& im_blk_at_t )
         {
             std::vector<Operator> vS_at_t = {S_x_at_t, S_y_at_t, S_z_at_t};
             ComplexType single_sample_result = correlation( vS_at_t, vS_at_zero, alphabeta );
@@ -227,12 +237,16 @@ void compute_spin_correlations( rtd::RunTimeData& rtdata,
             im_g_at_t   += im_o;
             re_gsq_at_t += re_o * re_o;
             im_gsq_at_t += im_o * im_o;
+            re_blk_at_t += re_o;        // batch-means accumulation (current block sum)
+            im_blk_at_t += im_o;
         },
-        re_g_of_t.begin(), re_g_of_t.end(), im_g_of_t.begin(), re_gsq_of_t.begin(), im_gsq_of_t.begin(),
-        S_x_of_t.cbegin(), S_y_of_t.cbegin(), S_z_of_t.cbegin() );
+        S_x_of_t.cbegin(), S_x_of_t.cend(), S_y_of_t.cbegin(), S_z_of_t.cbegin(),
+        re_g_of_t.begin(), im_g_of_t.begin(), re_gsq_of_t.begin(), im_gsq_of_t.begin(),
+        re_blk_of_t.begin(), im_blk_of_t.begin() );
     },
     spin_correlations_R.begin(), spin_correlations_R.end(), spin_correlations_I.begin(),
     rtdata.sample_sqsum_Re.begin(), rtdata.sample_sqsum_Im.begin(),
+    rtdata.cur_block_Re.begin(), rtdata.cur_block_Im.begin(),
     spin_correlations_R.m_direction_pairs.begin() );
 }
 
@@ -278,12 +292,49 @@ void normalize( CorrTen& spin_correlations, RealType N )
     } );
 }
 
+// Reconstruct the upper-half (tau > beta/2) correlations from the computed lower half via
+// the per-component reflection symmetry
+//     g^{ab}(beta - tau) = g^{ab}(tau)^*   <=>   Re even, Im odd about beta/2,
+// i.e.  Re g^{ab}(beta-tau) =  Re g^{ab}(tau),    Im g^{ab}(beta-tau) = -Im g^{ab}(tau).
+// This follows from trace cyclicity g^{ab}(beta-tau) = g^{ba}(tau) together with
+// Hermiticity g^{ab}(tau)^* = g^{ba}(tau). It is a SAME-component relation -- no transpose:
+// using the transposed pair g^{ba} would double-apply the conjugate and (wrongly) make the
+// imaginary part symmetric.  The mirror partner of grid point k (tau_k = k*delta_t) is
+// point N-1-k (beta - tau_k), always in the computed lower half. The per-point standard
+// errors mirror with no sign change, since each reconstructed value equals its mirror
+// source deterministically.
+void symmetrize_upper_half( CorrTen& Re, CorrTen& Im, CorrTen& Re_std, CorrTen& Im_std, CorrTen& tau_Re, CorrTen& tau_Im )
+{
+    const size_t n_pairs = Re.size();
+    const size_t N = Re[0].size();
+    const size_t n_half = N - N / 2; // computed points in [0, beta/2]
+
+    for( size_t p = 0; p < n_pairs; ++p )
+    {
+        for( size_t k = n_half; k < N; ++k )
+        {
+            const size_t m = N - 1 - k; // mirror index, in the computed lower half
+            Re[p][k]     =  Re[p][m];
+            Im[p][k]     = -Im[p][m];
+            Re_std[p][k] =  Re_std[p][m];
+            Im_std[p][k] =  Im_std[p][m];
+            tau_Re[p][k] =  tau_Re[p][m]; // tau_int is a chain property -> mirror with no sign change
+            tau_Im[p][k] =  tau_Im[p][m];
+        }
+        // The self-paired midpoint tau = beta/2 (present for an odd number of time points)
+        // lies in the computed lower half and keeps its raw sampled value: its imaginary
+        // part is zero only on the ensemble average, so forcing it to zero per iteration
+        // would bias the estimator rather than improve it.
+    }
+}
+
 // --- pCN sampler helpers ---
 
 // Inverse DFT mirroring fmvg::FrequencyNoiseVectors::fourier_back_transform but acting
 // on a single sample given in the diagonal frequency basis.
 std::vector<FieldVector> diag_freq_to_time( const std::vector<fmvg::Vector>& V_diag,
-                                            const fmvg::OrthogonalTransformationList& ortho )
+                                            const fmvg::OrthogonalTransformationList& ortho,
+                                            FFT::InverseRealDFT& fft )
 {
     size_t N = V_diag.size();
     // 1.) rotate each block back into the full Matsubara basis
@@ -292,23 +343,19 @@ std::vector<FieldVector> diag_freq_to_time( const std::vector<fmvg::Vector>& V_d
     {
         V_full[b] = ortho[b] * V_diag[b];
     }
-    // 2.) inverse DFT, same conventions as fmvg::FrequencyNoiseVectors::fourier_back_transform
+    // 2.) inverse real DFT, performed independently for each of the 3 field components in
+    //     O(N log N) via FFTW. FFT::InverseRealDFT reproduces the project's half-complex
+    //     convention exactly (DC ~ 1/sqrt(N), cosine/sine modes ~ 1/sqrt(N/2); see
+    //     RealFFT.h), so this is a drop-in replacement for the former O(N^2) explicit sums.
+    //     Each component's frequency coefficients are packed contiguously, transformed, then
+    //     scattered back into the time-domain FieldVectors.
     std::vector<FieldVector> V_time( N );
-    const RealType norm0  = std::sqrt( static_cast<RealType>(N) );
-    const RealType normNZ = std::sqrt( static_cast<RealType>(N) / RealType{2.} );
-    for( size_t t = 0; t < N; ++t )
+    std::vector<RealType> comp_freq( N ), comp_time( N );
+    for( size_t c = 0; c < 3; ++c )
     {
-        FieldVector result{ 0., 0., 0. };
-        result += V_full[0] / norm0; // n = 0 term
-        for( size_t n = 1; n < N/2 + 1; ++n )
-        {
-            result += V_full[n] * std::cos( (2.*M_PI*t*n)/static_cast<RealType>(N) ) / normNZ;
-        }
-        for( size_t n = N/2 + 1; n < N; ++n )
-        {
-            result += - V_full[n] * std::sin( (2.*M_PI*t*n)/static_cast<RealType>(N) ) / normNZ;
-        }
-        V_time[t] = result;
+        for( size_t n = 0; n < N; ++n ) comp_freq[n] = V_full[n][c];
+        fft.transform( comp_freq.data(), comp_time.data() );
+        for( size_t t = 0; t < N; ++t ) V_time[t][c] = comp_time[t];
     }
     return V_time;
 }
@@ -327,7 +374,7 @@ void PCNChain::draw_prior_into( std::vector<fmvg::Vector>& V_diag )
 
 void PCNChain::rebuild_propagators_and_S()
 {
-    std::vector<FieldVector> V_time = diag_freq_to_time( m_V_diag, m_ortho );
+    std::vector<FieldVector> V_time = diag_freq_to_time( m_V_diag, m_ortho, m_fft );
     std::tie( m_Z, m_propagators, m_propagators_inv ) = compute_propagators( m_pspace, V_time, m_mf_mean );
     compute_S_of_t( m_pspace, m_propagators, m_propagators_inv, m_S_x, m_S_y, m_S_z );
 }
@@ -348,6 +395,7 @@ PCNChain::PCNChain( const ps::ParameterSpace& pspace,
       m_pcn_root( std::sqrt( std::max( RealType{0.}, RealType{1.} - pcn_beta * pcn_beta ) ) ),
       m_prior_dists( ortho.size() ),
       m_uniform01( RealType{0.}, RealType{1.} ),
+      m_fft( ortho.size() ),
       m_V_diag( ortho.size() )
 {
     // Per-block, per-component prior distribution xi ~ N(0, sqrt(eig)). Truncated
@@ -417,7 +465,7 @@ bool PCNChain::step()
     }
 
     // 2.) evaluate target at the proposal
-    std::vector<FieldVector> V_time_prop = diag_freq_to_time( V_diag_prop, m_ortho );
+    std::vector<FieldVector> V_time_prop = diag_freq_to_time( V_diag_prop, m_ortho, m_fft );
     auto [Z_prop, propagators_prop, propagators_inv_prop] = compute_propagators( m_pspace, V_time_prop, m_mf_mean );
 
     // 3.) pCN acceptance: the Gaussian prior factors cancel, leaving min(1, Z'/Z).

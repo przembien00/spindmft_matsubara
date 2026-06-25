@@ -1,0 +1,204 @@
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue,urlcolor=blue]{hyperref}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  frame=single,
+  framesep=4pt,
+  xleftmargin=4pt,
+}
+
+\newcommand{\g}{g}
+\newcommand{\Tr}{\operatorname{Tr}}
+\newcommand{\bt}{\beta}
+
+\title{Exploiting the imaginary-time reflection symmetry in spinDMFT}
+\author{spinDMFT (Matsubara / pCN) algorithm note}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\section{The symmetry}
+
+The imaginary-time spin correlation
+\begin{equation}
+  \g^{ab}(\tau) \;=\; \big\langle\, S^a(\tau)\, S^b(0)\,\big\rangle
+\end{equation}
+obeys, for the equilibrium ensemble,
+\begin{equation}
+  \boxed{\;\g^{ab}(\bt-\tau) \;=\; \g^{ab}(\tau)^{*}\;}
+  \qquad\Longleftrightarrow\qquad
+  \begin{aligned}
+    \operatorname{Re}\g^{ab}(\bt-\tau) &= \phantom{-}\operatorname{Re}\g^{ab}(\tau),\\
+    \operatorname{Im}\g^{ab}(\bt-\tau) &= -\operatorname{Im}\g^{ab}(\tau).
+  \end{aligned}
+  \label{eq:sym}
+\end{equation}
+This is a \emph{same-component} relation: each $\g^{ab}$ has an even real part and an
+\emph{odd} imaginary part about $\bt/2$. It follows from two exact identities,
+\begin{equation}
+  \g^{ab}(\bt-\tau) = \g^{ba}(\tau)\quad\text{(trace cyclicity)},
+  \qquad
+  \g^{ab}(\tau)^{*} = \g^{ba}(\tau)\quad\text{(Hermiticity)},
+  \label{eq:twoid}
+\end{equation}
+whose composition gives \eqref{eq:sym}. \textbf{Caveat:} combining them as
+$\g^{ab}(\bt-\tau)=\g^{ba}(\tau)^{*}$ is wrong --- it double-applies the conjugate
+($\g^{ba}(\tau)^{*}=\g^{ab}(\tau)$) and collapses to
+$\g^{ab}(\bt-\tau)=\g^{ab}(\tau)$, which makes the imaginary part \emph{even}. The
+error is invisible on diagonal ($a=b$) components, where the transpose is a no-op, and
+appears only for off-diagonal components (e.g.\ in an external field).
+
+\section{Origin: it is an \emph{ensemble} property}
+
+In spinDMFT each Monte-Carlo sample is a noise trajectory $V(\tau)$, and the
+single-sample correlation is
+\begin{equation}
+  \g^{ab}(\tau;V) \;=\; \frac{1}{Z(V)}\,
+  \Tr\!\big[\,U(\bt,\tau)\,S^a\,U(\tau,0)\,S^b\,\big],
+  \qquad
+  U(\tau_2,\tau_1)=\mathcal{T}\,e^{-\int_{\tau_1}^{\tau_2} H(s)\,ds},
+\end{equation}
+with $Z(V)=\Tr U(\bt,0)$. Because $U$ is a time-ordered product of exponentials of
+\emph{non-commuting} Hermitian generators, it is \emph{not} itself Hermitian, and the
+cyclicity identity in \eqref{eq:twoid} does \emph{not} hold sample by sample: writing
+$U(\bt,0)=U_{N-1}\cdots U_1U_0$ with $U_k=e^{-\delta H(\tau_k)}$, the order of the
+factors flanking $S^a$ and $S^b$ cannot be reversed for a generic trajectory. It is
+restored only after averaging, because the noise distribution is invariant under
+reflection $V_R(\tau)\equiv V(\bt-\tau)$, $p(V)=p(V_R)$ (the covariance is even / KMS,
+the mean field is constant):
+\begin{equation}
+  \langle \g^{ab}(\bt-\tau)\rangle
+  = \int\! p(V)\,\g^{ab}(\bt-\tau;V)
+  = \int\! p(V_R)\,\g^{ba}(\tau;V_R)
+  = \langle \g^{ba}(\tau)\rangle .
+\end{equation}
+Together with the (likewise ensemble-level) Hermiticity identity this yields
+\eqref{eq:sym}.
+
+\paragraph{Consequence.} A strategy that \emph{enforces $V(\bt-\tau)=V(\tau)$ per
+sample} restricts the sampler to the symmetric (even-frequency) subspace. That is a
+\emph{different, biased} distribution, not $p(V)$. It was tried and rejected: it
+agrees with the reference at $\bt=1$ but deviates by $7$--$9\,\sigma$ at $\bt=2,3$.
+The correct way to use \eqref{eq:sym} is therefore on the \emph{ensemble average}, not
+on the field.
+
+\section{Implemented strategy: half-range computation + reconstruction}
+
+On the grid $\tau_k=k\,\delta t$, $k=0,\dots,N_{\mathrm{ts}}$ with
+$\delta t=\bt/N_{\mathrm{ts}}$ and $N=N_{\mathrm{ts}}+1$ time points, the reflection
+$\bt-\tau_k=\tau_{N-1-k}$ maps grid point $k$ to point $N-1-k$. We therefore
+
+\begin{enumerate}
+  \item sample the per-sample correlation only on the lower half
+        $k=0,\dots,n_{\mathrm{half}}-1$ with $n_{\mathrm{half}}=N-\lfloor N/2\rfloor$
+        (the points in $[0,\bt/2]$), and
+  \item once per self-consistent iteration, after the Monte-Carlo average and the
+        standard-error estimate, reconstruct the upper half from \eqref{eq:sym}:
+        \[
+          \operatorname{Re}\g^{ab}_k =  \operatorname{Re}\g^{ab}_{N-1-k},\quad
+          \operatorname{Im}\g^{ab}_k = -\operatorname{Im}\g^{ab}_{N-1-k},
+          \qquad k\ge n_{\mathrm{half}} .
+        \]
+\end{enumerate}
+The mirror partner $N-1-k$ always lies in the computed lower half. The mapping is
+\emph{per component} --- no transpose --- so each $\g^{ab}$ is reconstructed from itself
+and no cross-pair bookkeeping is needed. The per-point standard errors are reconstructed
+by the same mirror with \emph{no} sign change, because each reconstructed value equals
+its mirror source deterministically. The self-paired midpoint $\tau=\bt/2$ (present only
+for an odd number of time points) lies in the computed lower half and keeps its raw
+sampled value: its imaginary part vanishes only on the ensemble average, so forcing it
+to zero per iteration would bias the estimator rather than improve it.
+
+This is unbiased (the lower half is an ordinary MC estimate, the upper half follows
+exactly), enforces the symmetry to machine precision, and roughly halves the dominant
+per-sample observable work --- the $S^a(\tau)$ operator products and the correlation
+traces. The full propagator chain is still built over $[0,\bt]$ because the partition
+function $Z=\Tr U(\bt,0)$ needs it, so the wall-clock speedup is partial rather than
+exactly $2\times$.
+
+\section{Code changes}
+
+\begin{description}
+  \item[\texttt{Functions.cpp} -- \texttt{compute\_S\_of\_t}] builds the $S^a(\tau)$
+        caches only for the $n_{\mathrm{half}}$ lower-half points (the propagator loop
+        is truncated at \texttt{propagators.cbegin() + n\_half}).
+  \item[\texttt{Functions.cpp} -- \texttt{compute\_spin\_correlations}] the inner
+        accumulation loop is now driven by the (half-sized) $S^a(\tau)$ caches, so the
+        sums and squared-sums are filled only on $[0,\bt/2]$.
+  \item[\texttt{Functions.cpp} -- \texttt{symmetrize\_upper\_half} (new)]
+        reconstructs the upper-half correlations and their standard errors from the
+        lower half using \eqref{eq:sym}.
+  \item[\texttt{main.cpp}] calls \texttt{symmetrize\_upper\_half} after
+        \texttt{compute\_sample\_stds} and before the convergence check, so the
+        fed-back correlator and the iteration-error metric both see the full curve.
+\end{description}
+
+\begin{lstlisting}[caption={Reconstruction kernel (Functions.cpp).}]
+void symmetrize_upper_half( CorrTen& Re, CorrTen& Im,
+                            CorrTen& Re_std, CorrTen& Im_std )
+{
+    const size_t n_pairs = Re.size();
+    const size_t N = Re[0].size();
+    const size_t n_half = N - N / 2;            // computed points in [0, beta/2]
+    for( size_t p = 0; p < n_pairs; ++p )
+    {
+        for( size_t k = n_half; k < N; ++k )
+        {
+            const size_t m = N - 1 - k;          // mirror index (lower half)
+            Re[p][k]     =  Re[p][m];            // same component: Re even
+            Im[p][k]     = -Im[p][m];            //                 Im odd
+            Re_std[p][k] =  Re_std[p][m];
+            Im_std[p][k] =  Im_std[p][m];
+        }
+        // midpoint tau = beta/2 (odd N) keeps its raw sampled value
+    }
+}
+\end{lstlisting}
+
+\section{Verification}
+
+Diagonal correlator $\g^{aa}_{ii}(\tau)$, ISO model, spin-$1/2$, $J_Q=1$,
+$N_{\mathrm{ts}}=49$, seed fixed; half-range runs use $4\times10^4$ samples. The
+references are the largest available standard runs. ``max/std'' is the largest
+pointwise deviation from the reference in units of the half-range standard error.
+
+\begin{center}
+\begin{tabular}{cccccc}
+\toprule
+$\bt$ & reference & symmetry residual & $\max|\text{half}-\text{ref}|$ & half std (mean) & max/std \\
+\midrule
+1 & $4\times10^{6}$ & $0.0$ & $7.3\times10^{-5}$ & $8.9\times10^{-5}$ & $0.82$ \\
+2 & $8\times10^{4}$ & $0.0$ & $3.3\times10^{-4}$ & $7.8\times10^{-4}$ & $0.43$ \\
+3 & $4\times10^{6}$ & $0.0$ & $1.4\times10^{-3}$ & $1.2\times10^{-3}$ & $1.16$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The result agrees with the reference within one standard error at every $\bt$
+(max/std $\approx 1$), and the symmetry residual
+$\max_\tau|\operatorname{Re}\g(\tau)-\operatorname{Re}\g(\bt-\tau)|$ is exactly zero
+because the upper half is defined by the reconstruction rather than sampled.
+
+\paragraph{Off-diagonal check (external field).} The ISO benchmark above only exercises
+the diagonal components, where the (incorrect) transposed reconstruction happens to give
+the right answer. To exercise the off-diagonals we run $\bt=3$ with a field $h_z=0.5$ and
+symmetry type C (rows $[xx,xy,yx,zz]$), which turns on $\g^{xy},\g^{yx}$ with large
+imaginary parts. With \eqref{eq:sym} the per-component residuals
+$\max_\tau|\operatorname{Re}\g^{ab}(\tau)-\operatorname{Re}\g^{ab}(\bt-\tau)|$ and
+$\max_\tau|\operatorname{Im}\g^{ab}(\tau)+\operatorname{Im}\g^{ab}(\bt-\tau)|$ are all
+zero, and $\operatorname{Im}\g^{xy}$ runs $-0.13 \to 0 \to +0.13$ across $[0,\bt]$ ---
+i.e.\ genuinely \emph{odd}. The earlier (transposed) kernel instead produced an even
+$\operatorname{Im}\g^{xy}$, which is unphysical.
+
+\end{document}

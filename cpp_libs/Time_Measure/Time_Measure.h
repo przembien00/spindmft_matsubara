@@ -106,6 +106,7 @@ class SimpleDurationEstimator
   uint m_current_step{};
   DurationType m_single_step_duration{};
   DurationType m_estimated_total{};
+  mutable int m_last_drawn_percent{-1}; // throttles progress-bar redraws to once per percent
 
  public:
   // CONSTRUCTORS
@@ -144,6 +145,7 @@ class DurationEstimator
   std::vector<DurationQuantity> m_duration_quantities{};
   std::vector<double> m_fractions{};
   DurationType m_estimated_total{};
+  mutable int m_last_drawn_percent{-1}; // throttles progress-bar redraws to once per percent
 
  public:
   // CONSTRUCTORS
@@ -256,7 +258,7 @@ inline void TimeMeasure::stop()
         std::string what = "everything";
         std::stringstream ss{};
         ss << "in total it took me " << m_total_duration << " seconds";
-        std::cout << print::quantity_to_output_line( m_pre_colon_space, "\033[1;36m" + what + " done (0)\033[0m", ss.str() );
+        std::cout << print::quantity_to_output_line( m_pre_colon_space, "\033[1;36m" + what + " done (0)\033[0m", ss.str() ) << std::flush;
     }
 
     // set m_stopped to true
@@ -270,7 +272,7 @@ inline void TimeMeasure::print_measure( const std::string what, const DurationTy
     {
         std::stringstream ss{};
         ss << "it took me " << duration << " seconds";
-        std::cout << print::quantity_to_output_line( m_pre_colon_space, "\033[1;33m" + what + " done (0)\033[0m", ss.str() );
+        std::cout << print::quantity_to_output_line( m_pre_colon_space, "\033[1;33m" + what + " done (0)\033[0m", ss.str() ) << std::flush;
     }
 }
 
@@ -311,6 +313,7 @@ inline void SimpleDurationEstimator::reset()
     m_current_step = 0;
     m_single_step_duration = DurationType{0.};
     m_estimated_total = DurationType{0.};
+    m_last_drawn_percent = -1;
 }
 
 // compute and print the duration estimate
@@ -335,8 +338,15 @@ inline void SimpleDurationEstimator::show_progress() const
     if( my_rank == 0 )
     {
         double fraction = static_cast<double>( m_current_step ) / static_cast<double>( m_steps );
-        uint filled = static_cast<uint>( fraction * m_bar_width );
+        const bool last_step = ( m_current_step == m_steps );
 
+        // Redraw only when the displayed percentage actually changes (or on the final
+        // step); see DurationEstimator::show_progress for why per-step flushing is costly.
+        const int percent = static_cast<int>( fraction * double{100.0} );
+        if( percent == m_last_drawn_percent && !last_step ) { return; }
+        m_last_drawn_percent = percent;
+
+        uint filled = static_cast<uint>( fraction * m_bar_width );
         std::cout << "\r[";
         for ( uint i = 0; i < m_bar_width; ++i ) {
             if (i < filled) {
@@ -345,9 +355,9 @@ inline void SimpleDurationEstimator::show_progress() const
                 std::cout << " ";
             }
         }
-        std::cout << "] " << (uint)( fraction * double{100.0} ) << "%";
+        std::cout << "] " << percent << "%";
         std::cout.flush();
-        if( m_current_step == m_steps )
+        if( last_step )
         {
             std::cout << "\n";
         }
@@ -410,6 +420,7 @@ inline void DurationEstimator::reset()
     std::for_each( m_duration_quantities.begin(), m_duration_quantities.end(), []( auto& q ){ q = DurationQuantity{ q.m_name, 0. }; } );
     std::fill( m_loop_counters.begin(), m_loop_counters.end(), 0 );
     m_estimated_total = DurationType{0.};
+    m_last_drawn_percent = -1;
 }
 
 // compute and print the duration estimate
@@ -444,8 +455,16 @@ inline void DurationEstimator::show_progress() const
         }
 
         double fraction = static_cast<double>( m_loop_counters[0] ) / static_cast<double>( m_loop_sizes[0] );
-        uint filled = static_cast<uint>(fraction * m_bar_width);
+        const bool last_step = ( m_loop_counters[0] == m_loop_sizes[0] );
 
+        // Redraw only when the displayed percentage actually changes (or on the final
+        // step). Redrawing+flushing on every sample floods the launcher's I/O forwarding
+        // with ~100x more output than is visible, which is drained slowly at MPI_Finalize.
+        const int percent = static_cast<int>( fraction * double{100.0} );
+        if( percent == m_last_drawn_percent && !last_step ) { return; }
+        m_last_drawn_percent = percent;
+
+        uint filled = static_cast<uint>(fraction * m_bar_width);
         std::cout << "\r[";
         for ( uint i = 0; i < m_bar_width; ++i ) {
             if (i < filled) {
@@ -454,9 +473,9 @@ inline void DurationEstimator::show_progress() const
                 std::cout << " ";
             }
         }
-        std::cout << "] " << (uint)( fraction * double{100.0} ) << "%";
+        std::cout << "] " << percent << "%";
         std::cout.flush();
-        if( m_loop_counters[0] == m_loop_sizes[0] )
+        if( last_step )
         {
             std::cout << "\n";
         }

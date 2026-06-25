@@ -52,6 +52,36 @@ public:
     std::vector<FieldVector> spin_expval_stds{};   // std of the single sample spin expectation values
     std::vector<size_t> adaptive_num_SamplesPerCore{}; // number of samples per core in case of adaptive sample size
     bool sample_size_updated = {false}; // was the sample size updated in the last iteration step?
+    // Integrated autocorrelation time tau_int (in pCN steps) per correlation point, recovered
+    // from the variance inflation tau_int = 0.5 * sigma_blocking^2 / sigma_iid^2. Only filled
+    // for errmethod=blocking; the blocking error already captures the autocorrelation, this just
+    // exposes it as a number (burn-in / chain-length rule of thumb: a few x tau_int).
+    CluCorrTen tau_int_Re{}, tau_int_Im{};
+
+    // ...concerning batch-means (blocking) error estimation
+    // The production samples of one core are split into num_blocks consecutive blocks of
+    // block_length samples each. The observable accumulators sum each sample into the current
+    // block (cur_block_*); close_block() turns a finished block sum into a block mean and stores
+    // it. The error of the global mean is then the spread of all (num_blocks * num_cores) pooled
+    // block means, which captures the full autocorrelation (unlike the lag-1 AR(1) factor) as
+    // long as block_length >> autocorrelation time.
+    std::string error_method{ "blocking" };  // "blocking" or "ar1"
+    size_t num_blocks{};
+    size_t block_length{};
+    size_t blocks_filled{};
+    CluCorrTen cur_block_Re{}, cur_block_Im{};         // running per-block sums of the observable
+    std::vector<FieldVector> cur_block_spin{};         // per-site running per-block spin sums
+    std::vector<CluCorrTen> block_means_Re{}, block_means_Im{};
+    std::vector<std::vector<FieldVector>> block_means_spin{}; // [block][site]
+    // Flyvbjerg-Petersen blocking-curve diagnostic: Re-correlation std (averaged over the
+    // computed correlation points) vs block length. A plateau means block_length >>
+    // autocorrelation time and the error bar is trustworthy; a curve still rising at the
+    // largest block length means the run is too short / too autocorrelated for its length.
+    std::vector<RealType> blocking_curve_len{};
+    std::vector<RealType> blocking_curve_sigma{};
+
+    void init_blocks( const CluCorrTen& template_corr, size_t num_SamplesPerCore );
+    void close_block();
 
     // ...concerning the iterations
     size_t num_Iterations{};
@@ -87,6 +117,12 @@ public:
     void compute_and_process_sample_stds( const CluCorrTen& sample_mean_Re, const CluCorrTen& sample_mean_Im, const RealType N, const RealType pcn_step_size );
     void compute_and_process_spin_expval_stds( const std::vector<FieldVector>& spin_mean, const RealType N, const RealType pcn_step_size );
 
+    // Dispatch to the configured standard-error estimator. "blocking" (batch means, default) is
+    // robust to autocorrelation; "ar1" is the legacy acceptance-based single-mode factor that
+    // underestimates the error for slow/trapped chains. sample_mean_* hold the already-normalized
+    // means (sum_i o_i / N); for the AR(1) path sample_sqsum_* hold the MPI-reduced sum_i o_i^2.
+    void compute_sample_stds( const CluCorrTen& sample_mean_Re, const CluCorrTen& sample_mean_Im, const std::vector<FieldVector>& spin_mean, const RealType N, const RealType pcn_step_size );
+
     // AR(1) autocorrelation correction factor sqrt( (1+rho1)/(1-rho1) ) for the pCN stds.
     // rho1 is estimated from the latest acceptance rate a and the pCN step size beta via the
     // pCN move: a rejected step copies the state, an accepted one retains a fraction
@@ -105,6 +141,9 @@ public:
 
 private:
     const int my_rank{};
+
+    // ...standard-error estimators (selected by error_method in compute_sample_stds)
+    void compute_sample_stds_blocking( const CluCorrTen& sample_mean_Re, const CluCorrTen& sample_mean_Im, const RealType N );
 
     // PRIVATE MEMBERS IMPORTED FROM A PARAMETER SPACE (AND THEREFORE CONST)
     const int Run_ID{};

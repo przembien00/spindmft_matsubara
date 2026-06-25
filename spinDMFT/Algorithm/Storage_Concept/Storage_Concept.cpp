@@ -186,6 +186,8 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace, const rtd::RunT
     hdf5r::store_scalar( ps_group_id, "mh_step_size",               pspace.mh_step_size );
     hdf5r::store_scalar( ps_group_id, "mh_burn_in",                 pspace.mh_burn_in );
     hdf5r::store_scalar( ps_group_id, "mh_warm_burn_in_frac",       pspace.mh_warm_burn_in_frac );
+    hdf5r::store_scalar( ps_group_id, "mh_num_blocks",              pspace.mh_num_blocks );
+    hdf5r::store_string( ps_group_id, "error_method",               pspace.error_method );
 
     // ...concerning the iteration
     hdf5r::store_scalar( ps_group_id, "absolute_iteration_error_threshold",     pspace.absolute_iteration_error_threshold );
@@ -234,9 +236,24 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace, const rtd::RunT
     hdf5r::store_list( rtd_group_id, "negative_eigenvalue_ratios",  rtdata.negative_eigenvalue_ratios );
 
     // ...concerning the statistics
-    const std::string autocorr_remark = " Scaled by the AR(1) autocorrelation factor sqrt((1+rho1)/(1-rho1)), with the lag-1 autocorrelation rho1 estimated from the pCN acceptance rate a and step size beta as rho1 ~ 1 - a*(1 - sqrt(1-beta^2)). This is a crude single-mode correction and underestimates the error when the chain has a slow/trapped mode.";
-    store_correlation_tensor( rtdata.sample_stds_Re, rtd_group_id, "Re_correlation_sample_stds", "Standard deviations of the correlations <S^alpha(t)S^beta(0)>, stored according to the hierarchy alpha-beta, t." + autocorr_remark );
-    store_correlation_tensor( rtdata.sample_stds_Im, rtd_group_id, "Im_correlation_sample_stds", "Standard deviations of the correlations <S^alpha(t)S^beta(0)>, stored according to the hierarchy alpha-beta, t." + autocorr_remark );
+    const std::string err_remark = ( rtdata.error_method == "ar1" )
+        ? " Standard error of the mean scaled by the AR(1) autocorrelation factor sqrt((1+rho1)/(1-rho1)), with rho1 estimated from the pCN acceptance rate and step size. This is a crude single-mode correction and underestimates the error when the chain has a slow/trapped mode."
+        : " Standard error of the global mean from batch means: the spread of the (mh_num_blocks * num_Cores) pooled block means divided by sqrt of their count. Robust to autocorrelation provided the blocking_curve has plateaued.";
+    store_correlation_tensor( rtdata.sample_stds_Re, rtd_group_id, "Re_correlation_sample_stds", "Standard deviations of the correlations <S^alpha(t)S^beta(0)>, stored according to the hierarchy alpha-beta, t." + err_remark );
+    store_correlation_tensor( rtdata.sample_stds_Im, rtd_group_id, "Im_correlation_sample_stds", "Standard deviations of the correlations <S^alpha(t)S^beta(0)>, stored according to the hierarchy alpha-beta, t." + err_remark );
+
+    // ...batch-means blocking-curve diagnostic: Re-correlation std (averaged over computed points) vs block length
+    hdf5r::store_string( rtd_group_id, "error_method", rtdata.error_method );
+    hdf5r::store_list( rtd_group_id, "blocking_curve_block_length", rtdata.blocking_curve_len );
+    hdf5r::store_list( rtd_group_id, "blocking_curve_sigma",        rtdata.blocking_curve_sigma );
+
+    // ...integrated autocorrelation time tau_int (in pCN steps) per correlation point (blocking only)
+    if( rtdata.error_method != "ar1" )
+    {
+        const std::string tau_remark = " Integrated autocorrelation time in pCN steps, per correlation point, from tau_int = 0.5 * sigma_blocking^2 * num_Samples / s^2 (s^2 the marginal sample variance). Rule of thumb: burn-in and per-core chain length should be several times this.";
+        store_correlation_tensor( rtdata.tau_int_Re, rtd_group_id, "Re_correlation_tau_int", "Integrated autocorrelation time of Re <S^alpha(t)S^beta(0)>, hierarchy alpha-beta, t." + tau_remark );
+        store_correlation_tensor( rtdata.tau_int_Im, rtd_group_id, "Im_correlation_tau_int", "Integrated autocorrelation time of Im <S^alpha(t)S^beta(0)>, hierarchy alpha-beta, t." + tau_remark );
+    }
 
     // ...spin expectation value sample stds
     hdf5r::store_scalar( rtd_group_id, "S_x_sample_std", rtdata.spin_expval_stds[0] );

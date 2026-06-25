@@ -214,21 +214,6 @@ void set_frequency_covariance_entry( Multivariate_Gaussian::SymmetricMatrix& mat
     matrix( alpha*num_spins + i, beta*num_spins + j ) = value;
 }
 
-FieldVector inverse_fourier_at_time( const std::vector<FieldVector>& frequency_values, const size_t time )
-{
-    const size_t num_frequencies = frequency_values.size();
-    FieldVector result{0.,0.,0.};
-    result += frequency_values[0] / std::sqrt( RealType(num_frequencies) );
-    for( size_t frequency = 1; frequency < num_frequencies/2 + 1; ++frequency )
-    {
-        result += frequency_values[frequency] * std::cos( ( RealType{2.} * M_PI * time * frequency ) / RealType(num_frequencies) ) / std::sqrt( RealType(num_frequencies) / RealType{2.} );
-    }
-    for( size_t frequency = num_frequencies/2 + 1; frequency < num_frequencies; ++frequency )
-    {
-        result += -frequency_values[frequency] * std::sin( ( RealType{2.} * M_PI * time * frequency ) / RealType(num_frequencies) ) / std::sqrt( RealType(num_frequencies) / RealType{2.} );
-    }
-    return result;
-}
 }
 
 FrequencyCovarianceCluster::FrequencyCovarianceCluster( const CluCorrTen& correlations, const char symmetry_type, const size_t num_spins )
@@ -247,6 +232,7 @@ void FrequencyCovarianceCluster::fill( const CluCorrTen& correlations, const cha
     m_num_spins = num_spins;
     m_num_frequencies = correlations[0][0].size() - 1;
     m_covariances.clear();
+    m_fft = std::make_shared<FFT::InverseRealDFT>( m_num_frequencies ); // freq -> imaginary-time plan
 
     switch( m_symmetry_type )
     {
@@ -558,13 +544,20 @@ TimeTrajectory FrequencyCovarianceCluster::trajectory_from_full_frequency( const
         }
     }
 
-    TimeTrajectory trajectory( m_num_frequencies );
-    for( size_t time = 0; time < m_num_frequencies; ++time )
+    // Inverse real DFT, performed independently for each site and each of the 3 field
+    // components in O(N log N) via FFTW. FFT::InverseRealDFT reproduces the project's
+    // half-complex convention exactly (DC ~ 1/sqrt(N), cosine/sine modes ~ 1/sqrt(N/2)),
+    // so this is a drop-in replacement for the former O(N^2) inverse_fourier_at_time sums.
+    const size_t N = m_num_frequencies;
+    TimeTrajectory trajectory( N, SiteFields( m_num_spins, FieldVector{0.,0.,0.} ) );
+    std::vector<RealType> comp_freq( N ), comp_time( N );
+    for( size_t site = 0; site < m_num_spins; ++site )
     {
-        trajectory[time].resize( m_num_spins );
-        for( size_t site = 0; site < m_num_spins; ++site )
+        for( size_t c = 0; c < 3; ++c )
         {
-            trajectory[time][site] = inverse_fourier_at_time( frequency_values[site], time );
+            for( size_t f = 0; f < N; ++f ) comp_freq[f] = frequency_values[site][f][c];
+            m_fft->transform( comp_freq.data(), comp_time.data() );
+            for( size_t t = 0; t < N; ++t ) trajectory[t][site][c] = comp_time[t];
         }
     }
     return trajectory;
@@ -582,6 +575,7 @@ void compute_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_
             const RealType x = std::real( blaze::trace( forward_propagators.back() * S_at_site_in_direction(site,alpha) ) ) * inv_Z;
             spin_expvals[site][alpha] += x;
             rtdata.spin_expval_sqsum[site][alpha] += x * x;
+            rtdata.cur_block_spin[site][alpha] += x;       // batch-means accumulation
         }
     }
 
@@ -615,7 +609,10 @@ void compute_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_
     std::vector<std::array<Operator,3>> M( pspace.num_Spins );
     std::vector<std::array<Operator,3>> N( pspace.num_Spins );
 
-    for( size_t tau_index = 0; tau_index < pspace.num_TimePoints; ++tau_index )
+    // Only the lower half [0, beta/2] is accumulated; the upper half is reconstructed once per
+    // iteration by symmetrize_upper_half via g^{ab}_{ij}(beta-tau) = g^{ab}_{ij}(tau)^*.
+    const size_t n_half = pspace.num_TimePoints - pspace.num_TimePoints / 2;
+    for( size_t tau_index = 0; tau_index < n_half; ++tau_index )
     {
         const Operator& bwd = backward_propagators[tau_index];
         const Operator& fwd = forward_propagators[tau_index];
@@ -635,14 +632,16 @@ void compute_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_
             CorrTen& CT_Im = spin_CCT_Im[p];
             CorrTen& sq_Re = rtdata.sample_sqsum_Re[p];
             CorrTen& sq_Im = rtdata.sample_sqsum_Im[p];
+            CorrTen& blk_Re = rtdata.cur_block_Re[p];
+            CorrTen& blk_Im = rtdata.cur_block_Im[p];
             for( size_t d = 0; d < num_dir_pairs; ++d )
             {
                 const auto& alphabeta = dir_pairs[d];
                 const ComplexType o = blaze::sum( M[ ij[0] ][ alphabeta[0] ] % blaze::trans( N[ ij[1] ][ alphabeta[1] ] ) ) * inv_Z;
                 const RealType re = std::real( o );
                 const RealType im = std::imag( o );
-                CT_Re[d].at( tau_index ) += re;  sq_Re[d].at( tau_index ) += re * re;
-                CT_Im[d].at( tau_index ) += im;  sq_Im[d].at( tau_index ) += im * im;
+                CT_Re[d].at( tau_index ) += re;  sq_Re[d].at( tau_index ) += re * re;  blk_Re[d].at( tau_index ) += re;
+                CT_Im[d].at( tau_index ) += im;  sq_Im[d].at( tau_index ) += im * im;  blk_Im[d].at( tau_index ) += im;
             }
         }
     }
@@ -660,30 +659,47 @@ void compute_uncoupled_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen&
             const RealType x = std::real( blaze::trace( forward_propagators.back()[site] * S_2x2(alpha) ) ) * inv_Z_i;
             spin_expvals[site][alpha] += x;
             rtdata.spin_expval_sqsum[site][alpha] += x * x;
+            rtdata.cur_block_spin[site][alpha] += x;       // batch-means accumulation
         }
     }
 
-    auto accumulate = [&]( CluCorrTen& spin_CCT, CluCorrTen& sqsum_CCT, const bool real_part )
+    // The mean, sum-of-squares and current-block clusters share the same site-pair and
+    // direction-pair layout (built from the same correlation_categories / symmetry_type), so we
+    // traverse them in lockstep by linear index rather than via operator()(i,j) / operator()(a,b).
+    const size_t n_half = pspace.num_TimePoints - pspace.num_TimePoints / 2;
+    auto accumulate = [&]( CluCorrTen& spin_CCT, CluCorrTen& sqsum_CCT, CluCorrTen& block_CCT, const bool real_part )
     {
-        spin_CCT.iterate2( sqsum_CCT, [&]( auto& CT, auto& sqsum_CT, auto& ij )
+        for( size_t p = 0; p < spin_CCT.size(); ++p )
         {
+            const auto& ij = spin_CCT.get_site_pair( p );
             const RealType inv_Z_i = ( Z_i_list[ij[0]] != RealType{0.} ) ? RealType{1.} / Z_i_list[ij[0]] : RealType{0.};
             const RealType inv_Z_j = ( Z_i_list[ij[1]] != RealType{0.} ) ? RealType{1.} / Z_i_list[ij[1]] : RealType{0.};
             const RealType inv_weight = ( ij[0] == ij[1] ) ? inv_Z_i : inv_Z_i * inv_Z_j;
-            CT.iterate2( sqsum_CT, [&]( auto& C, auto& sqsum_C, const auto& alphabeta )
+            CorrTen& CT       = spin_CCT[p];
+            CorrTen& sqsum_CT = sqsum_CCT[p];
+            CorrTen& block_CT = block_CCT[p];
+            const ten::IndexPairList& dir_pairs = CT.get_direction_pairs();
+            for( size_t d = 0; d < CT.size(); ++d )
             {
-                for( size_t tau_index = 0; tau_index < pspace.num_TimePoints; ++tau_index )
+                const auto& alphabeta = dir_pairs[d];
+                corr::CorrelationVector& C       = CT[d];
+                corr::CorrelationVector& sqsum_C = sqsum_CT[d];
+                corr::CorrelationVector& block_C = block_CT[d];
+                // Only the lower half [0, beta/2] is accumulated; symmetrize_upper_half fills
+                // the rest via g^{ab}_{ij}(beta-tau) = g^{ab}_{ij}(tau)^*.
+                for( size_t tau_index = 0; tau_index < n_half; ++tau_index )
                 {
                     const ComplexType val = uncoupled_correlation( forward_propagators[tau_index], backward_propagators[tau_index], forward_propagators.back(), ij, alphabeta );
                     const RealType o = ( real_part ? std::real( val ) : std::imag( val ) ) * inv_weight;
                     C.at( tau_index ) += o;
                     sqsum_C.at( tau_index ) += o * o;
+                    block_C.at( tau_index ) += o;          // batch-means accumulation
                 }
-            } );
-        } );
+            }
+        }
     };
-    accumulate( spin_CCT_Re, rtdata.sample_sqsum_Re, true );
-    accumulate( spin_CCT_Im, rtdata.sample_sqsum_Im, false );
+    accumulate( spin_CCT_Re, rtdata.sample_sqsum_Re, rtdata.cur_block_Re, true );
+    accumulate( spin_CCT_Im, rtdata.sample_sqsum_Im, rtdata.cur_block_Im, false );
 }
 
 // reduce one CluCorrTen of per-(i,j,alpha,beta,tau) sums across MPI ranks
@@ -736,6 +752,43 @@ void normalize_mh( CluCorrTen& CCT_Re, CluCorrTen& CCT_Im, const RealType N )
     };
     scale( CCT_Re );
     scale( CCT_Im );
+}
+
+// Fill the upper half (tau > beta/2) of every (site-pair, direction-pair) correlation from the
+// computed lower half via the reflection symmetry g^{ab}_{ij}(beta-tau) = g^{ab}_{ij}(tau)^*,
+// i.e. Re even and Im odd about beta/2. The mirror partner of grid point k (tau_k = k*delta_t)
+// is point N-1-k (= beta - tau_k), always in the computed lower half. Standard errors mirror
+// with no sign change, since each reconstructed value equals its mirror source deterministically.
+// The self-paired midpoint (present for an odd number of time points) lies in the lower half and
+// keeps its raw sampled value.
+void symmetrize_upper_half( CluCorrTen& Re, CluCorrTen& Im, CluCorrTen& Re_std, CluCorrTen& Im_std, CluCorrTen& Re_tau, CluCorrTen& Im_tau )
+{
+    const size_t n_site_pairs = Re.size();
+    for( size_t p = 0; p < n_site_pairs; ++p )
+    {
+        const size_t n_dir_pairs = Re[p].size();
+        for( size_t d = 0; d < n_dir_pairs; ++d )
+        {
+            corr::CorrelationVector& re   = Re[p][d];
+            corr::CorrelationVector& im   = Im[p][d];
+            corr::CorrelationVector& rstd = Re_std[p][d];
+            corr::CorrelationVector& istd = Im_std[p][d];
+            corr::CorrelationVector& rtau = Re_tau[p][d];
+            corr::CorrelationVector& itau = Im_tau[p][d];
+            const size_t N = re.size();          // num_TimePoints
+            const size_t n_half = N - N / 2;     // computed points in [0, beta/2]
+            for( size_t k = n_half; k < N; ++k )
+            {
+                const size_t m = N - 1 - k;      // mirror index, in the computed lower half
+                re[k]   =  re[m];
+                im[k]   = -im[m];
+                rstd[k] =  rstd[m];
+                istd[k] =  istd[m];
+                rtau[k] =  rtau[m];
+                itau[k] =  itau[m];
+            }
+        }
+    }
 }
 
 // ----------------------------- PCNChainCluster implementation -----------------------------
