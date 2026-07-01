@@ -5,6 +5,7 @@
 #include<Observables/Tensors.h>
 #include<Frequency_Multivariate_Gaussian/Frequency_Covariance_Matrix.h>
 #include<Frequency_Multivariate_Gaussian/Frequency_Noise_Vectors.h>
+#include<FFT/RealFFT.h>
 #include"../matrices.h"
 #include"../Parameter_Space/Parameter_Space.h"
 #include"../Run_Time_Data/Run_Time_Data.h"
@@ -49,11 +50,17 @@ void MPI_share_results( rtd::RunTimeData& rtdata, CorrTen& spin_correlations_R, 
 // divide the summed-over-samples accumulator by N to obtain the Monte-Carlo mean
 void normalize( CorrTen& spin_correlations, RealType N );
 
+// reconstruct the upper-half (tau > beta/2) correlations and their std errors from the
+// computed lower half using g^{ab}(beta - tau) = g^{ba}(tau)^*
+void symmetrize_upper_half( CorrTen& Re, CorrTen& Im, CorrTen& Re_std, CorrTen& Im_std, CorrTen& tau_Re, CorrTen& tau_Im );
+
 // Build a time-domain mean-field trajectory from V given in the diagonal frequency basis:
 //   V_full[block] = ortho[block] * V_diag[block], then inverse-DFT to imaginary time.
-// The convention matches fmvg::FrequencyNoiseVectors::fourier_back_transform.
+// The convention matches fmvg::FrequencyNoiseVectors::fourier_back_transform; the inverse
+// DFT is performed component-wise in O(N log N) via the supplied FFTW plan (fft).
 std::vector<FieldVector> diag_freq_to_time( const std::vector<fmvg::Vector>& V_diag,
-                                            const fmvg::OrthogonalTransformationList& ortho );
+                                            const fmvg::OrthogonalTransformationList& ortho,
+                                            FFT::InverseRealDFT& fft );
 
 // A single preconditioned-Crank-Nicolson chain for sampling V ~ pi propto p(V) Z(V).
 // State (V in the diagonal Matsubara basis, Z, and the cached propagators and S^a(t))
@@ -112,6 +119,9 @@ class PCNChain
     RealType m_pcn_root; // sqrt(1 - pcn_beta^2)
     std::vector<std::array<std::normal_distribution<RealType>, 3>> m_prior_dists;
     std::uniform_real_distribution<RealType> m_uniform01;
+
+    // reusable FFTW plan for the diagonal-frequency -> imaginary-time transform
+    FFT::InverseRealDFT m_fft;
 
     // chain state
     std::vector<fmvg::Vector> m_V_diag;

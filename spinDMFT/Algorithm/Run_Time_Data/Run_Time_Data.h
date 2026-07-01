@@ -37,13 +37,43 @@ class RunTimeData
 
    // ...concerning the statistics
    size_t generated_seed{};
-   CorrTen sample_sqsum_Re{};       // sum_i o_i^2 (raw, MPI-reduced before compute_sample_stds)
+   CorrTen sample_sqsum_Re{};       // sum_i o_i^2 (raw, MPI-reduced; used by the legacy AR(1) estimator)
    CorrTen sample_sqsum_Im{};
-   CorrTen sample_stds_Re{};        // standard error of the mean, sqrt( (<o^2> - <o>^2) / N )
+   CorrTen sample_stds_Re{};        // standard error of the mean of the correlations
    CorrTen sample_stds_Im{};
+   // Integrated autocorrelation time tau_int (in pCN steps) per correlation point, recovered
+   // from the variance inflation tau_int = 0.5 * sigma_blocking^2 / sigma_iid^2. Only filled
+   // for errmethod=blocking; the blocking error already captures the autocorrelation, this just
+   // exposes it as a number (burn-in / chain-length rule of thumb: a few x tau_int).
+   CorrTen tau_int_Re{}, tau_int_Im{};
    // ...spin expectation value statistics (S_x, S_y, S_z)
-   FieldVector spin_expval_sqsum{}; // sum_i s_i^2 (raw, MPI-reduced before compute_sample_stds)
+   FieldVector spin_expval_sqsum{}; // sum_i s_i^2 (raw, MPI-reduced; used by the legacy AR(1) estimator)
    FieldVector spin_expval_stds{};  // standard error of the mean for <S^alpha>
+
+   // ...concerning batch-means (blocking) error estimation
+   // The production samples of one core are split into num_blocks consecutive blocks of
+   // block_length samples each. compute_spin_correlations sums the observable into the
+   // current block (cur_block_*); close_block() turns a finished block sum into a block
+   // mean and stores it. The error of the global mean is then the spread of all
+   // (num_blocks * num_cores) pooled block means, which captures the full autocorrelation
+   // (unlike the lag-1 AR(1) factor) as long as block_length >> autocorrelation time.
+   std::string error_method{ "blocking" };  // "blocking" or "ar1"
+   size_t num_blocks{};
+   size_t block_length{};
+   size_t blocks_filled{};
+   CorrTen cur_block_Re{}, cur_block_Im{};       // running per-block sums of the observable
+   FieldVector cur_block_spin{ 0., 0., 0. };
+   std::vector<CorrTen> block_means_Re{}, block_means_Im{};
+   std::vector<FieldVector> block_means_spin{};
+   // Flyvbjerg-Petersen blocking-curve diagnostic: Re-correlation std (averaged over the
+   // computed correlation points) vs block length. A plateau means block_length >>
+   // autocorrelation time and the error bar is trustworthy; a curve still rising at the
+   // largest block length means the run is too short / too autocorrelated for its length.
+   std::vector<RealType> blocking_curve_len{};
+   std::vector<RealType> blocking_curve_sigma{};
+
+   void init_blocks( const CorrTen& template_corr, size_t num_SamplesPerCore );
+   void close_block();
 
    // ...concerning the iteration
    size_t num_Iterations{};
@@ -90,6 +120,11 @@ class RunTimeData
 
  private:
    const int my_rank{};
+
+   // ...standard-error estimators (selected by error_method in compute_sample_stds)
+   void compute_sample_stds_ar1( const CorrTen& sample_mean_Re, const CorrTen& sample_mean_Im,
+                                 const FieldVector& spin_mean, RealType N, RealType pcn_step_size );
+   void compute_sample_stds_blocking( const CorrTen& sample_mean_Re, const CorrTen& sample_mean_Im, RealType N );
 
    // MEMBERS IMPORTED FROM A PARAMETER SPACE (AND THEREFORE CONST)
    const size_t num_PrintDigits{};

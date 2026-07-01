@@ -66,9 +66,15 @@ RunTimeData::RunTimeData(const ps::ParameterSpace& pspace, const int my_rank ):
     sample_sqsum_Im = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
     sample_stds_Re  = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
     sample_stds_Im  = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
+    tau_int_Re      = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
+    tau_int_Im      = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
     spin_expval_sqsum = std::vector<FieldVector>( pspace.num_Spins, FieldVector{0.,0.,0.} );
     spin_expval_stds  = std::vector<FieldVector>( pspace.num_Spins, FieldVector{0.,0.,0.} );
     if( pspace.adaptive_sample_size ){ adaptive_num_SamplesPerCore.emplace_back( num_SamplesPerCore ); }
+
+    // ...concerning the batch-means (blocking) error estimation
+    error_method = pspace.error_method;
+    num_blocks   = pspace.mh_num_blocks;
 }
 
 // process the eigenvalues, search for negative ones and compare the ratio to a predefined threshold
@@ -249,6 +255,230 @@ void RunTimeData::compute_and_process_spin_expval_stds( const std::vector<FieldV
     spin_expval_sqsum = std::vector<FieldVector>( spin_mean.size(), FieldVector{0.,0.,0.} );
 }
 
+// Dispatch to the configured standard-error estimator. "blocking" (batch means, default) is
+// robust to autocorrelation; "ar1" is the legacy acceptance-based single-mode factor that
+// underestimates the error for slow/trapped chains. sample_mean_* hold <o> (already divided by
+// N in main.cpp); for the AR(1) path sample_sqsum_* hold the MPI-reduced sum_i o_i^2.
+void RunTimeData::compute_sample_stds( const CluCorrTen& sample_mean_Re, const CluCorrTen& sample_mean_Im, const std::vector<FieldVector>& spin_mean, const RealType N, const RealType pcn_step_size )
+{
+    if( error_method == "ar1" )
+    {
+        compute_and_process_spin_expval_stds( spin_mean, N, pcn_step_size );
+        compute_and_process_sample_stds( sample_mean_Re, sample_mean_Im, N, pcn_step_size );
+    }
+    else
+    {
+        compute_sample_stds_blocking( sample_mean_Re, sample_mean_Im, N );
+    }
+}
+
+// Allocate the batch-mean blocks for one production sweep and zero all per-iteration
+// accumulators. block_length = num_SamplesPerCore / num_blocks; any remainder samples
+// (< num_blocks) still enter the global mean but not the variance estimate.
+void RunTimeData::init_blocks( const CluCorrTen& template_corr, size_t num_SamplesPerCore )
+{
+    const auto& site_pairs = template_corr.get_site_pairs();
+    const char  sym        = template_corr[0].get_symmetry();
+    const size_t ntp       = template_corr[0][0].size();
+    const size_t num_Spins = spin_expval_sqsum.size();
+    if( num_blocks == 0 ) num_blocks = 1;
+    block_length = num_SamplesPerCore / num_blocks;
+    if( block_length == 0 ) { block_length = 1; num_blocks = num_SamplesPerCore; }
+    blocks_filled = 0;
+
+    const CluCorrTen zero_corr{ site_pairs, sym, ntp };
+    const std::vector<FieldVector> zero_spin( num_Spins, FieldVector{0.,0.,0.} );
+    cur_block_Re   = zero_corr;
+    cur_block_Im   = zero_corr;
+    cur_block_spin = zero_spin;
+    block_means_Re.assign(   num_blocks, zero_corr );
+    block_means_Im.assign(   num_blocks, zero_corr );
+    block_means_spin.assign( num_blocks, zero_spin );
+
+    // also reset the AR(1) accumulators (kept available for errmethod=ar1 and the tau_int recovery)
+    sample_sqsum_Re   = zero_corr;
+    sample_sqsum_Im   = zero_corr;
+    spin_expval_sqsum = zero_spin;
+}
+
+// Turn the current block's running sums into block means, store them, and reset the running
+// sums for the next block. Excess calls (beyond num_blocks) are ignored.
+void RunTimeData::close_block()
+{
+    if( blocks_filled >= num_blocks ) return;
+    const RealType inv = RealType{1.} / static_cast<RealType>( block_length );
+    for( size_t p = 0; p < cur_block_Re.size(); ++p )
+    {
+        for( size_t d = 0; d < cur_block_Re[p].size(); ++d )
+        {
+            corr::CorrelationVector& cur_re = cur_block_Re[p][d];
+            corr::CorrelationVector& cur_im = cur_block_Im[p][d];
+            corr::CorrelationVector& dst_re = block_means_Re[blocks_filled][p][d];
+            corr::CorrelationVector& dst_im = block_means_Im[blocks_filled][p][d];
+            for( size_t t = 0; t < cur_re.size(); ++t )
+            {
+                dst_re[t] = cur_re[t] * inv; cur_re[t] = RealType{0.};
+                dst_im[t] = cur_im[t] * inv; cur_im[t] = RealType{0.};
+            }
+        }
+    }
+    for( size_t site = 0; site < cur_block_spin.size(); ++site )
+    {
+        for( size_t alpha = 0; alpha < 3; ++alpha )
+        {
+            block_means_spin[blocks_filled][site][alpha] = cur_block_spin[site][alpha] * inv;
+            cur_block_spin[site][alpha] = RealType{0.};
+        }
+    }
+    ++blocks_filled;
+}
+
+// Batch-means standard error of the global mean. Each core contributes num_blocks block means;
+// these are pooled across cores via MPI_Allgather, and the error of the global mean is
+// std(block means)/sqrt(num_blocks*num_cores) per correlation point. Valid when
+// block_length >> autocorrelation time (see the blocking-curve diagnostic).
+void RunTimeData::compute_sample_stds_blocking( const CluCorrTen& sample_mean_Re, const CluCorrTen& sample_mean_Im, RealType N )
+{
+    int num_cores = 1;
+    MPI_Comm_size( MPI_COMM_WORLD, &num_cores );
+    const size_t nc = static_cast<size_t>( num_cores );
+
+    // number of correlation points (sum over site pairs of sum over direction pairs of tau-length)
+    size_t P = 0;
+    for( auto& CT : sample_stds_Re ) for( auto& C : CT ) P += C.size();
+    const size_t num_Spins = spin_expval_stds.size();
+
+    // flatten this core's block means in a fixed (site-pair, direction-pair, tau) order
+    std::vector<RealType> local_Re( num_blocks * P ), local_Im( num_blocks * P ), local_spin( num_blocks * num_Spins * 3 );
+    for( size_t b = 0; b < num_blocks; ++b )
+    {
+        size_t p = 0;
+        for( auto& CT : block_means_Re[b] ) for( auto& C : CT ) for( size_t t = 0; t < C.size(); ++t ) local_Re[b * P + (p++)] = C[t];
+        p = 0;
+        for( auto& CT : block_means_Im[b] ) for( auto& C : CT ) for( size_t t = 0; t < C.size(); ++t ) local_Im[b * P + (p++)] = C[t];
+        for( size_t site = 0; site < num_Spins; ++site ) for( size_t a = 0; a < 3; ++a ) local_spin[b * num_Spins * 3 + site * 3 + a] = block_means_spin[b][site][a];
+    }
+
+    // pool all blocks from all cores
+    std::vector<RealType> all_Re( nc * num_blocks * P ), all_Im( nc * num_blocks * P ), all_spin( nc * num_blocks * num_Spins * 3 );
+    MPI_Allgather( local_Re.data(),   num_blocks * P,             MPI_REALTYPE, all_Re.data(),   num_blocks * P,             MPI_REALTYPE, MPI_COMM_WORLD );
+    MPI_Allgather( local_Im.data(),   num_blocks * P,             MPI_REALTYPE, all_Im.data(),   num_blocks * P,             MPI_REALTYPE, MPI_COMM_WORLD );
+    MPI_Allgather( local_spin.data(), num_blocks * num_Spins * 3, MPI_REALTYPE, all_spin.data(), num_blocks * num_Spins * 3, MPI_REALTYPE, MPI_COMM_WORLD );
+
+    // Batch-means standard error of the global mean at block-merge factor g, for one point:
+    // merge g consecutive blocks WITHIN each core, then take the spread of the (num_blocks/g)*nc
+    // merged block means divided by sqrt of their count (Welford, single pass, no allocation).
+    auto sigma_at = [&]( const std::vector<RealType>& pool, size_t stride, size_t idx, size_t g ) -> RealType
+    {
+        const size_t bpc  = num_blocks / g;
+        const size_t ntot = bpc * nc;
+        if( ntot < 2 ) return RealType{0.};
+        RealType mean = RealType{0.}, M2 = RealType{0.};
+        size_t count = 0;
+        for( size_t c = 0; c < nc; ++c )
+            for( size_t k = 0; k < bpc; ++k )
+            {
+                RealType s = RealType{0.};
+                for( size_t e = 0; e < g; ++e ) s += pool[ ( c * num_blocks + k * g + e ) * stride + idx ];
+                const RealType val = s / static_cast<RealType>( g );
+                ++count;
+                const RealType d = val - mean; mean += d / static_cast<RealType>( count );
+                M2 += d * ( val - mean );
+            }
+        const RealType var = M2 / static_cast<RealType>( count - 1 );
+        return std::sqrt( var / static_cast<RealType>( count ) );
+    };
+
+    // The reported error is the blocking-curve plateau: the largest batch-means estimate over
+    // the merge factors g whose pooled block count stays >= MIN_BLOCKS (g=1 is always allowed).
+    // Reporting the finest binning alone underestimates the error when the block length is not
+    // yet >> the autocorrelation time; taking the plateau (the maximum) avoids that bias.
+    constexpr size_t MIN_BLOCKS = 8;
+    auto plateau = [&]( const std::vector<RealType>& pool, size_t stride, size_t idx ) -> RealType
+    {
+        RealType best = RealType{0.};
+        for( size_t g = 1; num_blocks / g >= 2; g *= 2 )
+        {
+            if( g > 1 && ( num_blocks / g ) * nc < MIN_BLOCKS ) break;
+            best = std::max( best, sigma_at( pool, stride, idx, g ) );
+        }
+        return best;
+    };
+
+    auto fill = [&]( const std::vector<RealType>& pool, CluCorrTen& out )
+    {
+        size_t p = 0;
+        for( auto& CT : out ) for( auto& C : CT ) for( auto it = C.begin(); it != C.end(); ++it, ++p ) *it = plateau( pool, P, p );
+    };
+    fill( all_Re, sample_stds_Re );
+    fill( all_Im, sample_stds_Im );
+    for( size_t site = 0; site < num_Spins; ++site ) for( size_t a = 0; a < 3; ++a ) spin_expval_stds[site][a] = plateau( all_spin, num_Spins * 3, site * 3 + a );
+
+    // aggregate blocking curve over the Re correlation points (diagnostic, stored to HDF5)
+    blocking_curve_len.clear();
+    blocking_curve_sigma.clear();
+    for( size_t g = 1; num_blocks / g >= 2; g *= 2 )
+    {
+        RealType acc = RealType{0.};
+        size_t counted = 0;
+        for( size_t p = 0; p < P; ++p )
+        {
+            const RealType sg = sigma_at( all_Re, P, p, g );
+            if( sg == RealType{0.} ) continue;   // skip points with no signal
+            acc += sg;
+            ++counted;
+        }
+        blocking_curve_len.push_back( static_cast<RealType>( block_length * g ) );
+        blocking_curve_sigma.push_back( counted ? acc / static_cast<RealType>( counted ) : RealType{0.} );
+    }
+
+    // Integrated autocorrelation time (in pCN steps), recovered per point from the variance
+    // inflation between the blocking error and the i.i.d. error: with sigma_iid^2 = s^2 / N
+    // (s^2 the marginal sample variance from sample_sqsum) and sigma_blocking^2 the reported
+    // error, sigma_blocking^2 / sigma_iid^2 = 2 tau_int, so tau_int = 0.5 sigma_blocking^2 N / s^2.
+    auto fill_tau = [N]( const CluCorrTen& mean, const CluCorrTen& sqsum, const CluCorrTen& stds, CluCorrTen& out )
+    {
+        for( size_t p = 0; p < out.size(); ++p )
+        {
+            for( size_t d = 0; d < out[p].size(); ++d )
+            {
+                const corr::CorrelationVector& m  = mean[p][d];
+                const corr::CorrelationVector& q  = sqsum[p][d];
+                const corr::CorrelationVector& sd = stds[p][d];
+                corr::CorrelationVector& o        = out[p][d];
+                for( size_t t = 0; t < o.size(); ++t )
+                {
+                    const RealType s2 = std::abs( q[t] / N - m[t] * m[t] ); // marginal sample variance
+                    o[t] = ( s2 > RealType{0.} ) ? RealType{0.5} * sd[t] * sd[t] * N / s2 : RealType{0.};
+                }
+            }
+        }
+    };
+    fill_tau( sample_mean_Re, sample_sqsum_Re, sample_stds_Re, tau_int_Re );
+    fill_tau( sample_mean_Im, sample_sqsum_Im, sample_stds_Im, tau_int_Im );
+
+    // determine a new sample size for the next iteration step in case of adaptive settings
+    if( adaptive_sample_size )
+    {
+        RealType max_std_of_sum = RealType{0.};
+        for( auto& CT : sample_stds_Re ) for( auto& C : CT ) for( auto& v : C ) max_std_of_sum = std::max( max_std_of_sum, v );
+
+        size_t new_num_SamplesPerCore{};
+        if( max_std_of_sum < statistical_error_tolerance )
+        {
+            sample_size_updated = false;
+            new_num_SamplesPerCore = this->get_num_SamplesPerCore();
+        }
+        else
+        {
+            sample_size_updated = true;
+            RealType ratio = max_std_of_sum / statistical_error_tolerance;
+            new_num_SamplesPerCore = (size_t) ( static_cast<RealType>( this->get_num_SamplesPerCore() ) * pow(ratio,2) + 1.0 );
+        }
+        adaptive_num_SamplesPerCore.emplace_back( new_num_SamplesPerCore );
+    }
+}
+
 // compute the absolute time average of a correlation
 RealType average_of_absolute( const Corr& C )
 {
@@ -326,6 +556,19 @@ void RunTimeData::finalize_iteration_step()
         if( !acceptance_rates.empty() )
         {
             std::cout << print::quantity_to_output_line( pc_space, "pCN acceptance rate", print::round_value_to_string( acceptance_rates.back(), num_PrintDigits ) );
+        }
+        if( error_method != "ar1" && !blocking_curve_sigma.empty() )
+        {
+            // plateau ratio = std at the largest block length / std at the smallest. ~1 means
+            // the blocks are long enough and the error bar is trustworthy; >>1 means the run is
+            // under-sampled for its autocorrelation and the reported error is a lower bound.
+            const RealType plateau = ( blocking_curve_sigma.front() > RealType{0.} )
+                ? blocking_curve_sigma.back() / blocking_curve_sigma.front() : RealType{1.};
+            std::cout << print::quantity_to_output_line( pc_space, "blocking plateau ratio", print::round_value_to_string( plateau, num_PrintDigits ) );
+            // worst-mixed Re correlation point: max tau_int (in pCN steps)
+            RealType tau_max = RealType{0.};
+            for( auto& CT : tau_int_Re ) for( auto& C : CT ) for( auto& v : C ) tau_max = std::max( tau_max, v );
+            std::cout << print::quantity_to_output_line( pc_space, "max tau_int (steps)", print::round_value_to_string( tau_max, num_PrintDigits ) );
         }
     }
 

@@ -35,6 +35,18 @@ if(LAPACK_FOUND)
     set(LINK_LIBS ${LINK_LIBS} ${LAPACK_LIBRARIES})
 endif()
 
+# Find FFTW3 (real inverse DFT for the frequency-domain mean-field sampler)
+# Override the search roots with -DFFTW3_ROOT=/path if FFTW lives elsewhere.
+find_library(FFTW3_DOUBLE_LIB NAMES fftw3  HINTS ${FFTW3_ROOT}/lib /opt/homebrew/lib /usr/local/lib /usr/lib)
+find_library(FFTW3_FLOAT_LIB  NAMES fftw3f HINTS ${FFTW3_ROOT}/lib /opt/homebrew/lib /usr/local/lib /usr/lib)
+find_path(FFTW3_INCLUDE_DIR NAMES fftw3.h HINTS ${FFTW3_ROOT}/include /opt/homebrew/include /usr/local/include /usr/include)
+include_directories(${FFTW3_INCLUDE_DIR})
+if(USE_TYPE STREQUAL "FLOAT")
+    set(LINK_LIBS ${LINK_LIBS} ${FFTW3_FLOAT_LIB})
+else()
+    set(LINK_LIBS ${LINK_LIBS} ${FFTW3_DOUBLE_LIB})
+endif()
+
 # Add definitions
 add_definitions(-DUSE_${USE_TYPE})
 

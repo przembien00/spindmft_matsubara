@@ -283,7 +283,7 @@ void print_R0( const size_t my_rank, T& obj )
 {
     if( my_rank == 0 )
     {
-        std::cout << obj;
+        std::cout << obj << std::flush;
     }
 }
 
@@ -293,7 +293,7 @@ void print_R0( const size_t my_rank, T&& obj )
 {
     if( my_rank == 0 )
     {
-        std::cout << obj;
+        std::cout << obj << std::flush;
     }
 }
 

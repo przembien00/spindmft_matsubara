@@ -97,6 +97,8 @@ public:
   RealType mh_step_size{};         // pCN step parameter beta in (0, 1]
   size_t mh_burn_in{};             // cold-start burn-in (first self-consistent iteration)
   RealType mh_warm_burn_in_frac{}; // fraction in [0, 1] of mh_burn_in used from iter 2+
+  size_t mh_num_blocks{};          // number of batch-mean blocks per core for error estimation
+  std::string error_method{};      // "blocking" (batch means) or "ar1" (legacy acceptance factor)
 
   // ...concerning the initial correlations 
   std::string init_corr_mode{};

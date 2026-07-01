@@ -62,21 +62,21 @@ mpirun -n 4 executable_DOUBLE.out \
 # Run from:  spinDMFT/
 # Single-site: no lattice --config needed.
 
-mpirun -n 4 executable_DOUBLE.out \
+mpirun -n 4 stdbuf -oL executable_DOUBLE.out \
   --spinmodel=ISO \
   --cstype=A \
-  --beta=1 \
+  --beta=30 \
   --numTimeSteps=99 \
-  --numSamplesPerCore=2500 \
-  --mhStepSize=0.3 \
+  --numSamplesPerCore=10000 \
+  --mhStepSize=0.9 \
   --mhBurnIn=500 \
-  --mhWarmBurnIn=1.0 \
   --iterlimit=20 \
-  --project=MyProject \
-  --fileext=my_run
+  --fileext=blocking \
+  --numBlocks=20 \
+  --critneg=100
 
 # Common variants:
 #   --Bname=<field> --Babs=<h> --Btheta=<deg> --Bphi=<deg>   external field
-#   --spin=1   (spin-1 instead of spin-1/2)
-#   --cstype=A|B|C|D                                          correlation symmetry
+#   --spin=1   (spin-1 instead of spin-1/2) --project
+#   --cstype=A|B|C|D                                         correlation symmetry
 # See all options:   ./executable_DOUBLE.out --help   (and --helpNum for numerics)
