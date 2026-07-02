@@ -600,6 +600,11 @@ bool RunTimeData::is_converged() const
     {
         return absolute_iteration_error_list.back() < absolute_iteration_error_tolerance;
     }
+    else if( iteration_error_mode == "either" )
+    {
+        return relative_iteration_error_list.back() < relative_iteration_error_tolerance
+            || absolute_iteration_error_list.back() < absolute_iteration_error_tolerance;
+    }
     else
     {
         error::ITERATION_ERROR_MODE( iteration_error_mode, __PRETTY_FUNCTION__ ); 

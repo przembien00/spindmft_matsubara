@@ -156,14 +156,12 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     )(
 
     // ...concerning the initial correlations
-    "initmode", bpo::value<std::string>()->default_value("generate"),
-    "import = import the initial spin correlations from generated spin correlations \
-    generate = generate the initial spin correlations from defined analytic functions"
+    "loadinit", "import the initial spin correlations from existing spin correlations in the Data folder"
     )(
     // ...if they are imported
     "extrapolate", "extrapolate the imported initial spin correlations linearly to the new discretization"
     )(
-    "impcorrfile", bpo::value<std::string>()->default_value(""),
+    "initcorrfile", bpo::value<std::string>()->default_value(""),
     "provide the filename with path in the Data folder from which the initial correlations should be taken"
     )(
     // ...if they are generated
@@ -185,7 +183,7 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
 
     // ...concerning the iteration
     "itermode", bpo::value<std::string>()->default_value("absolute"),
-    "decide which iteration error should be regarded for the termination condition, options are : absolute, relative"
+    "decide which iteration error should be regarded for the termination condition, options are : absolute, relative, either (terminates as soon as either the absolute or the relative condition is fulfilled)"
     )(
     "absiterror", bpo::value<std::string>()->default_value("conservative"),
     "set the absolute tolerance for the iteration error (conservative = 1/4sqrt(3*sample_size))"
@@ -195,6 +193,10 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     )(
     "iterlimit", bpo::value<size_t>()->default_value(20),
     "maximum number of iteration steps (iteration is automatically terminated once the limit is reached)"
+    )(
+    "mixing", bpo::value<RealType>()->default_value(RealType{1.0}),
+    "linear under-relaxation factor alpha in (0,1] for the self-consistency update: corr <- (1-alpha)*corr_old + alpha*corr_new. \
+    1 = no mixing (plain Picard iteration); smaller values damp instabilities at low T. The iteration error is always measured on the raw (unmixed) update."
     )(
 
     // ...concerning the eigenvalues
@@ -300,21 +302,21 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     mh_num_blocks           = vm["numBlocks"].as<size_t>();
     error_method            = vm["errmethod"].as<std::string>();
 
-    // ...concerning the initial correlations 
-    init_corr_mode = vm["initmode"].as<std::string>();
+    // ...concerning the initial correlations
     // ...if they are generated
     RealType Tmax           = beta;
     init_diag_corr    = ph::DiagonalSpinCorrelation{ vm["initdcorr"].as<std::string>(), Tmax, vm["corrperiods"].as<RealType>() };
     init_nondiag_corr = ph::NonDiagonalSpinCorrelation{ vm["initndcorr"].as<std::string>(), Tmax, vm["corrperiods"].as<RealType>() };
     init_pair_corr_mode = vm["initpaircorr"].as<std::string>();
     // ...if they are imported
-    if( init_corr_mode == "import" ) 
-    { 
+    init_corr_mode = vm.count("loadinit") ? "import" : "generate";
+    if( init_corr_mode == "import" )
+    {
         if( vm.count("extrapolate") )
         {
             extrapolate_imported_spin_correlations = true;
         }
-        imported_correlations_src_file = vm["impcorrfile"].as<std::string>(); // determine src folder if necessary
+        imported_correlations_src_file = vm["initcorrfile"].as<std::string>(); // determine src folder if necessary
         init_diag_corr.m_name = "";
         init_nondiag_corr.m_name = "";
         init_pair_corr_mode = "";
@@ -333,7 +335,8 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
         absolute_iteration_error_tolerance = std::stof( abs_str );
     }
     Iteration_Limit         = vm["iterlimit"].as<size_t>();
-   
+    iteration_mixing        = vm["mixing"].as<RealType>();
+
     // ...concerning the eigenvalues
     eigenvalue_ratio_tolerance = vm["eigtolerance"].as<RealType>();
     truncation_scheme_negative_eigenvalues = vm["truncneg"].as<std::string>();
@@ -463,7 +466,8 @@ void ParameterSpace::read_initial_correlations_from_file()
 
     if( !extrapolate_imported_spin_correlations ) // check discretization (may only mismatch if extrapolation is used)
     {
-        if( old_num_TimePoints != num_TimePoints || old_delta_t != delta_t )
+        // only the number of time points must match; the time grid (delta_t) may differ, e.g. between betas
+        if( old_num_TimePoints != num_TimePoints )
         {
             error::INIT_CORRELATIONS_MISMATCH( __PRETTY_FUNCTION__ );
         }
@@ -568,7 +572,7 @@ std::string ParameterSpace::create_essentials_string() const
     << print::quantity_to_output_line( pre_colon_space, "mf_model"      , mf_model_name )
     << print::quantity_to_output_line( pre_colon_space, "symmetry_type" , std::string(1, symmetry_type) )
     << print::quantity_to_output_line( pre_colon_space, "beta"         , print::round_value_to_string(beta,num_PrintDigits) )
-    << print::quantity_to_output_line( pre_colon_space, "num_TimeSteps" , std::to_string(num_TimeSteps) ) 
+    << print::quantity_to_output_line( pre_colon_space, "num_TimeSteps" , std::to_string(num_TimeSteps) )
     << print::quantity_to_output_line( pre_colon_space, "delta_t"       , print::round_value_to_string(delta_t,num_PrintDigits) ) 
     << print::quantity_to_output_line( pre_colon_space, "num_Samples"   , std::to_string(num_Samples) )
     << print::quantity_to_output_line( pre_colon_space, "config_file" , config_file )
@@ -591,11 +595,6 @@ std::string ParameterSpace::create_essentials_string() const
     << print::quantity_to_output_line( pre_colon_space, "chemical_shift info" , chemical_shift.compact_info(num_PrintDigits) )
     << print::quantity_to_output_line( pre_colon_space, "rescale_meanfield", print::round_value_to_string(rescale_meanfield,num_PrintDigits) )
     << print::quantity_to_output_line( pre_colon_space, "rescale_spinspin",  print::round_value_to_string(rescale_spinspin,num_PrintDigits) );
-    if( num_Spins < 5 )
-    {
-        ss << print::quantity_to_output_line( pre_colon_space, "mf expectation weights", std::string{std::to_string(num_Spins) + "x" + std::to_string(num_Spins) + "-Matrix"} );
-        ss << mf_expectation_weights;
-    }
     return ss.str();
 }
 

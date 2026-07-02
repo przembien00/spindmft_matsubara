@@ -66,6 +66,7 @@ public:
   ph::SpinModel spinmf_cmodel{};    // spin-mean-field coupling model
   bool uncoupled_spins{false};      // simulate as uncoupled spins (implied if J=0)
   Matrix mf_expectation_weights{};  // weights for the mean-field first moments
+  SymmMatrixOfMatrix correlation_weights{}; // weights for the mean-field correlations (4D tensor)
   ph::ChemicalShift chemical_shift{}; // chemical shift (always in z-direction)
   ph::LocalExtraInteraction local_extra_interaction{}; // extra interaction, e.g., quadrupolar 
   RealType rescale_meanfield{1.0};  // rescales spin-mean-field couplings by a factor
@@ -122,6 +123,7 @@ public:
   RealType absolute_iteration_error_tolerance{};
   RealType relative_iteration_error_tolerance{};
   size_t Iteration_Limit{};
+  RealType iteration_mixing{1.0};   // linear under-relaxation factor alpha in (0,1]; 1 = plain Picard iteration
 
     // ...concerning the eigenvalues
   RealType eigenvalue_ratio_tolerance{};

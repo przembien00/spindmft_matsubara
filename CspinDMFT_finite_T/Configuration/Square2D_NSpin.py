@@ -59,6 +59,55 @@ def rectangular_cluster_map(lx: int, ly: int):
     return map_to_cluster_index
 
 
+def reflective_cluster_map(lx: int, ly: int):
+    """Map any square-lattice site back into the cluster by reflective folding.
+
+    Unlike :func:`rectangular_cluster_map`, which folds with a periodic
+    ``x % lx`` wrap, this folds the external site back through the cluster
+    boundaries by reflection.  Reflection about an integer axis is
+    ``x' = 2 c - x``, which preserves the parity of each coordinate and hence
+    the bipartite sublattice ``(x + y) mod 2``.  This matters for clusters with
+    an odd side length: there the periodic wrap (period = odd) flips the
+    sublattice, so an A-site would pick up A-site representatives for its
+    external mean field instead of the physically correct B-site ones.
+
+    With reflective folding, the missing outside neighbor of an edge spin is
+    represented by its mirror image just inside the cluster, which sits on the
+    same sublattice as the true external neighbor.
+    """
+
+    position_to_index = {
+        (x, y): index
+        for index, (x, y) in enumerate(rectangular_cluster_positions(lx, ly))
+    }
+
+    def reflect(coordinate: int, length: int) -> int:
+        if length == 1:
+            return 0
+        period = 2 * (length - 1)
+        coordinate %= period
+        return coordinate if coordinate < length else period - coordinate
+
+    def map_to_cluster_index(point: LatticePoint2D) -> int:
+        return position_to_index[(reflect(point[0], lx), reflect(point[1], ly))]
+
+    return map_to_cluster_index
+
+
+def sublattice_preserving_cluster_map(lx: int, ly: int):
+    """Return a cluster fold map that preserves the bipartite sublattice.
+
+    For even side lengths the periodic wrap already preserves parity, so the
+    cheaper :func:`rectangular_cluster_map` is used.  For any odd side length
+    the periodic period is odd and flips the sublattice, so the reflective fold
+    is used instead.
+    """
+
+    if lx % 2 == 1 or ly % 2 == 1:
+        return reflective_cluster_map(lx, ly)
+    return rectangular_cluster_map(lx, ly)
+
+
 def bipartite_two_site_map() -> Callable[[LatticePoint2D], int]:
     """Map the infinite square lattice onto the two-site A/B sublattices."""
 
@@ -78,7 +127,7 @@ def write_config(lx: int, ly: int, coupling: float, label: str) -> None:
     cluster_positions = rectangular_cluster_positions(lx, ly)
     nn_displacements = [(1, 0), (-1, 0), (0, 1), (0, -1)]
 
-    map_to_cluster_index = rectangular_cluster_map(lx, ly)
+    map_to_cluster_index = sublattice_preserving_cluster_map(lx, ly)
     if num_spins == 2 and lx == 2 and ly == 1:
         map_to_cluster_index = bipartite_two_site_map()
 
@@ -120,7 +169,7 @@ def write_uncoupled_config(lx: int, ly: int, mf_coupling: float, label: str) -> 
 
     cluster_positions = rectangular_cluster_positions(lx, ly)
     nn_displacements = [(1, 0), (-1, 0), (0, 1), (0, -1)]
-    map_to_cluster_index = rectangular_cluster_map(lx, ly)
+    map_to_cluster_index = sublattice_preserving_cluster_map(lx, ly)
 
     J = np.zeros((num_spins, num_spins), dtype=np.float64)
     base_weights = generate_nn_cluster_weights(
@@ -130,6 +179,47 @@ def write_uncoupled_config(lx: int, ly: int, mf_coupling: float, label: str) -> 
         include_cluster_neighbors=True,
     )
     mf_expectation_weights = mf_coupling * base_weights.mf_expectation_weights
+    correlation_weights = (mf_coupling * mf_coupling) * base_weights.correlation_weights
+
+    output_path = create_config_file(
+        project_name=project_name,
+        config_file=config_file,
+        J=J,
+        mf_expectation_weights=mf_expectation_weights,
+        correlation_weights=correlation_weights,
+        correlation_categories=base_weights.canonical_pair_categories,
+    )
+    print(f"wrote {output_path}")
+
+
+def write_uncoupled_nofield_config(lx: int, ly: int, mf_coupling: float, label: str) -> None:
+    """Write an uncoupled config with the first-moment (Weiss) field switched off.
+
+    Identical to :func:`write_uncoupled_config` (J=0, all-neighbor mean-field
+    weights, ``include_cluster_neighbors=True``) except that the first-moment
+    expectation weights are set to zero while the second-moment correlation
+    weights are kept unchanged.  This removes the static Weiss field that lets
+    ``<S>`` order spontaneously, leaving only the (sign-blind) bath fluctuations,
+    and is meant to test whether the low-T non-convergence is the first-moment
+    runaway: with W=0 no magnetization can grow.
+    """
+
+    project_name = "SquareLattice"
+    num_spins = lx * ly
+    config_file = f"Square_2D_N={num_spins}_NN_{label}"
+
+    cluster_positions = rectangular_cluster_positions(lx, ly)
+    nn_displacements = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+    map_to_cluster_index = sublattice_preserving_cluster_map(lx, ly)
+
+    J = np.zeros((num_spins, num_spins), dtype=np.float64)
+    base_weights = generate_nn_cluster_weights(
+        cluster_positions=cluster_positions,
+        nn_displacements=nn_displacements,
+        map_to_cluster_index=map_to_cluster_index,
+        include_cluster_neighbors=True,
+    )
+    mf_expectation_weights = np.zeros_like(base_weights.mf_expectation_weights)
     correlation_weights = (mf_coupling * mf_coupling) * base_weights.correlation_weights
 
     output_path = create_config_file(
@@ -161,11 +251,13 @@ def main() -> None:
     write_config(lx=2, ly=2, coupling=-0.5, label="J=-0.5")
     write_config(lx=2, ly=2, coupling=0.0, label="J=0.0")
     write_uncoupled_config(lx=2, ly=2, mf_coupling=0.5, label="J=0.0_uncoupled")
+    write_uncoupled_nofield_config(lx=2, ly=2, mf_coupling=0.5, label="J=0.0_uncoupled_nofield")
 
     # N=9 3x3 plaquette
     write_config(lx=3, ly=3, coupling=0.5, label="J=0.5")
     write_config(lx=3, ly=3, coupling=-0.5, label="J=-0.5")
     write_uncoupled_config(lx=3, ly=3, mf_coupling=0.5, label="J=0.0_uncoupled")
+    write_uncoupled_nofield_config(lx=3, ly=3, mf_coupling=0.5, label="J=0.0_uncoupled_nofield")
 
 
 

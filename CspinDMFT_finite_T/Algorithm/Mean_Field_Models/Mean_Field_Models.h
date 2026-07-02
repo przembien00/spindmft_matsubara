@@ -63,7 +63,7 @@ class MeanFieldModel
    std::vector<double> read_configuration_from_file( const ps::ParameterSpace & pspace ); // get parameters from hdf5 file and set shared model data
    virtual void interpret_model_specific_parameters( const std::vector<double>& Jsq_linearized ) = 0; // interpret Jsq (model specific)
    virtual void rescale() = 0; // rescale any Parameters
-   void hand_back_general_parameters( ps::ParameterSpace & pspace ) const; // hand back the general Parameters to the ParameterSpace
+   virtual void hand_back_general_parameters( ps::ParameterSpace & pspace ) const; // hand back the general Parameters to the ParameterSpace
 
 	   virtual std::tuple<SiteFields, CluCorrTen> self_consistency( const CluCorrTen& environment_spin_corr, const SiteFields& environment_spin_expvals ) const = 0;
    virtual void compute_Hamiltonian( SparseObservable& new_Hamiltonian, const VecVec&& Vs_of_t, const SiteFields& mean_fields, const char symmetry_type ) const = 0;
@@ -100,6 +100,7 @@ class CorrelationReplicaModel : public MultiModel
     // OVERRIDE METHODS AND OPERATORS
     virtual void interpret_model_specific_parameters( const std::vector<double>& Jsq_linearized ) override;
     virtual void rescale() override;
+    virtual void hand_back_general_parameters( ps::ParameterSpace & pspace ) const override; // also hand back the mean-field correlation weights
     virtual std::tuple<SiteFields, CluCorrTen> self_consistency( const CluCorrTen& environment_spin_corr, const SiteFields& environment_spin_expvals ) const override;
 };
 

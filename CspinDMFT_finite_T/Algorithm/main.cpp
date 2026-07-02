@@ -99,11 +99,14 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
 
     // ====== Production Sweep ======
     // Observables are accumulated from the current chain state every step after burn-in;
-    // on a rejected proposal the cached state is re-accumulated (holding-time weighting).
+    // on a rejected proposal the chain state is unchanged, so the per-sample contributions
+    // cached from the last state change are re-accumulated (holding-time weighting) without
+    // recomputing the propagator-observable matrix products.
     // The samples are split into batch-mean blocks for the error estimate; init_blocks sets
     // the block length and close_block() finalizes one block every block_length steps.
     const size_t num_SamplesPerCore = my_rtdata.get_num_SamplesPerCore();
     my_rtdata.init_blocks( my_new_spin_correlations_Re, num_SamplesPerCore );
+    func::SampleCache my_sample_cache( my_pspace );
     my_clock.enter_loop();
     for( size_t s = 0; s < num_SamplesPerCore; ++s )
     {
@@ -111,14 +114,19 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
       my_rtdata.mh_proposed_count++;
       if( accepted ) my_rtdata.mh_accepted_count++;
 
-      if( my_pspace.uncoupled_spins )
+      if( accepted || !my_sample_cache.valid ) // chain state changed (or first sample): recompute the contributions
       {
-        func::compute_uncoupled_spin_observables_mh( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, chain.forward_uncoupled(), chain.backward_uncoupled(), chain.Z_i_list(), my_rtdata, my_pspace );
+        if( my_pspace.uncoupled_spins )
+        {
+          func::compute_uncoupled_sample_contributions( my_sample_cache, chain.forward_uncoupled(), chain.backward_uncoupled(), chain.Z_i_list(), my_pspace );
+        }
+        else
+        {
+          func::compute_sample_contributions( my_sample_cache, chain.forward(), chain.backward(), chain.Z(), my_pspace );
+        }
+        my_sample_cache.valid = true;
       }
-      else
-      {
-        func::compute_spin_observables_mh( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, chain.forward(), chain.backward(), chain.Z(), my_rtdata, my_pspace );
-      }
+      func::accumulate_sample_contributions( my_sample_cache, my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expvals, my_rtdata, my_pspace );
       if( ( s + 1 ) % my_rtdata.block_length == 0 ) my_rtdata.close_block();
       my_MC_estimator.obtain( my_clock.measure( "pCN production" ) );
     }
@@ -149,9 +157,23 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     func::symmetrize_upper_half( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_rtdata.sample_stds_Re, my_rtdata.sample_stds_Im, my_rtdata.tau_int_Re, my_rtdata.tau_int_Im );
 
     my_rtdata.compute_iteration_error( my_new_spin_correlations_Re, my_spin_correlations_Re );
-    my_spin_correlations_Re = std::move( my_new_spin_correlations_Re );
-    my_spin_correlations_Im = std::move( my_new_spin_correlations_Im );
-    my_spin_expvals = std::move( my_new_spin_expvals );
+
+    // Carry the update forward, optionally with linear under-relaxation (mixing). With
+    // alpha = 1 this is a plain Picard step (old := new); alpha < 1 damps the low-T
+    // iteration-map instabilities. The iteration error above is always measured on the raw
+    // (unmixed) new vs old, so the convergence criterion is unaffected by the mixing.
+    if( my_pspace.iteration_mixing < RealType{1.} )
+    {
+      func::mix_into( my_spin_correlations_Re, my_new_spin_correlations_Re, my_pspace.iteration_mixing );
+      func::mix_into( my_spin_correlations_Im, my_new_spin_correlations_Im, my_pspace.iteration_mixing );
+      func::mix_into( my_spin_expvals,         my_new_spin_expvals,         my_pspace.iteration_mixing );
+    }
+    else
+    {
+      my_spin_correlations_Re = std::move( my_new_spin_correlations_Re );
+      my_spin_correlations_Im = std::move( my_new_spin_correlations_Im );
+      my_spin_expvals = std::move( my_new_spin_expvals );
+    }
     my_rtdata.finalize_iteration_step(); // increments num_Iterations and writes details to terminal
     my_clock.measure( "iteration-step finalization", true );
     print::print_R0( my_rank, "------------------------------------------------------------------\n" ) ;

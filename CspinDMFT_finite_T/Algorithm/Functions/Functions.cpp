@@ -563,8 +563,9 @@ TimeTrajectory FrequencyCovarianceCluster::trajectory_from_full_frequency( const
     return trajectory;
 }
 
-// pCN observable accumulator (coupled cluster): fold O_raw / Z into the running sums.
-void compute_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, const std::vector<Operator>& forward_propagators, const std::vector<Operator>& backward_propagators, const RealType Z, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace )
+// pCN per-sample contribution evaluator (coupled cluster): write O_raw / Z of the current
+// chain state into the cache.
+void compute_sample_contributions( SampleCache& cache, const std::vector<Operator>& forward_propagators, const std::vector<Operator>& backward_propagators, const RealType Z, const ps::ParameterSpace& pspace )
 {
     const RealType inv_Z = ( Z != RealType{0.} ) ? RealType{1.} / Z : RealType{0.};
 
@@ -572,10 +573,7 @@ void compute_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_
     {
         for( size_t alpha = 0; alpha < 3; ++alpha )
         {
-            const RealType x = std::real( blaze::trace( forward_propagators.back() * S_at_site_in_direction(site,alpha) ) ) * inv_Z;
-            spin_expvals[site][alpha] += x;
-            rtdata.spin_expval_sqsum[site][alpha] += x * x;
-            rtdata.cur_block_spin[site][alpha] += x;       // batch-means accumulation
+            cache.expvals[site][alpha] = std::real( blaze::trace( forward_propagators.back() * S_at_site_in_direction(site,alpha) ) ) * inv_Z;
         }
     }
 
@@ -588,8 +586,8 @@ void compute_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_
     // Which (site,direction) operators are actually required is dictated by the symmetry type
     // via the stored site- and direction-pair lists: e.g. type A keeps only the (0,0) pair, so
     // only S_x enters here, while type D needs all three directions.
-    const ten::IndexPairList& site_pairs = spin_CCT_Re.get_site_pairs();
-    const ten::IndexPairList& dir_pairs  = spin_CCT_Re[0].get_direction_pairs();
+    const ten::IndexPairList& site_pairs = cache.corr_Re.get_site_pairs();
+    const ten::IndexPairList& dir_pairs  = cache.corr_Re[0].get_direction_pairs();
     const size_t num_site_pairs = site_pairs.size();
     const size_t num_dir_pairs  = dir_pairs.size();
 
@@ -628,69 +626,93 @@ void compute_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_
         for( size_t p = 0; p < num_site_pairs; ++p )
         {
             const auto& ij = site_pairs[p];
-            CorrTen& CT_Re = spin_CCT_Re[p];
-            CorrTen& CT_Im = spin_CCT_Im[p];
-            CorrTen& sq_Re = rtdata.sample_sqsum_Re[p];
-            CorrTen& sq_Im = rtdata.sample_sqsum_Im[p];
-            CorrTen& blk_Re = rtdata.cur_block_Re[p];
-            CorrTen& blk_Im = rtdata.cur_block_Im[p];
+            CorrTen& CT_Re = cache.corr_Re[p];
+            CorrTen& CT_Im = cache.corr_Im[p];
             for( size_t d = 0; d < num_dir_pairs; ++d )
             {
                 const auto& alphabeta = dir_pairs[d];
                 const ComplexType o = blaze::sum( M[ ij[0] ][ alphabeta[0] ] % blaze::trans( N[ ij[1] ][ alphabeta[1] ] ) ) * inv_Z;
-                const RealType re = std::real( o );
-                const RealType im = std::imag( o );
-                CT_Re[d].at( tau_index ) += re;  sq_Re[d].at( tau_index ) += re * re;  blk_Re[d].at( tau_index ) += re;
-                CT_Im[d].at( tau_index ) += im;  sq_Im[d].at( tau_index ) += im * im;  blk_Im[d].at( tau_index ) += im;
+                CT_Re[d].at( tau_index ) = std::real( o );
+                CT_Im[d].at( tau_index ) = std::imag( o );
             }
         }
     }
 }
 
-// pCN observable accumulator (uncoupled cluster): divide each contribution site-by-site,
-// i.e. by Z_i for on-site (i==j) correlations and by Z_i Z_j for inter-site correlations.
-void compute_uncoupled_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, const std::vector<std::vector<Operator>>& forward_propagators, const std::vector<std::vector<Operator>>& backward_propagators, const std::vector<RealType>& Z_i_list, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace )
+// pCN per-sample contribution evaluator (uncoupled cluster): divide each contribution
+// site-by-site, i.e. by Z_i for on-site (i==j) correlations and by Z_i Z_j for inter-site
+// correlations, and write the values of the current chain state into the cache.
+void compute_uncoupled_sample_contributions( SampleCache& cache, const std::vector<std::vector<Operator>>& forward_propagators, const std::vector<std::vector<Operator>>& backward_propagators, const std::vector<RealType>& Z_i_list, const ps::ParameterSpace& pspace )
 {
     for( size_t site = 0; site < pspace.num_Spins; ++site )
     {
         const RealType inv_Z_i = ( Z_i_list[site] != RealType{0.} ) ? RealType{1.} / Z_i_list[site] : RealType{0.};
         for( size_t alpha = 0; alpha < 3; ++alpha )
         {
-            const RealType x = std::real( blaze::trace( forward_propagators.back()[site] * S_2x2(alpha) ) ) * inv_Z_i;
+            cache.expvals[site][alpha] = std::real( blaze::trace( forward_propagators.back()[site] * S_2x2(alpha) ) ) * inv_Z_i;
+        }
+    }
+
+    // The Re and Im caches share the same site-pair and direction-pair layout (built from the
+    // same correlation_categories / symmetry_type), so we traverse them in lockstep by linear
+    // index and evaluate each correlation once for both components.
+    const size_t n_half = pspace.num_TimePoints - pspace.num_TimePoints / 2;
+    for( size_t p = 0; p < cache.corr_Re.size(); ++p )
+    {
+        const auto& ij = cache.corr_Re.get_site_pair( p );
+        const RealType inv_Z_i = ( Z_i_list[ij[0]] != RealType{0.} ) ? RealType{1.} / Z_i_list[ij[0]] : RealType{0.};
+        const RealType inv_Z_j = ( Z_i_list[ij[1]] != RealType{0.} ) ? RealType{1.} / Z_i_list[ij[1]] : RealType{0.};
+        const RealType inv_weight = ( ij[0] == ij[1] ) ? inv_Z_i : inv_Z_i * inv_Z_j;
+        CorrTen& CT_Re = cache.corr_Re[p];
+        CorrTen& CT_Im = cache.corr_Im[p];
+        const ten::IndexPairList& dir_pairs = CT_Re.get_direction_pairs();
+        for( size_t d = 0; d < CT_Re.size(); ++d )
+        {
+            const auto& alphabeta = dir_pairs[d];
+            corr::CorrelationVector& C_Re = CT_Re[d];
+            corr::CorrelationVector& C_Im = CT_Im[d];
+            // Only the lower half [0, beta/2] is computed; symmetrize_upper_half fills
+            // the rest via g^{ab}_{ij}(beta-tau) = g^{ab}_{ij}(tau)^*.
+            for( size_t tau_index = 0; tau_index < n_half; ++tau_index )
+            {
+                const ComplexType val = uncoupled_correlation( forward_propagators[tau_index], backward_propagators[tau_index], forward_propagators.back(), ij, alphabeta );
+                C_Re.at( tau_index ) = std::real( val ) * inv_weight;
+                C_Im.at( tau_index ) = std::imag( val ) * inv_weight;
+            }
+        }
+    }
+}
+
+// fold the cached per-sample contributions into the running sums, the sums of squares and
+// the current batch-means block. Called every production step; on a rejected step this is
+// the only per-sample observable work.
+void accumulate_sample_contributions( const SampleCache& cache, CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace )
+{
+    for( size_t site = 0; site < pspace.num_Spins; ++site )
+    {
+        for( size_t alpha = 0; alpha < 3; ++alpha )
+        {
+            const RealType x = cache.expvals[site][alpha];
             spin_expvals[site][alpha] += x;
             rtdata.spin_expval_sqsum[site][alpha] += x * x;
             rtdata.cur_block_spin[site][alpha] += x;       // batch-means accumulation
         }
     }
 
-    // The mean, sum-of-squares and current-block clusters share the same site-pair and
-    // direction-pair layout (built from the same correlation_categories / symmetry_type), so we
-    // traverse them in lockstep by linear index rather than via operator()(i,j) / operator()(a,b).
     const size_t n_half = pspace.num_TimePoints - pspace.num_TimePoints / 2;
-    auto accumulate = [&]( CluCorrTen& spin_CCT, CluCorrTen& sqsum_CCT, CluCorrTen& block_CCT, const bool real_part )
+    auto fold = [n_half]( const CluCorrTen& cache_CCT, CluCorrTen& spin_CCT, CluCorrTen& sqsum_CCT, CluCorrTen& block_CCT )
     {
-        for( size_t p = 0; p < spin_CCT.size(); ++p )
+        for( size_t p = 0; p < cache_CCT.size(); ++p )
         {
-            const auto& ij = spin_CCT.get_site_pair( p );
-            const RealType inv_Z_i = ( Z_i_list[ij[0]] != RealType{0.} ) ? RealType{1.} / Z_i_list[ij[0]] : RealType{0.};
-            const RealType inv_Z_j = ( Z_i_list[ij[1]] != RealType{0.} ) ? RealType{1.} / Z_i_list[ij[1]] : RealType{0.};
-            const RealType inv_weight = ( ij[0] == ij[1] ) ? inv_Z_i : inv_Z_i * inv_Z_j;
-            CorrTen& CT       = spin_CCT[p];
-            CorrTen& sqsum_CT = sqsum_CCT[p];
-            CorrTen& block_CT = block_CCT[p];
-            const ten::IndexPairList& dir_pairs = CT.get_direction_pairs();
-            for( size_t d = 0; d < CT.size(); ++d )
+            for( size_t d = 0; d < cache_CCT[p].size(); ++d )
             {
-                const auto& alphabeta = dir_pairs[d];
-                corr::CorrelationVector& C       = CT[d];
-                corr::CorrelationVector& sqsum_C = sqsum_CT[d];
-                corr::CorrelationVector& block_C = block_CT[d];
-                // Only the lower half [0, beta/2] is accumulated; symmetrize_upper_half fills
-                // the rest via g^{ab}_{ij}(beta-tau) = g^{ab}_{ij}(tau)^*.
+                const corr::CorrelationVector& src = cache_CCT[p][d];
+                corr::CorrelationVector& C       = spin_CCT[p][d];
+                corr::CorrelationVector& sqsum_C = sqsum_CCT[p][d];
+                corr::CorrelationVector& block_C = block_CCT[p][d];
                 for( size_t tau_index = 0; tau_index < n_half; ++tau_index )
                 {
-                    const ComplexType val = uncoupled_correlation( forward_propagators[tau_index], backward_propagators[tau_index], forward_propagators.back(), ij, alphabeta );
-                    const RealType o = ( real_part ? std::real( val ) : std::imag( val ) ) * inv_weight;
+                    const RealType o = src.at( tau_index );
                     C.at( tau_index ) += o;
                     sqsum_C.at( tau_index ) += o * o;
                     block_C.at( tau_index ) += o;          // batch-means accumulation
@@ -698,8 +720,8 @@ void compute_uncoupled_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen&
             }
         }
     };
-    accumulate( spin_CCT_Re, rtdata.sample_sqsum_Re, rtdata.cur_block_Re, true );
-    accumulate( spin_CCT_Im, rtdata.sample_sqsum_Im, rtdata.cur_block_Im, false );
+    fold( cache.corr_Re, spin_CCT_Re, rtdata.sample_sqsum_Re, rtdata.cur_block_Re );
+    fold( cache.corr_Im, spin_CCT_Im, rtdata.sample_sqsum_Im, rtdata.cur_block_Im );
 }
 
 // reduce one CluCorrTen of per-(i,j,alpha,beta,tau) sums across MPI ranks
@@ -752,6 +774,34 @@ void normalize_mh( CluCorrTen& CCT_Re, CluCorrTen& CCT_Im, const RealType N )
     };
     scale( CCT_Re );
     scale( CCT_Im );
+}
+
+// Linear under-relaxation: old <- (1-alpha)*old + alpha*new, element-wise into old.
+void mix_into( CluCorrTen& old_CCT, const CluCorrTen& new_CCT, const RealType alpha )
+{
+    const RealType one_minus_alpha = RealType{1.} - alpha;
+    for( size_t s = 0; s < old_CCT.size(); ++s )
+    {
+        CorrTen& old_CT = old_CCT[s];
+        const CorrTen& new_CT = new_CCT[s];
+        auto new_it = new_CT.cbegin();
+        for( auto old_it = old_CT.begin(); old_it != old_CT.end(); ++old_it, ++new_it )
+        {
+            *old_it *= one_minus_alpha;        // (1-alpha)*old
+            *old_it += alpha * (*new_it);      // + alpha*new
+        }
+    }
+}
+
+// Linear under-relaxation of the first-moment site fields, element-wise into old.
+void mix_into( SiteFields& old_expvals, const SiteFields& new_expvals, const RealType alpha )
+{
+    const RealType one_minus_alpha = RealType{1.} - alpha;
+    for( size_t i = 0; i < old_expvals.size(); ++i )
+    {
+        old_expvals[i] = one_minus_alpha * old_expvals[i];
+        old_expvals[i] += alpha * new_expvals[i];
+    }
 }
 
 // Fill the upper half (tau > beta/2) of every (site-pair, direction-pair) correlation from the

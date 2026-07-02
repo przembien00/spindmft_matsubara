@@ -47,6 +47,20 @@ std::vector<std::vector<RealType>> matrix_to_vmatrix( const Matrix& matrix )
     return vmatrix;
 }
 
+std::vector<std::vector<std::vector<std::vector<RealType>>>> matrix_of_matrix_to_v4tensor( const SymmMatrixOfMatrix& mom )
+{
+    const size_t n = mom.rows();
+    std::vector<std::vector<std::vector<std::vector<RealType>>>> v4tensor( n, std::vector<std::vector<std::vector<RealType>>>( n ) );
+    for( size_t i = 0; i < n; ++i )
+    {
+        for( size_t j = 0; j < n; ++j )
+        {
+            v4tensor[i][j] = matrix_to_vmatrix( mom(i,j) );
+        }
+    }
+    return v4tensor;
+}
+
 std::vector<std::vector<RealType>> site_fields_to_vmatrix( const std::vector<FieldVector>& fields )
 {
     std::vector<std::vector<RealType>> vmatrix( fields.size(), std::vector<RealType>( 3 ) );
@@ -125,10 +139,6 @@ void HDF5_Storage::create_file( const ps::ParameterSpace& pspace, const bool eig
         filename += "__mf" + pspace.spinmf_cmodel.compact_info(pspace.num_PrintDigits);
     }
     filename += "__config=" + config_name;
-    if( pspace.uncoupled_spins )
-    {
-        filename += "__uncoupled";
-    }
     filename += "__beta=" + print::remove_zeros(print::round_value_to_string(pspace.beta,pspace.num_PrintDigits));
     if( pspace.chemical_shift.m_name != "none" )
     {
@@ -214,6 +224,7 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace, rtd::RunTimeDat
         hdf5r::store_scalar( ps_group_id, param.m_name,             param.m_value );
     }
     hdf5r::store_2D_tensor<RealType>( ps_group_id, "mf_expectation_weights", H5_REAL_TYPE, matrix_to_vmatrix( pspace.mf_expectation_weights ) );
+    hdf5r::store_4D_tensor<RealType>( ps_group_id, "correlation_weights", H5_REAL_TYPE, matrix_of_matrix_to_v4tensor( pspace.correlation_weights ) );
     hdf5r::store_string( ps_group_id, "chemical_shift",             pspace.chemical_shift.m_name );
     hdf5r::store_string( ps_group_id, "local_extra_interaction",    pspace.local_extra_interaction.m_name );
     for( const auto& param : pspace.local_extra_interaction.m_parameters ) // add all parameters of the local extra interaction
@@ -262,11 +273,13 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace, rtd::RunTimeDat
     hdf5r::store_string( ps_group_id, "init_diag_corr",             hdf5r::none_if_empty(pspace.init_diag_corr.m_name) );
     for( const auto& param : pspace.init_diag_corr.m_parameters )
     {
+        if( param.m_name == "c_tscale" ){ continue; }
         hdf5r::store_scalar( ps_group_id, param.m_name,             param.m_value );
     }
     hdf5r::store_string( ps_group_id, "init_nondiag_corr",          hdf5r::none_if_empty(pspace.init_nondiag_corr.m_name) );
     for( const auto& param : pspace.init_nondiag_corr.m_parameters )
     {
+        if( param.m_name == "c_tscale" ){ continue; }
         hdf5r::store_scalar( ps_group_id, param.m_name,             param.m_value );
     }
 
@@ -275,6 +288,7 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace, rtd::RunTimeDat
     hdf5r::store_scalar( ps_group_id, "relative_iteration_error_tolerance" + rtdata.regarded("relative"), pspace.relative_iteration_error_tolerance );
     hdf5r::store_scalar( ps_group_id, "absolute_iteration_error_tolerance" + rtdata.regarded("absolute"), pspace.absolute_iteration_error_tolerance );
     hdf5r::store_scalar( ps_group_id, "Iteration_Limit",            pspace.Iteration_Limit );
+    hdf5r::store_scalar( ps_group_id, "iteration_mixing",           pspace.iteration_mixing );
 
     // ...concerning the eigenvalues
     hdf5r::store_string( ps_group_id, "truncation_scheme_negative_eigenvalues", pspace.truncation_scheme_negative_eigenvalues );
@@ -373,17 +387,20 @@ void HDF5_Storage::store_time( const tmm::DerivedTimeMeasure& tmeasure )
         hdf5r::store_scalar( td_group_id, q.m_name, q.m_duration );
     } );
 
-    // tmp measures 
-    std::for_each( tmeasure.m_tmp_measures.cbegin(), tmeasure.m_tmp_measures.cend(), 
+    // tmp measures ("pCN production" is skipped: it is basically the same as "pCN simulation",
+    // just accumulated per production step for the progress-bar ETA estimate)
+    std::for_each( tmeasure.m_tmp_measures.cbegin(), tmeasure.m_tmp_measures.cend(),
     [&td_group_id]( const tmm::IterationDurationQuantity& q )
     {
+        if( q.m_name == "pCN production" ){ return; }
         hdf5r::store_list( td_group_id, q.m_name, q.m_durations );
     } );
     
-    // tmp measure iteration averages 
-    std::for_each( tmeasure.m_tmp_measures.cbegin(), tmeasure.m_tmp_measures.cend(), 
+    // tmp measure iteration averages
+    std::for_each( tmeasure.m_tmp_measures.cbegin(), tmeasure.m_tmp_measures.cend(),
     [&td_group_id]( const tmm::IterationDurationQuantity& q )
     {
+        if( q.m_name == "pCN production" ){ return; }
         hdf5r::store_scalar( td_group_id, q.m_name + " (av)", q.average() );
     } );
     

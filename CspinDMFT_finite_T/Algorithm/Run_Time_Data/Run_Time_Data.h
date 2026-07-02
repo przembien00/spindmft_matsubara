@@ -132,7 +132,7 @@ public:
     RealType pcn_autocorrelation_factor( const RealType pcn_step_size ) const;
 
     // ...concerning the iterations
-    std::string regarded(const std::string& mode){return (mode==iteration_error_mode) ? " (regarded)" : "";}
+    std::string regarded(const std::string& mode){return (mode==iteration_error_mode || iteration_error_mode=="either") ? " (regarded)" : "";}
     void compute_iteration_error( const CluCorrTen& new_CCT, const CluCorrTen& CCT );
     void finalize_iteration_step();
     bool is_converged() const;

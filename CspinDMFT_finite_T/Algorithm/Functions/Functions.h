@@ -95,17 +95,45 @@ std::tuple<std::vector<RealType>, std::vector<std::vector<Operator>>, std::vecto
 // In the uncoupled-spins mode Z(V) factorizes over sites, Z = prod_i Z_i, and per-sample
 // observables are divided site-by-site (Z_i for on-site, Z_i Z_j for inter-site).
 
-// pCN versions of the observable accumulators: they fold the per-sample value O_raw / Z
-// into the running correlation sums and the sum of squares (used for the standard error).
-// No covariance/partition-function accumulation is needed because V ~ pi already.
-void compute_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, const std::vector<Operator>& forward_propagators, const std::vector<Operator>& backward_propagators, const RealType Z, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace );
-void compute_uncoupled_spin_observables_mh( CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, const std::vector<std::vector<Operator>>& forward_propagators, const std::vector<std::vector<Operator>>& backward_propagators, const std::vector<RealType>& Z_i_list, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace );
+// Per-sample observable contributions of one pCN chain state: the correlation values
+// O_raw / Z on the computed lower tau half [0, beta/2] plus the spin expectation values.
+// The chain state is unchanged on a rejected step, so these values are computed once per
+// state (compute_*_sample_contributions) and folded into the running sums every step
+// (accumulate_sample_contributions); rejections re-fold the cache instead of recomputing
+// the propagator-observable matrix products.
+struct SampleCache
+{
+    explicit SampleCache( const ps::ParameterSpace& pspace )
+        : corr_Re{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints },
+          corr_Im{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints },
+          expvals( pspace.num_Spins, FieldVector{0.,0.,0.} ) {}
+    CluCorrTen corr_Re, corr_Im;
+    SiteFields expvals;
+    bool valid{ false }; // false until the contributions of the current chain state are stored
+};
+
+// pCN per-sample contribution evaluators: they write the value O_raw / Z of the current
+// chain state into the cache. No covariance/partition-function accumulation is needed
+// because V ~ pi already.
+void compute_sample_contributions( SampleCache& cache, const std::vector<Operator>& forward_propagators, const std::vector<Operator>& backward_propagators, const RealType Z, const ps::ParameterSpace& pspace );
+void compute_uncoupled_sample_contributions( SampleCache& cache, const std::vector<std::vector<Operator>>& forward_propagators, const std::vector<std::vector<Operator>>& backward_propagators, const std::vector<RealType>& Z_i_list, const ps::ParameterSpace& pspace );
+
+// fold the cached per-sample contributions into the running correlation sums, the sums of
+// squares (used for the standard error) and the current batch-means block
+void accumulate_sample_contributions( const SampleCache& cache, CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace );
 
 // sum the per-core pCN accumulators (means and sums of squares) across all MPI cores
 void MPI_share_results_mh( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, SiteFields& spin_expvals, rtd::RunTimeData& rtdata );
 
 // divide the summed-over-samples accumulators by the global sample count N
 void normalize_mh( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, const RealType N );
+
+// Linear under-relaxation of the self-consistency update, in place into the old quantity:
+// old <- (1-alpha)*old + alpha*new, applied element-wise. alpha=1 reproduces a plain Picard
+// step (old := new). Used to damp the low-T iteration-map instabilities. The iteration error
+// must be computed on the raw (unmixed) new vs old before calling this.
+void mix_into( CluCorrTen& old_CCT, const CluCorrTen& new_CCT, const RealType alpha );
+void mix_into( SiteFields& old_expvals, const SiteFields& new_expvals, const RealType alpha );
 
 // Reconstruct the upper-half (tau > beta/2) correlations from the computed lower half via the
 // per-component reflection symmetry g^{ab}_{ij}(beta-tau) = g^{ab}_{ij}(tau)^* (Re even, Im

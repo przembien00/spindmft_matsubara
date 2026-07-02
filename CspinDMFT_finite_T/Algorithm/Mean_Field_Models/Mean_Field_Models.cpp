@@ -145,6 +145,13 @@ void MeanFieldModel::hand_back_general_parameters( ps::ParameterSpace & pspace )
     pspace.correlation_categories = correlation_categories;
 }
 
+// hand back the correlation-replica-specific parameters to the ParameterSpace
+void CorrelationReplicaModel::hand_back_general_parameters( ps::ParameterSpace & pspace ) const
+{
+    MeanFieldModel::hand_back_general_parameters( pspace );
+    pspace.correlation_weights = J_mf_sq;
+}
+
 // ========================================================
 // =================== CLASS MULTI MODEL ==================
 // ========================================================
