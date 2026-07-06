@@ -35,8 +35,8 @@ RunTimeData::RunTimeData( const ps::ParameterSpace& pspace, const int my_rank ):
     sample_stds_Im  = CorrTen{ pspace.correlation_symmetry_type, pspace.num_TimePoints };
     tau_int_Re      = CorrTen{ pspace.correlation_symmetry_type, pspace.num_TimePoints };
     tau_int_Im      = CorrTen{ pspace.correlation_symmetry_type, pspace.num_TimePoints };
-    spin_expval_sqsum = FieldVector{0.,0.,0.};
-    spin_expval_stds  = FieldVector{0.,0.,0.};
+    spin_expval_sqsum = MagVec{ pspace.correlation_symmetry_type };
+    spin_expval_stds  = MagVec{ pspace.correlation_symmetry_type };
 
     error_method = pspace.error_method;
     num_blocks   = pspace.mh_num_blocks;
@@ -137,7 +137,7 @@ RealType RunTimeData::pcn_autocorrelation_factor( RealType pcn_step_size ) const
 // underestimates the error for slow/trapped chains. `sample_mean_*` holds <o> (already divided
 // by N in main.cpp); for the AR(1) path `sample_sqsum_*` holds the MPI-reduced sum_i o_i^2.
 void RunTimeData::compute_sample_stds( const CorrTen& sample_mean_Re, const CorrTen& sample_mean_Im,
-                                       const FieldVector& spin_mean, RealType N, RealType pcn_step_size )
+                                       const MagVec& spin_mean, RealType N, RealType pcn_step_size )
 {
     if( error_method == "ar1" )
         compute_sample_stds_ar1( sample_mean_Re, sample_mean_Im, spin_mean, N, pcn_step_size );
@@ -148,7 +148,7 @@ void RunTimeData::compute_sample_stds( const CorrTen& sample_mean_Re, const Corr
 // Legacy estimator: stderr( <o> ) = sqrt( ( <o^2> - <o>^2 ) / N ), scaled by the AR(1)
 // autocorrelation factor from pcn_autocorrelation_factor.
 void RunTimeData::compute_sample_stds_ar1( const CorrTen& sample_mean_Re, const CorrTen& sample_mean_Im,
-                                           const FieldVector& spin_mean, RealType N, RealType pcn_step_size )
+                                           const MagVec& spin_mean, RealType N, RealType pcn_step_size )
 {
     const RealType autocorr_factor = pcn_autocorrelation_factor( pcn_step_size );
     auto per_point_stderr = [N, autocorr_factor]( const RealType& sample_mean, const RealType& sample_sqsum ) -> RealType
@@ -177,13 +177,13 @@ void RunTimeData::compute_sample_stds_ar1( const CorrTen& sample_mean_Re, const 
     stderr_correlation( sample_mean_Re, sample_sqsum_Re, sample_stds_Re );
     stderr_correlation( sample_mean_Im, sample_sqsum_Im, sample_stds_Im );
 
-    for( size_t i = 0; i < 3; ++i )
-        spin_expval_stds[i] = per_point_stderr( spin_mean[i], spin_expval_sqsum[i] );
+    for( size_t c = 0; c < spin_mean.size(); ++c )
+        spin_expval_stds[c] = per_point_stderr( spin_mean[c], spin_expval_sqsum[c] );
 
     // reset per-iteration accumulators
     sample_sqsum_Re = CorrTen{ sample_mean_Re.get_symmetry(), sample_mean_Re[0].size() };
     sample_sqsum_Im = CorrTen{ sample_mean_Re.get_symmetry(), sample_mean_Re[0].size() };
-    spin_expval_sqsum = FieldVector{ 0., 0., 0. };
+    spin_expval_sqsum = MagVec{ spin_mean.get_symmetry() };
 }
 
 // Allocate the batch-mean blocks for one production sweep and zero all per-iteration
@@ -200,15 +200,15 @@ void RunTimeData::init_blocks( const CorrTen& template_corr, size_t num_SamplesP
 
     cur_block_Re   = CorrTen{ sym, ntp };
     cur_block_Im   = CorrTen{ sym, ntp };
-    cur_block_spin = FieldVector{ 0., 0., 0. };
+    cur_block_spin = MagVec{ sym };
     block_means_Re.assign(   num_blocks, CorrTen{ sym, ntp } );
     block_means_Im.assign(   num_blocks, CorrTen{ sym, ntp } );
-    block_means_spin.assign( num_blocks, FieldVector{ 0., 0., 0. } );
+    block_means_spin.assign( num_blocks, MagVec{ sym } );
 
     // also reset the AR(1) accumulators (kept available for errmethod=ar1)
     sample_sqsum_Re = CorrTen{ sym, ntp };
     sample_sqsum_Im = CorrTen{ sym, ntp };
-    spin_expval_sqsum = FieldVector{ 0., 0., 0. };
+    spin_expval_sqsum = MagVec{ sym };
 }
 
 // Turn the current block's running sums into block means, store them, and reset the running
@@ -228,7 +228,7 @@ void RunTimeData::close_block()
     };
     finalize( cur_block_Re, block_means_Re[blocks_filled], inv );
     finalize( cur_block_Im, block_means_Im[blocks_filled], inv );
-    for( size_t i = 0; i < 3; ++i ) { block_means_spin[blocks_filled][i] = cur_block_spin[i] * inv; cur_block_spin[i] = RealType{0.}; }
+    for( size_t c = 0; c < cur_block_spin.size(); ++c ) { block_means_spin[blocks_filled][c] = cur_block_spin[c] * inv; cur_block_spin[c] = RealType{0.}; }
     ++blocks_filled;
 }
 
@@ -245,23 +245,29 @@ void RunTimeData::compute_sample_stds_blocking( const CorrTen& sample_mean_Re, c
     size_t P = 0;
     for( const auto& dir : sample_stds_Re ) P += dir.size();
 
+    // number of symmetry-permitted first-moment components
+    const size_t ncomp = spin_expval_stds.size();
+
     // flatten this core's block means: layout [block][point]
-    std::vector<RealType> local_Re( num_blocks * P ), local_Im( num_blocks * P ), local_spin( num_blocks * 3 );
+    std::vector<RealType> local_Re( num_blocks * P ), local_Im( num_blocks * P ), local_spin( num_blocks * ncomp );
     for( size_t b = 0; b < num_blocks; ++b )
     {
         size_t p = 0;
         for( const auto& dir : block_means_Re[b] ) for( size_t t = 0; t < dir.size(); ++t ) local_Re[b * P + (p++)] = dir[t];
         p = 0;
         for( const auto& dir : block_means_Im[b] ) for( size_t t = 0; t < dir.size(); ++t ) local_Im[b * P + (p++)] = dir[t];
-        for( size_t i = 0; i < 3; ++i ) local_spin[b * 3 + i] = block_means_spin[b][i];
+        for( size_t c = 0; c < ncomp; ++c ) local_spin[b * ncomp + c] = block_means_spin[b][c];
     }
 
     // pool all blocks from all cores
     const size_t n_tot = num_blocks * static_cast<size_t>( num_cores );
-    std::vector<RealType> all_Re( n_tot * P ), all_Im( n_tot * P ), all_spin( n_tot * 3 );
+    std::vector<RealType> all_Re( n_tot * P ), all_Im( n_tot * P ), all_spin( n_tot * ncomp );
     MPI_Allgather( local_Re.data(),   num_blocks * P, MPI_REALTYPE, all_Re.data(),   num_blocks * P, MPI_REALTYPE, MPI_COMM_WORLD );
     MPI_Allgather( local_Im.data(),   num_blocks * P, MPI_REALTYPE, all_Im.data(),   num_blocks * P, MPI_REALTYPE, MPI_COMM_WORLD );
-    MPI_Allgather( local_spin.data(), num_blocks * 3, MPI_REALTYPE, all_spin.data(), num_blocks * 3, MPI_REALTYPE, MPI_COMM_WORLD );
+    if( ncomp > 0 )
+    {
+        MPI_Allgather( local_spin.data(), num_blocks * ncomp, MPI_REALTYPE, all_spin.data(), num_blocks * ncomp, MPI_REALTYPE, MPI_COMM_WORLD );
+    }
 
     (void) n_tot;
     const size_t nc = static_cast<size_t>( num_cores );
@@ -313,7 +319,7 @@ void RunTimeData::compute_sample_stds_blocking( const CorrTen& sample_mean_Re, c
     };
     fill( all_Re, sample_stds_Re );
     fill( all_Im, sample_stds_Im );
-    for( size_t i = 0; i < 3; ++i ) spin_expval_stds[i] = plateau( all_spin, 3, i );
+    for( size_t c = 0; c < ncomp; ++c ) spin_expval_stds[c] = plateau( all_spin, ncomp, c );
 
     // aggregate blocking curve over the Re correlation points (diagnostic, stored to HDF5)
     blocking_curve_len.clear();
@@ -356,19 +362,28 @@ void RunTimeData::compute_sample_stds_blocking( const CorrTen& sample_mean_Re, c
 
 
 // compute the absolute iteration error Delta I_abs = max_ab{ timeav(Delta I^ab) }
-void RunTimeData::compute_iteration_error( const CorrTen& CT, const CorrTen& new_CT )
+void RunTimeData::compute_iteration_error( const CorrTen& CT, const CorrTen& new_CT, const MagVec& mag_old, const MagVec& mag_new )
 {
     std::vector<RealType> time_average{};
     std::transform( CT.cbegin(), CT.cend(), new_CT.cbegin(), std::back_inserter(time_average), []( const Corr& C, const Corr& new_C )
     {
         Corr diff = C - new_C; // difference vector
         RealType abs_sum = std::accumulate( diff.cbegin(), diff.cend(), RealType{0.}, []( RealType sum, const RealType& d )
-        { 
+        {
             return sum + std::abs(d);
         } ); // adding up the absolute difference
         return abs_sum/static_cast<RealType>(diff.size()); // divide by size and store
     } );
-    absolute_iteration_errors.emplace_back( *std::max_element( time_average.cbegin(), time_average.cend() ) );
+    RealType iteration_error = *std::max_element( time_average.cbegin(), time_average.cend() );
+
+    // fold in the first-moment channel over the symmetry-permitted components, so the
+    // iteration cannot terminate while the magnetization still drifts
+    for( size_t c = 0; c < mag_new.size(); ++c )
+    {
+        iteration_error = std::max( iteration_error, std::abs( mag_new[c] - mag_old[c] ) );
+    }
+
+    absolute_iteration_errors.emplace_back( iteration_error );
 }
 
 // finalize iteration step

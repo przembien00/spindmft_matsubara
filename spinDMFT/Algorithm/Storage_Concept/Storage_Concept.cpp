@@ -255,10 +255,11 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace, const rtd::RunT
         store_correlation_tensor( rtdata.tau_int_Im, rtd_group_id, "Im_correlation_tau_int", "Integrated autocorrelation time of Im <S^alpha(t)S^beta(0)>, hierarchy alpha-beta, t." + tau_remark );
     }
 
-    // ...spin expectation value sample stds
-    hdf5r::store_scalar( rtd_group_id, "S_x_sample_std", rtdata.spin_expval_stds[0] );
-    hdf5r::store_scalar( rtd_group_id, "S_y_sample_std", rtdata.spin_expval_stds[1] );
-    hdf5r::store_scalar( rtd_group_id, "S_z_sample_std", rtdata.spin_expval_stds[2] );
+    // ...spin expectation value sample stds (components forbidden by the symmetry are exact zeros)
+    const FieldVector spin_expval_stds_full = rtdata.spin_expval_stds.expand();
+    hdf5r::store_scalar( rtd_group_id, "S_x_sample_std", spin_expval_stds_full[0] );
+    hdf5r::store_scalar( rtd_group_id, "S_y_sample_std", spin_expval_stds_full[1] );
+    hdf5r::store_scalar( rtd_group_id, "S_z_sample_std", spin_expval_stds_full[2] );
 
 
     // ...concerning the iteration

@@ -8,20 +8,24 @@
 #include<Observables/Correlations.h>
 #include<Observables/Tensors.h>
 #include<Observables/Clusters.h>
+#include<Observables/Magnetization.h>
 
 namespace Run_Time_Data
 {
-    
+
 namespace ps = DMFT_parameter_space;
 namespace mvgb = Multivariate_Gaussian::Blocks;
 namespace corr = Observables::Correlations;
 namespace ten = Observables::Tensors;
 namespace clu = Observables::Clusters;
+namespace mag = Observables::Magnetization;
 
 using Vec = std::vector<RealType>;
 using Corr = corr::CorrelationVector;
 using CorrTen = ten::CorrelationTensor<Corr>;
 using CluCorrTen = clu::CorrelationCluster<CorrTen>;
+using MagVec = mag::MagnetizationVector;
+using CluMagVec = clu::MagnetizationCluster<MagVec>;
 
 // ============================================================================
 // =========================== RUN TIME DATA CLASS ============================
@@ -48,8 +52,8 @@ public:
     CluCorrTen sample_sqsum_Im{}; // sum of squared imaginary-part correlation samples
     CluCorrTen sample_stds_Re{};  // std of the single sample real-part correlations
     CluCorrTen sample_stds_Im{};  // std of the single sample imaginary-part correlations
-    std::vector<FieldVector> spin_expval_sqsum{}; // sum of squared single sample spin expectation values
-    std::vector<FieldVector> spin_expval_stds{};   // std of the single sample spin expectation values
+    CluMagVec spin_expval_sqsum{}; // sum of squared single sample spin expectation values (symmetry-permitted components only)
+    CluMagVec spin_expval_stds{};  // std of the single sample spin expectation values (symmetry-permitted components only)
     std::vector<size_t> adaptive_num_SamplesPerCore{}; // number of samples per core in case of adaptive sample size
     bool sample_size_updated = {false}; // was the sample size updated in the last iteration step?
     // Integrated autocorrelation time tau_int (in pCN steps) per correlation point, recovered
@@ -70,9 +74,9 @@ public:
     size_t block_length{};
     size_t blocks_filled{};
     CluCorrTen cur_block_Re{}, cur_block_Im{};         // running per-block sums of the observable
-    std::vector<FieldVector> cur_block_spin{};         // per-site running per-block spin sums
+    CluMagVec cur_block_spin{};                        // per-site running per-block spin sums
     std::vector<CluCorrTen> block_means_Re{}, block_means_Im{};
-    std::vector<std::vector<FieldVector>> block_means_spin{}; // [block][site]
+    std::vector<CluMagVec> block_means_spin{};         // [block][site]
     // Flyvbjerg-Petersen blocking-curve diagnostic: Re-correlation std (averaged over the
     // computed correlation points) vs block length. A plateau means block_length >>
     // autocorrelation time and the error bar is trustworthy; a curve still rising at the
@@ -115,13 +119,13 @@ public:
     // normalized means (sum_i o_i / N); sample_sqsum_* hold the MPI-reduced raw sum_i o_i^2;
     // N is the global sample count; pcn_step_size is the pCN beta used to estimate rho1.
     void compute_and_process_sample_stds( const CluCorrTen& sample_mean_Re, const CluCorrTen& sample_mean_Im, const RealType N, const RealType pcn_step_size );
-    void compute_and_process_spin_expval_stds( const std::vector<FieldVector>& spin_mean, const RealType N, const RealType pcn_step_size );
+    void compute_and_process_spin_expval_stds( const CluMagVec& spin_mean, const RealType N, const RealType pcn_step_size );
 
     // Dispatch to the configured standard-error estimator. "blocking" (batch means, default) is
     // robust to autocorrelation; "ar1" is the legacy acceptance-based single-mode factor that
     // underestimates the error for slow/trapped chains. sample_mean_* hold the already-normalized
     // means (sum_i o_i / N); for the AR(1) path sample_sqsum_* hold the MPI-reduced sum_i o_i^2.
-    void compute_sample_stds( const CluCorrTen& sample_mean_Re, const CluCorrTen& sample_mean_Im, const std::vector<FieldVector>& spin_mean, const RealType N, const RealType pcn_step_size );
+    void compute_sample_stds( const CluCorrTen& sample_mean_Re, const CluCorrTen& sample_mean_Im, const CluMagVec& spin_mean, const RealType N, const RealType pcn_step_size );
 
     // AR(1) autocorrelation correction factor sqrt( (1+rho1)/(1-rho1) ) for the pCN stds.
     // rho1 is estimated from the latest acceptance rate a and the pCN step size beta via the
@@ -133,7 +137,10 @@ public:
 
     // ...concerning the iterations
     std::string regarded(const std::string& mode){return (mode==iteration_error_mode || iteration_error_mode=="either") ? " (regarded)" : "";}
-    void compute_iteration_error( const CluCorrTen& new_CCT, const CluCorrTen& CCT );
+    // The iteration error covers both self-consistency channels: the correlations and the
+    // first moments. Each contributes max |Delta| (absolute) and max |Delta| / sigma
+    // (relative, with sigma the sample std); the reported errors are the channel maxima.
+    void compute_iteration_error( const CluCorrTen& new_CCT, const CluCorrTen& CCT, const CluMagVec& new_mag, const CluMagVec& mag );
     void finalize_iteration_step();
     bool is_converged() const;
     bool signal_file_exists() const;

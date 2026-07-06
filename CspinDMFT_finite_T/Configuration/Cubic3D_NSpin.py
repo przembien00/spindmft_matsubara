@@ -222,6 +222,53 @@ def write_star_config(coupling: float, label: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 4-spin square plaquette (single z-layer, embedded in the cubic lattice)
+# ---------------------------------------------------------------------------
+
+def square_plaquette_positions_3d() -> list[LatticePoint3D]:
+    """Return the 4 sites of a 2x2 square plaquette lying in the z=0 plane."""
+
+    return [(x, y, 0) for y in range(2) for x in range(2)]
+
+
+def write_square_plaquette_config(coupling: float, label: str) -> None:
+    """Write a 4-spin square-plaquette configuration to HDF5.
+
+    Unlike the 8-spin cube, a single-layer 2x2 plaquette does not periodically
+    tile the 3D cubic lattice (it has no extent in z), so external neighbors
+    are mapped to the nearest same-sublattice cluster site via
+    :func:`star_cluster_map`, exactly as for the 7-spin star.
+    """
+
+    project_name = "CubicLattice"
+    config_file = f"Cubic_3D_N=4_NN_{label}"
+
+    cluster_positions = square_plaquette_positions_3d()
+    J = nearest_neighbor_couplings_3d(cluster_positions, coupling)
+    map_fn = star_cluster_map(cluster_positions)
+
+    base_weights = generate_nn_cluster_weights(
+        cluster_positions=cluster_positions,
+        nn_displacements=NN_DISPLACEMENTS_3D,
+        map_to_cluster_index=map_fn,
+    )
+
+    eff = 0.5 if coupling == 0.0 else coupling
+    mf_weights = eff * base_weights.mf_expectation_weights
+    corr_weights = (eff * eff) * base_weights.correlation_weights
+
+    output_path = create_config_file(
+        project_name=project_name,
+        config_file=config_file,
+        J=J,
+        mf_expectation_weights=mf_weights,
+        correlation_weights=corr_weights,
+        correlation_categories=base_weights.canonical_pair_categories,
+    )
+    print(f"wrote {output_path}")
+
+
+# ---------------------------------------------------------------------------
 # 8-spin cube cluster (2×2×2)
 # ---------------------------------------------------------------------------
 
@@ -281,6 +328,10 @@ def main() -> None:
     write_two_site_config(coupling=-0.5, label="J=-0.5")
     write_two_site_config(coupling=0.0, label="J=0.0")
     write_two_site_uncoupled_config(mf_coupling=0.5, label="J=0.0_uncoupled")
+
+    # 4-spin square plaquette (single z-layer): AFM (J=0.5) and FM (J=-0.5)
+    write_square_plaquette_config(coupling=0.5, label="J=0.5")
+    write_square_plaquette_config(coupling=-0.5, label="J=-0.5")
 
     # 7-spin star: AFM (J=0.5) and FM (J=-0.5)
     write_star_config(coupling=0.5, label="J=0.5")

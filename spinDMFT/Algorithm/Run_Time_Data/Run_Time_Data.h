@@ -8,6 +8,7 @@
 #include<Globals/Types.h>
 #include<Observables/Tensors.h>
 #include<Observables/Correlations.h>
+#include<Observables/Magnetization.h>
 #include"../Parameter_Space/Parameter_Space.h"
 
 namespace spinDMFT::Run_Time_Data
@@ -16,10 +17,12 @@ namespace spinDMFT::Run_Time_Data
 namespace ps = spinDMFT::Parameter_Space;
 namespace ten = Observables::Tensors;
 namespace corr = Observables::Correlations;
-  
+namespace mag = Observables::Magnetization;
+
 using EigenValuesList = std::vector<blaze::StaticVector<RealType,3UL,blaze::columnVector>>;
 using Corr = corr::CorrelationVector;
 using CorrTen = ten::CorrelationTensor<Corr>;
+using MagVec = mag::MagnetizationVector;
 
 // ============================================================================
 // =========================== RUN TIME DATA CLASS ============================
@@ -46,9 +49,9 @@ class RunTimeData
    // for errmethod=blocking; the blocking error already captures the autocorrelation, this just
    // exposes it as a number (burn-in / chain-length rule of thumb: a few x tau_int).
    CorrTen tau_int_Re{}, tau_int_Im{};
-   // ...spin expectation value statistics (S_x, S_y, S_z)
-   FieldVector spin_expval_sqsum{}; // sum_i s_i^2 (raw, MPI-reduced; used by the legacy AR(1) estimator)
-   FieldVector spin_expval_stds{};  // standard error of the mean for <S^alpha>
+   // ...spin expectation value statistics (symmetry-permitted components only)
+   MagVec spin_expval_sqsum{}; // sum_i s_i^2 (raw, MPI-reduced; used by the legacy AR(1) estimator)
+   MagVec spin_expval_stds{};  // standard error of the mean for <S^alpha>
 
    // ...concerning batch-means (blocking) error estimation
    // The production samples of one core are split into num_blocks consecutive blocks of
@@ -62,9 +65,9 @@ class RunTimeData
    size_t block_length{};
    size_t blocks_filled{};
    CorrTen cur_block_Re{}, cur_block_Im{};       // running per-block sums of the observable
-   FieldVector cur_block_spin{ 0., 0., 0. };
+   MagVec cur_block_spin{};
    std::vector<CorrTen> block_means_Re{}, block_means_Im{};
-   std::vector<FieldVector> block_means_spin{};
+   std::vector<MagVec> block_means_spin{};
    // Flyvbjerg-Petersen blocking-curve diagnostic: Re-correlation std (averaged over the
    // computed correlation points) vs block length. A plateau means block_length >>
    // autocorrelation time and the error bar is trustworthy; a curve still rising at the
@@ -101,7 +104,7 @@ class RunTimeData
    // sqrt( (1+rho1)/(1-rho1) ) (see pcn_autocorrelation_factor); pcn_step_size is the pCN beta
    // used to estimate rho1.
    void compute_sample_stds( const CorrTen& sample_mean_Re, const CorrTen& sample_mean_Im,
-                             const FieldVector& spin_mean, RealType N, RealType pcn_step_size );
+                             const MagVec& spin_mean, RealType N, RealType pcn_step_size );
 
    // AR(1) autocorrelation correction factor sqrt( (1+rho1)/(1-rho1) ) for the pCN stds.
    // rho1 is estimated from the latest acceptance rate a and the pCN step size beta via the
@@ -114,7 +117,10 @@ class RunTimeData
    size_t get_num_Samples() const;
 
    // ...concerning the iteration
-   void compute_iteration_error( const CorrTen& CT, const CorrTen& new_CT );
+   // The iteration error covers both self-consistency channels: the correlations (time-averaged
+   // absolute deviation per direction pair) and the first moments (absolute deviation per
+   // symmetry-permitted component); the reported error is the maximum over both channels.
+   void compute_iteration_error( const CorrTen& CT, const CorrTen& new_CT, const MagVec& mag_old, const MagVec& mag_new );
    void finalize_iteration_step();
    bool terminate();
 
@@ -123,7 +129,7 @@ class RunTimeData
 
    // ...standard-error estimators (selected by error_method in compute_sample_stds)
    void compute_sample_stds_ar1( const CorrTen& sample_mean_Re, const CorrTen& sample_mean_Im,
-                                 const FieldVector& spin_mean, RealType N, RealType pcn_step_size );
+                                 const MagVec& spin_mean, RealType N, RealType pcn_step_size );
    void compute_sample_stds_blocking( const CorrTen& sample_mean_Re, const CorrTen& sample_mean_Im, RealType N );
 
    // MEMBERS IMPORTED FROM A PARAMETER SPACE (AND THEREFORE CONST)

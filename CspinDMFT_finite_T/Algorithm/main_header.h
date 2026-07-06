@@ -15,11 +15,14 @@ namespace rd = Random;
 #include<Observables/Correlations.h>
 #include<Observables/Tensors.h>
 #include<Observables/Clusters.h>
+#include<Observables/Magnetization.h>
 namespace corr = Observables::Correlations;
 namespace ten = Observables::Tensors;
 namespace clu = Observables::Clusters;
+namespace mag = Observables::Magnetization;
 using CorrTen = ten::CorrelationTensor<corr::CorrelationVector>;
 using CluCorrTen = clu::CorrelationCluster<CorrTen>;
+using CluMagVec = clu::MagnetizationCluster<mag::MagnetizationVector>;
 
 #include"matrices.h"
 

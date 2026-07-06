@@ -14,6 +14,7 @@
 #include<Observables/Correlations.h>
 #include<Observables/Tensors.h>
 #include<Observables/Clusters.h>
+#include<Observables/Magnetization.h>
 #include<Physics/Physics.h>
 
 #include"../Parameter_Space/Parameter_Space.h"
@@ -27,6 +28,7 @@ namespace mss = mvgb::Symmetry_Schemes;
 namespace corr = Observables::Correlations;
 namespace ten = Observables::Tensors;
 namespace clu = Observables::Clusters;
+namespace mag = Observables::Magnetization;
 namespace ph = Physics;
 namespace ps = DMFT_parameter_space;
 namespace rtd = Run_Time_Data;
@@ -38,6 +40,8 @@ using TimeTrajectory = std::vector<SiteFields>;
 using Corr = corr::CorrelationVector;
 using CorrTen = ten::CorrelationTensor<Corr>;
 using CluCorrTen = clu::CorrelationCluster<CorrTen>;
+using MagVec = mag::MagnetizationVector;
+using CluMagVec = clu::MagnetizationCluster<MagVec>;
 
 class FrequencyCovarianceCluster
 {
@@ -106,9 +110,9 @@ struct SampleCache
     explicit SampleCache( const ps::ParameterSpace& pspace )
         : corr_Re{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints },
           corr_Im{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints },
-          expvals( pspace.num_Spins, FieldVector{0.,0.,0.} ) {}
+          expvals( pspace.num_Spins, pspace.symmetry_type ) {}
     CluCorrTen corr_Re, corr_Im;
-    SiteFields expvals;
+    CluMagVec expvals;
     bool valid{ false }; // false until the contributions of the current chain state are stored
 };
 
@@ -120,10 +124,10 @@ void compute_uncoupled_sample_contributions( SampleCache& cache, const std::vect
 
 // fold the cached per-sample contributions into the running correlation sums, the sums of
 // squares (used for the standard error) and the current batch-means block
-void accumulate_sample_contributions( const SampleCache& cache, CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace );
+void accumulate_sample_contributions( const SampleCache& cache, CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, CluMagVec& spin_expvals, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace );
 
 // sum the per-core pCN accumulators (means and sums of squares) across all MPI cores
-void MPI_share_results_mh( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, SiteFields& spin_expvals, rtd::RunTimeData& rtdata );
+void MPI_share_results_mh( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, CluMagVec& spin_expvals, rtd::RunTimeData& rtdata );
 
 // divide the summed-over-samples accumulators by the global sample count N
 void normalize_mh( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, const RealType N );
@@ -133,7 +137,7 @@ void normalize_mh( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, const Rea
 // step (old := new). Used to damp the low-T iteration-map instabilities. The iteration error
 // must be computed on the raw (unmixed) new vs old before calling this.
 void mix_into( CluCorrTen& old_CCT, const CluCorrTen& new_CCT, const RealType alpha );
-void mix_into( SiteFields& old_expvals, const SiteFields& new_expvals, const RealType alpha );
+void mix_into( CluMagVec& old_mags, const CluMagVec& new_mags, const RealType alpha );
 
 // Reconstruct the upper-half (tau > beta/2) correlations from the computed lower half via the
 // per-component reflection symmetry g^{ab}_{ij}(beta-tau) = g^{ab}_{ij}(tau)^* (Re even, Im

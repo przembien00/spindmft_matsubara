@@ -36,7 +36,11 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
   func::initialize_matrices( my_pspace );
 
   // ====== Initialize Spin Correlations ======
-  FieldVector my_spin_expval = my_pspace.initial_spin_expval;
+  // MagVec stores only the spin-expectation-value components the symmetry type permits
+  // (A: none, B/C: z, D: all); components forbidden by the symmetry are zero by construction.
+  // Initializing from the full 3-vector therefore also projects out any symmetry-violating
+  // part of an imported initial condition.
+  MagVec my_spin_expval{ my_pspace.correlation_symmetry_type, my_pspace.initial_spin_expval };
   auto my_spin_correlations_Re = func::generate_initial_spin_correlations( my_pspace );
   auto my_spin_correlations_Im = func::generate_initial_spin_correlations( my_pspace );
 
@@ -64,13 +68,13 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     print::print_R0( my_rank, "|\n|\n------------------------ Iteration Step " + it_str + " ------------------------\n" );
 
     // ====== Initialize new Spin Correlations ======
-    FieldVector my_new_spin_expval{0.,0.,0.};
-    FieldVector my_spin_expval_sqsum{0.,0.,0.};
+    MagVec my_new_spin_expval{ my_pspace.correlation_symmetry_type };
+    MagVec my_spin_expval_sqsum{ my_pspace.correlation_symmetry_type };
     CorrTen my_new_spin_correlations_Re{ my_pspace.correlation_symmetry_type, my_pspace.num_TimePoints };
     CorrTen my_new_spin_correlations_Im{ my_pspace.correlation_symmetry_type, my_pspace.num_TimePoints };
 
     // ====== Determine the Mean-Field Moments Self-Consistently ======
-    auto [my_meanfield_mean, my_meanfield_covariances] = func::self_consistent_equations( my_pspace, my_spin_correlations_Re, my_spin_expval );
+    auto [my_meanfield_mean, my_meanfield_covariances] = func::self_consistent_equations( my_pspace, my_spin_correlations_Re, my_spin_expval.expand() );
 
     // ====== Build the Mean-Field Distribution from the Correlations ======
     fmvg::EigenValuesList my_eig;
@@ -159,12 +163,12 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     // ====== Finalize the Iteration ======
     func::normalize( my_new_spin_correlations_Re, my_pspace.num_Samples );
     func::normalize( my_new_spin_correlations_Im, my_pspace.num_Samples );
-    my_new_spin_expval /= my_pspace.num_Samples;
+    my_new_spin_expval *= RealType{1.} / my_pspace.num_Samples;
     my_rtdata.compute_sample_stds( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_new_spin_expval, my_pspace.num_Samples, my_pspace.mh_step_size );
     // Only [0, beta/2] was sampled; fill the upper half (and its std errors) by the
     // reflection symmetry g^{ab}(beta-tau) = g^{ba}(tau)^* before the convergence check.
     func::symmetrize_upper_half( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_rtdata.sample_stds_Re, my_rtdata.sample_stds_Im, my_rtdata.tau_int_Re, my_rtdata.tau_int_Im );
-    my_rtdata.compute_iteration_error( my_spin_correlations_Re, my_new_spin_correlations_Re );
+    my_rtdata.compute_iteration_error( my_spin_correlations_Re, my_new_spin_correlations_Re, my_spin_expval, my_new_spin_expval );
     my_spin_correlations_Re = std::move( my_new_spin_correlations_Re );
     my_spin_correlations_Im = std::move( my_new_spin_correlations_Im );
     my_spin_expval = std::move( my_new_spin_expval );
@@ -180,7 +184,7 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
 
   // ====== Store the Data ======
   stoc::HDF5_Storage my_data_storage( my_rank, my_pspace, my_rtdata.termination );
-  my_data_storage.store_main( my_pspace, my_rtdata, my_spin_correlations_Re, my_spin_correlations_Im, my_spin_expval );
+  my_data_storage.store_main( my_pspace, my_rtdata, my_spin_correlations_Re, my_spin_correlations_Im, my_spin_expval.expand() );
 
   // ====== Stop and Store the Time Measurement ======
   my_clock.measure( "storing", true );

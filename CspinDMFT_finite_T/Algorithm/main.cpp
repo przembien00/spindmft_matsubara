@@ -33,7 +33,10 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
   // ====== Declare the Spin Cluster Correlation Functions ======
   CluCorrTen my_spin_correlations_Re = init::generate_initial_environment_spin_correlations( my_pspace, "Re" );
   CluCorrTen my_spin_correlations_Im = init::generate_initial_environment_spin_correlations( my_pspace, "Im" );
-  func::SiteFields my_spin_expvals = ( my_pspace.init_corr_mode == "import" ) ? my_pspace.imported_spin_expvals : func::SiteFields( my_pspace.num_Spins, FieldVector{0.,0.,0.} );
+  // CluMagVec stores per site only the first-moment components the symmetry type permits
+  // (A: none, B/C: z, D: all); components forbidden by the symmetry are zero by construction.
+  // Importing therefore also projects out any symmetry-violating tilt carried by the file.
+  CluMagVec my_spin_expvals = ( my_pspace.init_corr_mode == "import" ) ? CluMagVec( my_pspace.imported_spin_expvals, my_pspace.symmetry_type ) : CluMagVec( my_pspace.num_Spins, my_pspace.symmetry_type );
   my_clock.measure( "initialization", true );
 
 
@@ -63,10 +66,10 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     // ====== Initialize the Spin Cluster Correlation Functions ======
     CluCorrTen my_new_spin_correlations_Re{ my_pspace.correlation_categories, my_pspace.symmetry_type, my_pspace.num_TimePoints };
     CluCorrTen my_new_spin_correlations_Im{ my_pspace.correlation_categories, my_pspace.symmetry_type, my_pspace.num_TimePoints };
-    func::SiteFields my_new_spin_expvals( my_pspace.num_Spins, FieldVector{0.,0.,0.} );
+    CluMagVec my_new_spin_expvals{ my_pspace.num_Spins, my_pspace.symmetry_type };
 
     // ====== Build the Mean-Field Correlations from the environment spin correlations ======
-    auto [my_meanfield_mean, my_meanfield_correlations] = my_pspace.mf_model->self_consistency( my_spin_correlations_Re, my_spin_expvals );
+    auto [my_meanfield_mean, my_meanfield_correlations] = my_pspace.mf_model->self_consistency( my_spin_correlations_Re, my_spin_expvals.expand() );
     func::FrequencyCovarianceCluster my_meanfield_covariances{ my_meanfield_correlations, my_pspace.symmetry_type, my_pspace.num_Spins };
 
     // ====== Build the Mean-Field Distribution from the Correlations ======
@@ -145,7 +148,7 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     // ====== Finalize the Spin Correlations and Compute the Iteration Error ======
     const RealType N = static_cast<RealType>( my_rtdata.get_num_Samples() );
     func::normalize_mh( my_new_spin_correlations_Re, my_new_spin_correlations_Im, N );
-    for( auto& spin_expval_i : my_new_spin_expvals ){ spin_expval_i /= N; }
+    my_new_spin_expvals *= RealType{1.} / N;
 
     // ====== Compute the Standard Error from the pCN simulation ======
     // Dispatches on errmethod: 'blocking' (batch means, default; robust to autocorrelation and
@@ -156,7 +159,7 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
     // reflection symmetry g^{ab}_{ij}(beta-tau) = g^{ab}_{ij}(tau)^* before the convergence check.
     func::symmetrize_upper_half( my_new_spin_correlations_Re, my_new_spin_correlations_Im, my_rtdata.sample_stds_Re, my_rtdata.sample_stds_Im, my_rtdata.tau_int_Re, my_rtdata.tau_int_Im );
 
-    my_rtdata.compute_iteration_error( my_new_spin_correlations_Re, my_spin_correlations_Re );
+    my_rtdata.compute_iteration_error( my_new_spin_correlations_Re, my_spin_correlations_Re, my_new_spin_expvals, my_spin_expvals );
 
     // Carry the update forward, optionally with linear under-relaxation (mixing). With
     // alpha = 1 this is a plain Picard step (old := new); alpha < 1 damps the low-T
@@ -186,7 +189,7 @@ int main( const int argC, char* const argV[] ){ // arguments required for boost 
 
   // ====== Store the Results and Run Time Data ======
   stc::HDF5_Storage my_data_storage( my_rank, my_pspace, my_rtdata );
-  my_data_storage.store_main( my_pspace, my_rtdata, my_spin_correlations_Re, my_spin_correlations_Im, my_spin_expvals );
+  my_data_storage.store_main( my_pspace, my_rtdata, my_spin_correlations_Re, my_spin_correlations_Im, my_spin_expvals.expand() );
   
   // ====== Stop and store the Time Measurement ======
   my_clock.measure( "storing", true );

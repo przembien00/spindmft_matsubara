@@ -67,7 +67,7 @@ CorrTen generate_initial_spin_correlations( const ps::ParameterSpace& pspace )
 }
 
 /* transform spin correlations self-consistently to meanfield correlations and write the latter into a covariance matrix */
-std::tuple<FieldVector, fmvg::FrequencyCovarianceMatrix> self_consistent_equations( const ps::ParameterSpace& pspace, const CorrTen& spin_correlations, FieldVector& spin_expval )
+std::tuple<FieldVector, fmvg::FrequencyCovarianceMatrix> self_consistent_equations( const ps::ParameterSpace& pspace, const CorrTen& spin_correlations, const FieldVector& spin_expval )
 {
     FieldVector rotated_expval = pspace.spin_model.coupling_matrix * spin_expval; // rotated spin expectation value D^ab * <S^b>
     FieldVector MF_mean = pspace.JL * rotated_expval; // mfav( V^a(t) ) = JL * sum_{b} D^ab * <S^b>
@@ -206,7 +206,7 @@ ComplexType correlation( const std::vector<Operator>& vS_t1, const std::vector<O
 // for a textbook standard-error-of-the-mean estimate.
 void compute_spin_correlations( rtd::RunTimeData& rtdata,
     CorrTen& spin_correlations_R, CorrTen& spin_correlations_I,
-    FieldVector& spin_expval, FieldVector& spin_expval_sqsum,
+    MagVec& spin_expval, MagVec& spin_expval_sqsum,
     const RealType Z,
     const std::vector<Operator>& S_x_of_t,
     const std::vector<Operator>& S_y_of_t,
@@ -215,12 +215,15 @@ void compute_spin_correlations( rtd::RunTimeData& rtdata,
     std::vector<Operator> vS_at_zero = {S_X, S_Y, S_Z};
     const RealType inv_Z = ( Z != RealType{0.} ) ? RealType{1.} / Z : RealType{0.};
 
-    const RealType s0 = std::real( blaze::trace(S_x_of_t[0]) ) * inv_Z;
-    const RealType s1 = std::real( blaze::trace(S_y_of_t[0]) ) * inv_Z;
-    const RealType s2 = std::real( blaze::trace(S_z_of_t[0]) ) * inv_Z;
-    spin_expval[0] += s0;       spin_expval[1] += s1;       spin_expval[2] += s2;
-    spin_expval_sqsum[0] += s0*s0; spin_expval_sqsum[1] += s1*s1; spin_expval_sqsum[2] += s2*s2;
-    rtdata.cur_block_spin[0] += s0; rtdata.cur_block_spin[1] += s1; rtdata.cur_block_spin[2] += s2; // batch-means accumulation
+    // only the first-moment components the symmetry type permits are stored (and measured)
+    const std::array<const std::vector<Operator>*,3> S_of_t{ &S_x_of_t, &S_y_of_t, &S_z_of_t };
+    for( size_t c = 0; c < spin_expval.size(); ++c )
+    {
+        const RealType s = std::real( blaze::trace( (*S_of_t[ spin_expval.get_direction(c) ])[0] ) ) * inv_Z;
+        spin_expval[c] += s;
+        spin_expval_sqsum[c] += s*s;
+        rtdata.cur_block_spin[c] += s; // batch-means accumulation
+    }
 
     // Only the lower-half time points [0, beta/2] are accumulated; the inner loop is
     // driven by the (half-sized) S^a(t) caches, so re_g_of_t etc. are filled only up to
@@ -261,19 +264,21 @@ static void mpi_sum_corrtensor( CorrTen& CT )
     } );
 }
 
-// in-place MPI_Allreduce of a 3-component FieldVector
-static void mpi_sum_fieldvector( FieldVector& v )
+// in-place MPI_Allreduce of the symmetry-permitted first-moment components
+static void mpi_sum_magvec( MagVec& v )
 {
-    FieldVector rcv{ 0., 0., 0. };
-    MPI_Allreduce( v.data(), rcv.data(), 3, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-    v = rcv;
+    if( v.size() == 0 ) return;
+    std::vector<RealType> send( v.cbegin(), v.cend() );
+    std::vector<RealType> recv( v.size() );
+    MPI_Allreduce( send.data(), recv.data(), v.size(), MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+    for( size_t c = 0; c < v.size(); ++c ){ v[c] = recv[c]; }
 }
 
 // sum the per-core accumulators across all MPI cores
-void MPI_share_results( rtd::RunTimeData& rtdata, CorrTen& spin_correlations_R, CorrTen& spin_correlations_I, FieldVector& spin_expval, FieldVector& spin_expval_sqsum )
+void MPI_share_results( rtd::RunTimeData& rtdata, CorrTen& spin_correlations_R, CorrTen& spin_correlations_I, MagVec& spin_expval, MagVec& spin_expval_sqsum )
 {
-    mpi_sum_fieldvector( spin_expval );
-    mpi_sum_fieldvector( spin_expval_sqsum );
+    mpi_sum_magvec( spin_expval );
+    mpi_sum_magvec( spin_expval_sqsum );
     rtdata.spin_expval_sqsum = spin_expval_sqsum;
 
     mpi_sum_corrtensor( spin_correlations_R );

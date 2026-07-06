@@ -569,11 +569,13 @@ void compute_sample_contributions( SampleCache& cache, const std::vector<Operato
 {
     const RealType inv_Z = ( Z != RealType{0.} ) ? RealType{1.} / Z : RealType{0.};
 
+    // only the first-moment components the symmetry type permits are stored (and measured)
     for( size_t site = 0; site < pspace.num_Spins; ++site )
     {
-        for( size_t alpha = 0; alpha < 3; ++alpha )
+        MagVec& mag_i = cache.expvals[site];
+        for( size_t c = 0; c < mag_i.size(); ++c )
         {
-            cache.expvals[site][alpha] = std::real( blaze::trace( forward_propagators.back() * S_at_site_in_direction(site,alpha) ) ) * inv_Z;
+            mag_i[c] = std::real( blaze::trace( forward_propagators.back() * S_at_site_in_direction(site,mag_i.get_direction(c)) ) ) * inv_Z;
         }
     }
 
@@ -644,12 +646,14 @@ void compute_sample_contributions( SampleCache& cache, const std::vector<Operato
 // correlations, and write the values of the current chain state into the cache.
 void compute_uncoupled_sample_contributions( SampleCache& cache, const std::vector<std::vector<Operator>>& forward_propagators, const std::vector<std::vector<Operator>>& backward_propagators, const std::vector<RealType>& Z_i_list, const ps::ParameterSpace& pspace )
 {
+    // only the first-moment components the symmetry type permits are stored (and measured)
     for( size_t site = 0; site < pspace.num_Spins; ++site )
     {
         const RealType inv_Z_i = ( Z_i_list[site] != RealType{0.} ) ? RealType{1.} / Z_i_list[site] : RealType{0.};
-        for( size_t alpha = 0; alpha < 3; ++alpha )
+        MagVec& mag_i = cache.expvals[site];
+        for( size_t c = 0; c < mag_i.size(); ++c )
         {
-            cache.expvals[site][alpha] = std::real( blaze::trace( forward_propagators.back()[site] * S_2x2(alpha) ) ) * inv_Z_i;
+            mag_i[c] = std::real( blaze::trace( forward_propagators.back()[site] * S_2x2(mag_i.get_direction(c)) ) ) * inv_Z_i;
         }
     }
 
@@ -686,16 +690,16 @@ void compute_uncoupled_sample_contributions( SampleCache& cache, const std::vect
 // fold the cached per-sample contributions into the running sums, the sums of squares and
 // the current batch-means block. Called every production step; on a rejected step this is
 // the only per-sample observable work.
-void accumulate_sample_contributions( const SampleCache& cache, CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, SiteFields& spin_expvals, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace )
+void accumulate_sample_contributions( const SampleCache& cache, CluCorrTen& spin_CCT_Re, CluCorrTen& spin_CCT_Im, CluMagVec& spin_expvals, rtd::RunTimeData& rtdata, const ps::ParameterSpace& pspace )
 {
     for( size_t site = 0; site < pspace.num_Spins; ++site )
     {
-        for( size_t alpha = 0; alpha < 3; ++alpha )
+        for( size_t c = 0; c < cache.expvals.num_components(); ++c )
         {
-            const RealType x = cache.expvals[site][alpha];
-            spin_expvals[site][alpha] += x;
-            rtdata.spin_expval_sqsum[site][alpha] += x * x;
-            rtdata.cur_block_spin[site][alpha] += x;       // batch-means accumulation
+            const RealType x = cache.expvals[site][c];
+            spin_expvals[site][c] += x;
+            rtdata.spin_expval_sqsum[site][c] += x * x;
+            rtdata.cur_block_spin[site][c] += x;           // batch-means accumulation
         }
     }
 
@@ -738,20 +742,22 @@ static void mpi_sum_clucorrtensor( CluCorrTen& CCT )
     } );
 }
 
-void MPI_share_results_mh( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, SiteFields& spin_expvals, rtd::RunTimeData& rtdata )
+void MPI_share_results_mh( CluCorrTen& spin_corr_Re, CluCorrTen& spin_corr_Im, CluMagVec& spin_expvals, rtd::RunTimeData& rtdata )
 {
-    auto reduce_fieldvectors = []( std::vector<FieldVector>& v )
+    auto reduce_magnetizations = []( CluMagVec& mags )
     {
-        for( auto& f : v )
-        {
-            std::vector<RealType> send = { f[0], f[1], f[2] };
-            std::vector<RealType> recv( 3 );
-            MPI_Allreduce( send.data(), recv.data(), 3, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
-            f = FieldVector{ recv[0], recv[1], recv[2] };
-        }
+        const size_t n = mags.size() * mags.num_components();
+        if( n == 0 ) return;
+        std::vector<RealType> send{};
+        send.reserve( n );
+        for( const auto& mag_i : mags ){ send.insert( send.end(), mag_i.cbegin(), mag_i.cend() ); }
+        std::vector<RealType> recv( n );
+        MPI_Allreduce( send.data(), recv.data(), n, MPI_REALTYPE, MPI_SUM, MPI_COMM_WORLD );
+        size_t flat = 0;
+        for( auto& mag_i : mags ){ for( auto& component : mag_i ){ component = recv[flat++]; } }
     };
-    reduce_fieldvectors( spin_expvals );
-    reduce_fieldvectors( rtdata.spin_expval_sqsum );
+    reduce_magnetizations( spin_expvals );
+    reduce_magnetizations( rtdata.spin_expval_sqsum );
 
     mpi_sum_clucorrtensor( spin_corr_Re );
     mpi_sum_clucorrtensor( spin_corr_Im );
@@ -793,14 +799,16 @@ void mix_into( CluCorrTen& old_CCT, const CluCorrTen& new_CCT, const RealType al
     }
 }
 
-// Linear under-relaxation of the first-moment site fields, element-wise into old.
-void mix_into( SiteFields& old_expvals, const SiteFields& new_expvals, const RealType alpha )
+// Linear under-relaxation of the first moments, element-wise into old.
+void mix_into( CluMagVec& old_mags, const CluMagVec& new_mags, const RealType alpha )
 {
     const RealType one_minus_alpha = RealType{1.} - alpha;
-    for( size_t i = 0; i < old_expvals.size(); ++i )
+    for( size_t site = 0; site < old_mags.size(); ++site )
     {
-        old_expvals[i] = one_minus_alpha * old_expvals[i];
-        old_expvals[i] += alpha * new_expvals[i];
+        for( size_t c = 0; c < old_mags.num_components(); ++c )
+        {
+            old_mags[site][c] = one_minus_alpha * old_mags[site][c] + alpha * new_mags[site][c];
+        }
     }
 }
 

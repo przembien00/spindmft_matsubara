@@ -333,7 +333,7 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace, rtd::RunTimeDat
         : " Standard error of the global mean from batch means: the spread of the (mh_num_blocks * num_Cores) pooled block means divided by sqrt of their count. Robust to autocorrelation provided the blocking_curve has plateaued.";
     store_correlation_tensor_cluster( rtdata.sample_stds_Re, rtd_group_id, "Re_correlation_sample_stds", "Standard deviations of the real part of the imaginary-time correlations <S^alpha_i(tau)S^beta_j(0)>, stored according to the hierarchy i-j, alpha-beta, tau." + err_remark );
     store_correlation_tensor_cluster( rtdata.sample_stds_Im, rtd_group_id, "Im_correlation_sample_stds", "Standard deviations of the imaginary part of the imaginary-time correlations <S^alpha_i(tau)S^beta_j(0)>, stored according to the hierarchy i-j, alpha-beta, tau." + err_remark );
-    hdf5r::store_2D_tensor<RealType>( rtd_group_id, "spin_expectation_values_stds", H5_REAL_TYPE, site_fields_to_vmatrix( rtdata.spin_expval_stds ), "Standard deviations of the thermal spin expectation values <S_i^alpha>, stored according to the hierarchy i, alpha." + err_remark );
+    hdf5r::store_2D_tensor<RealType>( rtd_group_id, "spin_expectation_values_stds", H5_REAL_TYPE, site_fields_to_vmatrix( rtdata.spin_expval_stds.expand() ), "Standard deviations of the thermal spin expectation values <S_i^alpha>, stored according to the hierarchy i, alpha." + err_remark );
 
     // ...batch-means (blocking) diagnostics
     hdf5r::store_string( rtd_group_id, "error_method", rtdata.error_method );

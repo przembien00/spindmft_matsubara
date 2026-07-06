@@ -221,11 +221,142 @@ IndexPairList CorrelationCluster<Correlation>::reduce_and_order( const IndexPair
     IndexPairList new_list{};
     std::transform( list.cbegin(), list.cend(), std::back_inserter(new_list), [&]( const auto& ip ){ return ascending_order(ip); } );
     std::sort( new_list.begin(), new_list.end(), []( const auto& ip1, const auto& ip2 )
-    { 
+    {
         return ip1[0] < ip2[0] || (ip1[0] == ip2[0] && ip1[1] < ip2[1]);
     } );
     new_list.erase(std::unique(new_list.begin(), new_list.end()), new_list.end());
     return new_list;
+}
+
+
+// ===========================================================
+// ============== MAGNETIZATION CLUSTER HEADER ===============
+// ===========================================================
+/* contains a cluster of magnetization entities m_i, one per site (in contrast to
+CorrelationCluster, which is indexed by site pairs Gij), stored linearly according to
+m_1 m_2 ... m_N */
+template<typename Magnetization>
+class MagnetizationCluster
+{
+ public:
+    // CONSTRUCTORS
+    MagnetizationCluster() = default;
+    explicit MagnetizationCluster( const size_t num_Sites );
+    template<typename ParameterPack>
+    MagnetizationCluster( const size_t num_Sites, const ParameterPack& params );
+    template<typename SiteContainer, typename ParameterPack>
+    MagnetizationCluster( const SiteContainer& full, const ParameterPack& params );
+
+    // OPERATORS
+    Magnetization& operator[]( const size_t site ){ return m_cluster[site]; }
+    const Magnetization& operator[]( const size_t site ) const { return m_cluster[site]; }
+    MagnetizationCluster& operator+=( const MagnetizationCluster& other );
+    MagnetizationCluster& operator*=( const RealType& factor );
+
+    // ITERATORS
+    auto begin() { return m_cluster.begin(); }
+    auto cbegin() const { return m_cluster.cbegin(); }
+    auto end() { return m_cluster.end(); }
+    auto cend() const { return m_cluster.cend(); }
+
+    // PUBLIC METHODS
+    auto expand() const; // per-site expansion into a std::vector of the elements' full representation
+    void print( size_t my_rank = 0 ) const;
+
+    // GET FUNCTIONS
+    size_t size() const { return m_cluster.size(); }
+    size_t num_components() const { return m_cluster.empty() ? 0 : m_cluster[0].size(); }
+
+ private:
+    // PRIVATE MEMBERS
+    std::vector<Magnetization> m_cluster{};
+};
+
+
+// ===========================================================
+// ===== IMPLEMENTATION OF MAGNETIZATION CLUSTER CLASS =======
+// ===========================================================
+// initialize MagnetizationCluster from number of sites, leave sub-elements uninitialized
+template<typename Magnetization>
+MagnetizationCluster<Magnetization>::MagnetizationCluster( const size_t num_Sites )
+{
+    m_cluster.resize( num_Sites );
+}
+
+// initialize MagnetizationCluster from number of sites, initialize magnetizations from ParameterPack
+template<typename Magnetization>
+template<typename ParameterPack>
+MagnetizationCluster<Magnetization>::MagnetizationCluster( const size_t num_Sites, const ParameterPack& params )
+{
+    m_cluster.resize( num_Sites, Magnetization{params} );
+}
+
+// initialize MagnetizationCluster from one full (unconstrained) entity per site, initialize the
+// magnetizations from the ParameterPack and project each full entity onto them
+template<typename Magnetization>
+template<typename SiteContainer, typename ParameterPack>
+MagnetizationCluster<Magnetization>::MagnetizationCluster( const SiteContainer& full, const ParameterPack& params )
+{
+    m_cluster.reserve( full.size() );
+    for( const auto& full_i : full )
+    {
+        m_cluster.emplace_back( params, full_i );
+    }
+}
+
+// add another magnetization cluster
+template<typename Magnetization>
+MagnetizationCluster<Magnetization>& MagnetizationCluster<Magnetization>::operator+=( const MagnetizationCluster& other )
+{
+    if( m_cluster.size() != other.size() )
+    {
+        error::SIZE_MISMATCH( __PRETTY_FUNCTION__ );
+    }
+    for( size_t site = 0; site < m_cluster.size(); ++site )
+    {
+        m_cluster[site] += other[site];
+    }
+    return *this;
+}
+
+// multiply assign with factor
+template<typename Magnetization>
+MagnetizationCluster<Magnetization>& MagnetizationCluster<Magnetization>::operator*=( const RealType& factor )
+{
+    for( auto& mag_i : m_cluster )
+    {
+        mag_i *= factor;
+    }
+    return *this;
+}
+
+// per-site expansion into a std::vector of the elements' full representation
+template<typename Magnetization>
+auto MagnetizationCluster<Magnetization>::expand() const
+{
+    std::vector<decltype( m_cluster[0].expand() )> full{}; // decltype is unevaluated, so an empty cluster is fine
+    full.reserve( m_cluster.size() );
+    for( const auto& mag_i : m_cluster )
+    {
+        full.emplace_back( mag_i.expand() );
+    }
+    return full;
+}
+
+template<typename Magnetization>
+void MagnetizationCluster<Magnetization>::print( size_t my_rank ) const
+{
+    if( my_rank == 0 )
+    {
+        std::string object_name = "=== Magnetization Cluster ===\n";
+        std::cout << object_name;
+        for( size_t site = 0; site < m_cluster.size(); ++site )
+        {
+            std::cout << std::to_string(site) << ": ";
+            m_cluster[site].print( my_rank );
+        }
+        std::cout << std::string(object_name.size()-1,'=') << "\n\n";
+    }
 }
 
 };

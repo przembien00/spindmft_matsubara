@@ -16,9 +16,12 @@ namespace rd = Random;
 
 #include<Observables/Correlations.h>
 #include<Observables/Tensors.h>
+#include<Observables/Magnetization.h>
 namespace corr = Observables::Correlations;
 namespace ten = Observables::Tensors;
+namespace mag = Observables::Magnetization;
 using CorrTen = ten::CorrelationTensor<corr::CorrelationVector>;
+using MagVec = mag::MagnetizationVector;
 
 #include"Time_Measure/Time_Measure.h"
 namespace tmm = Time_Measure;

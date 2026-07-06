@@ -68,8 +68,8 @@ RunTimeData::RunTimeData(const ps::ParameterSpace& pspace, const int my_rank ):
     sample_stds_Im  = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
     tau_int_Re      = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
     tau_int_Im      = CluCorrTen{ pspace.correlation_categories, pspace.symmetry_type, pspace.num_TimePoints };
-    spin_expval_sqsum = std::vector<FieldVector>( pspace.num_Spins, FieldVector{0.,0.,0.} );
-    spin_expval_stds  = std::vector<FieldVector>( pspace.num_Spins, FieldVector{0.,0.,0.} );
+    spin_expval_sqsum = CluMagVec{ pspace.num_Spins, pspace.symmetry_type };
+    spin_expval_stds  = CluMagVec{ pspace.num_Spins, pspace.symmetry_type };
     if( pspace.adaptive_sample_size ){ adaptive_num_SamplesPerCore.emplace_back( num_SamplesPerCore ); }
 
     // ...concerning the batch-means (blocking) error estimation
@@ -238,28 +238,29 @@ void RunTimeData::compute_and_process_sample_stds( const CluCorrTen& sample_mean
     }
 }
 
-void RunTimeData::compute_and_process_spin_expval_stds( const std::vector<FieldVector>& spin_mean, const RealType N, const RealType pcn_step_size )
+void RunTimeData::compute_and_process_spin_expval_stds( const CluMagVec& spin_mean, const RealType N, const RealType pcn_step_size )
 {
     const RealType autocorr_factor = pcn_autocorrelation_factor( pcn_step_size );
     for( size_t site = 0; site < spin_mean.size(); ++site )
     {
-        for( size_t alpha = 0; alpha < 3; ++alpha )
+        for( size_t c = 0; c < spin_mean.num_components(); ++c )
         {
-            const RealType mean = spin_mean[site][alpha];
-            const RealType sqsum = spin_expval_sqsum[site][alpha];
+            const RealType mean = spin_mean[site][c];
+            const RealType sqsum = spin_expval_sqsum[site][c];
             const RealType var = std::abs( sqsum / N - mean * mean );
-            spin_expval_stds[site][alpha] = autocorr_factor * std::sqrt( var / N );
+            spin_expval_stds[site][c] = autocorr_factor * std::sqrt( var / N );
         }
     }
 
-    spin_expval_sqsum = std::vector<FieldVector>( spin_mean.size(), FieldVector{0.,0.,0.} );
+    // reset the per-iteration accumulator in place
+    for( auto& sqsum_i : spin_expval_sqsum ){ sqsum_i *= RealType{0.}; }
 }
 
 // Dispatch to the configured standard-error estimator. "blocking" (batch means, default) is
 // robust to autocorrelation; "ar1" is the legacy acceptance-based single-mode factor that
 // underestimates the error for slow/trapped chains. sample_mean_* hold <o> (already divided by
 // N in main.cpp); for the AR(1) path sample_sqsum_* hold the MPI-reduced sum_i o_i^2.
-void RunTimeData::compute_sample_stds( const CluCorrTen& sample_mean_Re, const CluCorrTen& sample_mean_Im, const std::vector<FieldVector>& spin_mean, const RealType N, const RealType pcn_step_size )
+void RunTimeData::compute_sample_stds( const CluCorrTen& sample_mean_Re, const CluCorrTen& sample_mean_Im, const CluMagVec& spin_mean, const RealType N, const RealType pcn_step_size )
 {
     if( error_method == "ar1" )
     {
@@ -287,7 +288,7 @@ void RunTimeData::init_blocks( const CluCorrTen& template_corr, size_t num_Sampl
     blocks_filled = 0;
 
     const CluCorrTen zero_corr{ site_pairs, sym, ntp };
-    const std::vector<FieldVector> zero_spin( num_Spins, FieldVector{0.,0.,0.} );
+    const CluMagVec zero_spin{ num_Spins, sym };
     cur_block_Re   = zero_corr;
     cur_block_Im   = zero_corr;
     cur_block_spin = zero_spin;
@@ -324,10 +325,10 @@ void RunTimeData::close_block()
     }
     for( size_t site = 0; site < cur_block_spin.size(); ++site )
     {
-        for( size_t alpha = 0; alpha < 3; ++alpha )
+        for( size_t c = 0; c < cur_block_spin.num_components(); ++c )
         {
-            block_means_spin[blocks_filled][site][alpha] = cur_block_spin[site][alpha] * inv;
-            cur_block_spin[site][alpha] = RealType{0.};
+            block_means_spin[blocks_filled][site][c] = cur_block_spin[site][c] * inv;
+            cur_block_spin[site][c] = RealType{0.};
         }
     }
     ++blocks_filled;
@@ -347,23 +348,27 @@ void RunTimeData::compute_sample_stds_blocking( const CluCorrTen& sample_mean_Re
     size_t P = 0;
     for( auto& CT : sample_stds_Re ) for( auto& C : CT ) P += C.size();
     const size_t num_Spins = spin_expval_stds.size();
+    const size_t ncomp = spin_expval_stds.num_components(); // symmetry-permitted first-moment components per site
 
     // flatten this core's block means in a fixed (site-pair, direction-pair, tau) order
-    std::vector<RealType> local_Re( num_blocks * P ), local_Im( num_blocks * P ), local_spin( num_blocks * num_Spins * 3 );
+    std::vector<RealType> local_Re( num_blocks * P ), local_Im( num_blocks * P ), local_spin( num_blocks * num_Spins * ncomp );
     for( size_t b = 0; b < num_blocks; ++b )
     {
         size_t p = 0;
         for( auto& CT : block_means_Re[b] ) for( auto& C : CT ) for( size_t t = 0; t < C.size(); ++t ) local_Re[b * P + (p++)] = C[t];
         p = 0;
         for( auto& CT : block_means_Im[b] ) for( auto& C : CT ) for( size_t t = 0; t < C.size(); ++t ) local_Im[b * P + (p++)] = C[t];
-        for( size_t site = 0; site < num_Spins; ++site ) for( size_t a = 0; a < 3; ++a ) local_spin[b * num_Spins * 3 + site * 3 + a] = block_means_spin[b][site][a];
+        for( size_t site = 0; site < num_Spins; ++site ) for( size_t c = 0; c < ncomp; ++c ) local_spin[b * num_Spins * ncomp + site * ncomp + c] = block_means_spin[b][site][c];
     }
 
     // pool all blocks from all cores
-    std::vector<RealType> all_Re( nc * num_blocks * P ), all_Im( nc * num_blocks * P ), all_spin( nc * num_blocks * num_Spins * 3 );
-    MPI_Allgather( local_Re.data(),   num_blocks * P,             MPI_REALTYPE, all_Re.data(),   num_blocks * P,             MPI_REALTYPE, MPI_COMM_WORLD );
-    MPI_Allgather( local_Im.data(),   num_blocks * P,             MPI_REALTYPE, all_Im.data(),   num_blocks * P,             MPI_REALTYPE, MPI_COMM_WORLD );
-    MPI_Allgather( local_spin.data(), num_blocks * num_Spins * 3, MPI_REALTYPE, all_spin.data(), num_blocks * num_Spins * 3, MPI_REALTYPE, MPI_COMM_WORLD );
+    std::vector<RealType> all_Re( nc * num_blocks * P ), all_Im( nc * num_blocks * P ), all_spin( nc * num_blocks * num_Spins * ncomp );
+    MPI_Allgather( local_Re.data(),   num_blocks * P,                 MPI_REALTYPE, all_Re.data(),   num_blocks * P,                 MPI_REALTYPE, MPI_COMM_WORLD );
+    MPI_Allgather( local_Im.data(),   num_blocks * P,                 MPI_REALTYPE, all_Im.data(),   num_blocks * P,                 MPI_REALTYPE, MPI_COMM_WORLD );
+    if( ncomp > 0 )
+    {
+        MPI_Allgather( local_spin.data(), num_blocks * num_Spins * ncomp, MPI_REALTYPE, all_spin.data(), num_blocks * num_Spins * ncomp, MPI_REALTYPE, MPI_COMM_WORLD );
+    }
 
     // Batch-means standard error of the global mean at block-merge factor g, for one point:
     // merge g consecutive blocks WITHIN each core, then take the spread of the (num_blocks/g)*nc
@@ -412,7 +417,7 @@ void RunTimeData::compute_sample_stds_blocking( const CluCorrTen& sample_mean_Re
     };
     fill( all_Re, sample_stds_Re );
     fill( all_Im, sample_stds_Im );
-    for( size_t site = 0; site < num_Spins; ++site ) for( size_t a = 0; a < 3; ++a ) spin_expval_stds[site][a] = plateau( all_spin, num_Spins * 3, site * 3 + a );
+    for( size_t site = 0; site < num_Spins; ++site ) for( size_t c = 0; c < ncomp; ++c ) spin_expval_stds[site][c] = plateau( all_spin, num_Spins * ncomp, site * ncomp + c );
 
     // aggregate blocking curve over the Re correlation points (diagnostic, stored to HDF5)
     blocking_curve_len.clear();
@@ -488,8 +493,9 @@ RealType average_of_absolute( const Corr& C )
     } ) / static_cast<RealType>(C.size());
 }
 
-// compute the iteration error, i.e., the deviation between current and previous iteration step
-void RunTimeData::compute_iteration_error( const CluCorrTen& new_CCT, const CluCorrTen& CCT )
+// compute the iteration error, i.e., the deviation between current and previous iteration step,
+// over both self-consistency channels: the correlations and the first moments
+void RunTimeData::compute_iteration_error( const CluCorrTen& new_CCT, const CluCorrTen& CCT, const CluMagVec& new_mag, const CluMagVec& mag )
 {
     // compute the deviation CCT 
     CluCorrTen deviation_CCT{CCT.get_site_pairs()};
@@ -515,7 +521,7 @@ void RunTimeData::compute_iteration_error( const CluCorrTen& new_CCT, const CluC
         } );
         return *max_element( rel_avdevs.cbegin(), rel_avdevs.cend() );
     } );
-    relative_iteration_error_list.emplace_back( *max_element( max_rel_avdevs.cbegin(), max_rel_avdevs.cend() ) );
+    RealType relative_iteration_error = *max_element( max_rel_avdevs.cbegin(), max_rel_avdevs.cend() );
 
     // compute the absolute iteration error Delta I_abs = max_ij{ max_ab{ timeav(Delta I^ab_ij) } }
     Vec max_abs_devs{};
@@ -523,12 +529,33 @@ void RunTimeData::compute_iteration_error( const CluCorrTen& new_CCT, const CluC
     {
         Vec abs_avdevs{};
         std::transform( dev_CT.cbegin(), dev_CT.cend(), std::back_inserter( abs_avdevs ), []( const Corr& dev_C )
-        {   
+        {
             return average_of_absolute(dev_C);
         } );
         return *max_element( abs_avdevs.cbegin(), abs_avdevs.cend() );
     } );
-    absolute_iteration_error_list.emplace_back( *max_element( max_abs_devs.cbegin(), max_abs_devs.cend() ) );
+    RealType absolute_iteration_error = *max_element( max_abs_devs.cbegin(), max_abs_devs.cend() );
+
+    // fold in the first-moment channel: Delta M_abs = max_ic{ |Delta m_i^c| } and
+    // Delta M_rel = max_ic{ |Delta m_i^c| / sigma_i^c }, over the symmetry-permitted components
+    // (so the iteration cannot terminate while the magnetizations still drift). Components with
+    // a vanishing sample std are skipped in the relative error.
+    for( size_t site = 0; site < new_mag.size(); ++site )
+    {
+        for( size_t c = 0; c < new_mag.num_components(); ++c )
+        {
+            const RealType dev = std::abs( new_mag[site][c] - mag[site][c] );
+            absolute_iteration_error = std::max( absolute_iteration_error, dev );
+            const RealType sigma = spin_expval_stds[site][c];
+            if( sigma > RealType{0.} )
+            {
+                relative_iteration_error = std::max( relative_iteration_error, dev / sigma );
+            }
+        }
+    }
+
+    relative_iteration_error_list.emplace_back( relative_iteration_error );
+    absolute_iteration_error_list.emplace_back( absolute_iteration_error );
 }
 
 // produce some output and increment the iteration counter
