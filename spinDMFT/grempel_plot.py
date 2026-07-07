@@ -32,42 +32,55 @@ def ImportData_spinDMFT( spin_model, physical_data = "", project = "", selfcons 
     return all, disc 
 
 
-betas = [1, 2, 3, 5, 7, 12]
+betas = [1, 2, 3, 5, 7, 12, 30]
 
 data_X = {}
 data_Y = {}
 
 
 for beta in betas:
-    with open('Data/grempel_data.csv', newline='') as csvfile:
-        reader = csv.DictReader(csvfile)
-        X = []
-        Y = []
-        for row in reader:
-            if row[f'bJ={beta} X'] != '':
-                X.append( float(row[f'bJ={beta} X'] ) )
-            if row[f'bJ={beta} Y'] != '':
-                Y.append( float(row[f'bJ={beta} Y'] ) )
-        data_X[f'beta={beta}'] = np.array(X)
-        data_Y[f'beta={beta}'] = np.array(Y)
+    if beta == 30:
+        with open('Data/Grempel_beta=30.csv', newline='') as csvfile:
+            reader = csv.reader(csvfile)
+            X = []
+            Y = []
+            for row in reader:
+                X.append( float(row[0]) )
+                Y.append( float(row[1]) )
+            data_X[f'beta={beta}'] = np.array(X)
+            data_Y[f'beta={beta}'] = np.array(Y)
+    else:
+        with open('Data/grempel_data.csv', newline='') as csvfile:
+            reader = csv.DictReader(csvfile)
+            X = []
+            Y = []
+            for row in reader:
+                if row[f'bJ={beta} X'] != '':
+                    X.append( float(row[f'bJ={beta} X'] ) )
+                if row[f'bJ={beta} Y'] != '':
+                    Y.append( float(row[f'bJ={beta} Y'] ) )
+            data_X[f'beta={beta}'] = np.array(X)
+            data_Y[f'beta={beta}'] = np.array(Y)
 
 fig, ax = plt.subplots()
 
 for beta in betas:
     if beta == 30:
-        all, disc = ImportData_spinDMFT("ISO",physical_data=f"JQ=25__beta=1",project="Iterative_Init",extension="")
+        all, disc = ImportData_spinDMFT("ISO",physical_data=f"beta={beta}",project="Paper",extension="")
     else:
         all, disc = ImportData_spinDMFT("ISO",physical_data=f"JQ={beta:.2g}__beta=1",project="Iterative_Init",extension="")
     G = np.array([gab for gab in all['results']['Re_correlation']])
     ax.plot(disc, G[0], ls="-", label=rf'spinDMFT, $\beta J$={beta:.2g}', color='limegreen')
     ax.plot(data_X[f'beta={beta}'][::], data_Y[f'beta={beta}'][::], 'x', label=rf'Grempel, $\beta J$={beta}', color='darkslategrey')
     N2 = len(G[0])//2
-    ax.text(0.45, G[0][N2]+0.005, rf'$\beta J_Q$={beta:.2g}')
+    label_offset = -0.016 if beta == 30 else 0.005
+    ax.text(0.45, G[0][N2]+label_offset, rf'$\beta J_Q$={beta:.2g}')
 
 
 
 ax.set_xlabel(r'$\tau/\beta$')
 ax.set_ylabel(r'$g^{xx}(\tau)$')
+ax.set_ylim(bottom=ax.get_ylim()[0]-0.015)
 # plt.legend(prop={'size': 8})
 fig.savefig('Plots/Plot_grempel.pdf', dpi=1000)
     

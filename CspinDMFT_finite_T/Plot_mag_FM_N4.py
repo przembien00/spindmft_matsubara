@@ -7,7 +7,7 @@ def ImportData( config, beta, project = "FM", chemshift = "uni_0.001" ):
     return h5.File( filename, 'r' )
 
 config = "Cubic_3D_N=4_NN_J=-0.5"
-beta_array = [0.2, 0.5, 1, 3.5, 4, 4.5, 5]
+beta_array = [0.2, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
 
 S_z = []
 S_z_err = []
