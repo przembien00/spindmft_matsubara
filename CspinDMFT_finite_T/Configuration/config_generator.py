@@ -48,11 +48,26 @@ def subtract_lattice_points(p1: LatticePoint, p2: LatticePoint) -> LatticePoint:
     return tuple(a - b for a, b in zip(p1, p2))
 
 
+def canonicalize_hypercubic_displacement(d: LatticePoint) -> LatticePoint:
+    """Canonicalize a displacement under the full point group of a hypercubic lattice.
+
+    A square (or cubic) Bravais lattice is invariant under permuting and
+    sign-flipping its axes, so two displacements that agree after sorting
+    their absolute component values (e.g. ``(1, 0)`` and ``(0, -1)``, or
+    ``(1, 1)`` and ``(-1, 1)``) connect physically equivalent site pairs.
+    Used to merge correlation categories that are only distinguished by
+    lattice orientation, not by physics.
+    """
+
+    return tuple(sorted(abs(c) for c in d))
+
+
 def generate_nn_cluster_weights(
     cluster_positions: list[LatticePoint],
     nn_displacements: list[LatticePoint],
     map_to_cluster_index: ClusterIndexMap,
     include_cluster_neighbors: bool = False,
+    canonical_displacement: Callable[[LatticePoint], LatticePoint] | None = None,
 ) -> NNClusterWeights:
     """Build embedding weights for a nearest-neighbor cluster problem.
 
@@ -67,7 +82,20 @@ def generate_nn_cluster_weights(
       belong to representative site ``k``.
     - ``correlation_weights``: how many pairs of external neighbors reproduce
       the same relative displacement as a representative cluster pair.
+
+    ``canonical_displacement``, if given, is applied to every displacement
+    before it is used to identify or look up a representative cluster pair.
+    This additionally merges cluster pairs whose displacements are related by
+    a lattice symmetry beyond plain translation (e.g. two nearest-neighbor
+    pairs pointing along ``x`` and along ``y``), on top of the translational
+    merging that always happens. Pass
+    :func:`canonicalize_hypercubic_displacement` to fully exploit the point
+    group of a square/cubic lattice; leave as ``None`` to only merge by exact
+    (translational) displacement match, as before.
     """
+
+    def _canon(d: LatticePoint) -> LatticePoint:
+        return canonical_displacement(d) if canonical_displacement is not None else d
 
     num_spins = len(cluster_positions)
     cluster_position_set = set(cluster_positions)
@@ -100,11 +128,12 @@ def generate_nn_cluster_weights(
     for k_ in range(num_spins):
         for l_ in range(k_, num_spins):
             d = subtract_lattice_points(cluster_positions[l_], cluster_positions[k_])
-            if d not in displacement_to_canonical_pair:
-                displacement_to_canonical_pair[d] = (k_, l_)
-            rev_d = tuple(-x for x in d)
-            if rev_d not in displacement_to_canonical_pair:
-                displacement_to_canonical_pair[rev_d] = (k_, l_)
+            key = _canon(d)
+            if key not in displacement_to_canonical_pair:
+                displacement_to_canonical_pair[key] = (k_, l_)
+            rev_key = _canon(tuple(-x for x in d))
+            if rev_key not in displacement_to_canonical_pair:
+                displacement_to_canonical_pair[rev_key] = (k_, l_)
 
     correlation_weights = np.zeros((num_spins, num_spins, num_spins, num_spins), dtype=np.float64)
     for i in range(num_spins):
@@ -112,7 +141,7 @@ def generate_nn_cluster_weights(
             for neighbor_i in external_neighbors_per_site[i]:
                 for neighbor_j in external_neighbors_per_site[j]:
                     external_displacement = subtract_lattice_points(neighbor_j, neighbor_i)
-                    canonical = displacement_to_canonical_pair.get(external_displacement)
+                    canonical = displacement_to_canonical_pair.get(_canon(external_displacement))
                     if canonical is None:
                         continue
                     k_ord, l_ord = canonical

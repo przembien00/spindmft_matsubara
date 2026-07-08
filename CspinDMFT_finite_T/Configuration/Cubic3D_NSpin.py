@@ -25,9 +25,17 @@ import numpy as np
 from typing import Callable
 
 try:
-    from config_generator import create_config_file, generate_nn_cluster_weights
+    from config_generator import (
+        canonicalize_hypercubic_displacement,
+        create_config_file,
+        generate_nn_cluster_weights,
+    )
 except ModuleNotFoundError:
-    from .config_generator import create_config_file, generate_nn_cluster_weights
+    from .config_generator import (
+        canonicalize_hypercubic_displacement,
+        create_config_file,
+        generate_nn_cluster_weights,
+    )
 
 
 LatticePoint3D = tuple[int, int, int]
@@ -130,6 +138,7 @@ def write_two_site_uncoupled_config(mf_coupling: float, label: str) -> None:
         nn_displacements=NN_DISPLACEMENTS_3D,
         map_to_cluster_index=map_fn,
         include_cluster_neighbors=True,
+        canonical_displacement=canonicalize_hypercubic_displacement,
     )
     mf_weights = mf_coupling * base_weights.mf_expectation_weights
     corr_weights = (mf_coupling * mf_coupling) * base_weights.correlation_weights

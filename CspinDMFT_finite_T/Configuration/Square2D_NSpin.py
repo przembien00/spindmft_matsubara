@@ -10,9 +10,17 @@ import numpy as np
 from typing import Callable
 
 try:
-    from config_generator import create_config_file, generate_nn_cluster_weights
+    from config_generator import (
+        canonicalize_hypercubic_displacement,
+        create_config_file,
+        generate_nn_cluster_weights,
+    )
 except ModuleNotFoundError:
-    from .config_generator import create_config_file, generate_nn_cluster_weights
+    from .config_generator import (
+        canonicalize_hypercubic_displacement,
+        create_config_file,
+        generate_nn_cluster_weights,
+    )
 
 
 LatticePoint2D = tuple[int, int]
@@ -177,6 +185,7 @@ def write_uncoupled_config(lx: int, ly: int, mf_coupling: float, label: str) -> 
         nn_displacements=nn_displacements,
         map_to_cluster_index=map_to_cluster_index,
         include_cluster_neighbors=True,
+        canonical_displacement=canonicalize_hypercubic_displacement,
     )
     mf_expectation_weights = mf_coupling * base_weights.mf_expectation_weights
     correlation_weights = (mf_coupling * mf_coupling) * base_weights.correlation_weights
@@ -218,6 +227,7 @@ def write_uncoupled_nofield_config(lx: int, ly: int, mf_coupling: float, label: 
         nn_displacements=nn_displacements,
         map_to_cluster_index=map_to_cluster_index,
         include_cluster_neighbors=True,
+        canonical_displacement=canonicalize_hypercubic_displacement,
     )
     mf_expectation_weights = np.zeros_like(base_weights.mf_expectation_weights)
     correlation_weights = (mf_coupling * mf_coupling) * base_weights.correlation_weights
