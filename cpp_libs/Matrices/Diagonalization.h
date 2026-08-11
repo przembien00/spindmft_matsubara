@@ -39,9 +39,16 @@ void diagonalize_real( const Matrix& matrix, EigVal& eigvals, OrthoTrafo& O )
 	Eigen::SelfAdjointEigenSolver<EigenMatrixType> solver;
 	solver.compute( EIGEN_matrix );
 
-	// initialize eigvals and O properly before copying into them
-	eigvals.resize( matrix.rows() );
-	O.resize( matrix.rows(), matrix.rows() );
+	// Dynamic outputs must be sized before copying. Static Blaze containers
+	// already have their dimensions fixed at compile time and cannot be resized.
+	if constexpr( blaze::IsResizable_v<EigVal> )
+	{
+		eigvals.resize( matrix.rows() );
+	}
+	if constexpr( blaze::IsResizable_v<OrthoTrafo> )
+	{
+		O.resize( matrix.rows(), matrix.rows() );
+	}
 
     // copy results to eigvals and O
     std::copy( solver.eigenvalues().cbegin(), solver.eigenvalues().cend(), eigvals.begin() ); // copy eigenvalues
@@ -73,9 +80,16 @@ void diagonalize_cplx( const Matrix& matrix, EigVal& eigvals, UnitaryTrafo& U )
 	Eigen::SelfAdjointEigenSolver<ComplexEigenMatrixType> solver;
 	solver.compute( EIGEN_matrix );
 
-	// initialize eigvals and U properly before copying into them
-	eigvals.resize( matrix.rows() );
-	U.resize( matrix.rows(), matrix.rows() );
+	// Dynamic outputs must be sized before copying. Static Blaze containers
+	// already have their dimensions fixed at compile time and cannot be resized.
+	if constexpr( blaze::IsResizable_v<EigVal> )
+	{
+		eigvals.resize( matrix.rows() );
+	}
+	if constexpr( blaze::IsResizable_v<UnitaryTrafo> )
+	{
+		U.resize( matrix.rows(), matrix.rows() );
+	}
 
     // copy results to eigvals and U
     std::copy( solver.eigenvalues().cbegin(), solver.eigenvalues().cend(), eigvals.begin() ); // copy eigenvalues

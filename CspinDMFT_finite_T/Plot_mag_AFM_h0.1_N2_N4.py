@@ -46,11 +46,11 @@ for label, config in configs.items():
     if missing:
         print(f"{label}: missing beta = {missing}")
 
-    T = 1 / (J_Q * np.array(betas))
-    plt.errorbar(T, S_z, yerr=S_z_err, marker='o', label=label)
+    betaJ = J_Q * np.array(betas)
+    plt.errorbar(betaJ, S_z, yerr=S_z_err, marker='o', label=label)
 
-plt.xlabel(r"$T/J_Q$")
+plt.xlabel(r"$\beta J_Q$")
 plt.ylabel(r"$M_{\mathrm{sublattice}}$")
-plt.xlim(1 / (J_Q * max(beta_array)), 1 / (J_Q * min(beta_array)))
+plt.xlim(J_Q * min(beta_array), J_Q * max(beta_array))
 plt.legend()
 plt.savefig("Plots/Mag_AFM_h0.1_N2_N4_site0_vs_beta.pdf")

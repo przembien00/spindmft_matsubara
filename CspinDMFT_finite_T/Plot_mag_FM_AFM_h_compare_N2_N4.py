@@ -55,11 +55,11 @@ for model_name, model in models.items():
         if missing:
             print(f"{model_name} {label}: missing beta = {missing}")
 
-        T = 1 / (J_Q * np.array(betas))
-        plt.errorbar(T, S_z, yerr=S_z_err, marker='o', label=model_name)
+        betaJ = J_Q * np.array(betas)
+        plt.errorbar(betaJ, S_z, yerr=S_z_err, marker='o', label=model_name)
 
-plt.xlabel(r"$T/J_Q$")
+plt.xlabel(r"$\beta J_Q$")
 plt.ylabel(r"$M$")
-plt.xlim(1 / (J_Q * max(beta_array)), 1 / (J_Q * min(beta_array)))
+plt.xlim(J_Q * min(beta_array), J_Q * max(beta_array))
 plt.legend()
 plt.savefig("Plots/Mag_FM_AFM_h_compare_N4_vs_T.pdf")

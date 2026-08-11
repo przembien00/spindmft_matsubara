@@ -80,21 +80,23 @@ See all options: `./executable_DOUBLE.out --help`
 Run from `spinDMFT/`. Single-site: no lattice `--config` needed.
 
 ```bash
-mpirun -n 4 executable_DOUBLE.out \
+mpirun -n 6 executable_DOUBLE.out \
   --spinmodel=ISO \
   --cstype=A \
-  --beta=5 \
+  --beta=0.2 \
   --numTimeSteps=99 \
-  --numSamplesPerCore=10000 \
+  --numSamplesPerCore=100000 \
   --mhStepSize=0.9 \
   --mhBurnIn=500 \
   --iterlimit=20 \
-  --fileext=testing \
   --numBlocks=20 \
   --critneg=100 \
+  --Bname=z \
+  --Babs=0.5
   --loadinit \
-  --initcorrfile=abc
-  
+  --initcorrfile=abc \
+  --fileext=testing \
+
 ```
 
 Common variants:
