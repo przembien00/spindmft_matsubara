@@ -1,9 +1,12 @@
 cmake_minimum_required(VERSION 3.10)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # things to be adapted
 set(USE_TYPE DOUBLE)  # specify the type to be used (FLOAT or DOUBLE)
 #include_directories(/path/to/blaze)  # remove # and adapt path, if blaze is used header-only
-#add_definitions(-DEIGEN)  # remove #, if eigen instead of lapack should be used for diagonalization
+option(USE_EIGEN "Use Eigen instead of LAPACK for diagonalization" ON)
 
 
 # Project name
@@ -29,9 +32,17 @@ if(HDF5_FOUND)
     set(LINK_LIBS ${LINK_LIBS} ${HDF5_LIBRARIES})
 endif()
 
-# Find LAPACK
-find_package(LAPACK REQUIRED)
-if(LAPACK_FOUND)
+# Select the diagonalization backend. Eigen is header-only and is the default,
+# since LAPACK is not available on every cluster.
+if(USE_EIGEN)
+    find_path(EIGEN3_PARENT_INCLUDE_DIR NAMES eigen3/Eigen/Dense)
+    if(NOT EIGEN3_PARENT_INCLUDE_DIR)
+        message(FATAL_ERROR "Eigen headers not found. Load the Eigen module or set EIGEN3_PARENT_INCLUDE_DIR to the directory containing eigen3/.")
+    endif()
+    include_directories(${EIGEN3_PARENT_INCLUDE_DIR})
+    add_definitions(-DEIGEN)
+else()
+    find_package(LAPACK REQUIRED)
     set(LINK_LIBS ${LINK_LIBS} ${LAPACK_LIBRARIES})
 endif()
 
