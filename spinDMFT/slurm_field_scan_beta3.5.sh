@@ -31,30 +31,31 @@ fields=(
 )
 field="${fields[${SLURM_ARRAY_TASK_ID}]}"
 
-init_args=()
+run_args=(
+    --spinmodel=ISO
+    --cstype=C
+    --JL=-2.449489743
+    --beta=3.5
+    --Bname=z
+    --Babs="${field}"
+    --numTimeSteps=30
+    --numSamplesPerCore=500000
+    --numSamplesPerSet=100
+    --mhStepSize=0.9
+    --mhBurnIn=100
+    --numBlocks=20
+    --iterlimit=30
+    --critneg=100
+    --project=Magnetization_field_scan
+)
+
 if (( SLURM_ARRAY_TASK_ID >= 9 )); then
     initfile="Magnetization_field_scan/spinmodel=ISO__JL=-2.4495__beta=3.5__h=z_h_abs=0.1"
-    init_args=(--loadinit --initcorrfile="${initfile}")
+    run_args+=(--loadinit --initcorrfile="${initfile}")
 fi
 
 echo "Starting spinDMFT: beta=3.5, h_z=${field}, task=${SLURM_ARRAY_TASK_ID}"
 
-mpirun -n 16 ./executable_DOUBLE.out \
-    --spinmodel=ISO \
-    --cstype=C \
-    --JL=-2.449489743 \
-    --beta=3.5 \
-    --Bname=z \
-    --Babs="${field}" \
-    --numTimeSteps=30 \
-    --numSamplesPerCore=500000 \
-    --numSamplesPerSet=100 \
-    --mhStepSize=0.9 \
-    --mhBurnIn=100 \
-    --numBlocks=20 \
-    --iterlimit=30 \
-    --critneg=100 \
-    --project=Magnetization_field_scan \
-    "${init_args[@]}"
+mpirun -n 16 ./executable_DOUBLE.out "${run_args[@]}"
 
 echo "Finished spinDMFT: beta=3.5, h_z=${field}"
