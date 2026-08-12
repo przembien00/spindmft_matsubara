@@ -1,0 +1,13 @@
+--------------------------------------------------------------------------
+Open MPI tried to fork a new process via the "execve" system call but
+failed.  Open MPI checks many things before attempting to launch a
+child process, but nothing is perfect. This error may be indicative
+of another problem on the target host, or even something as silly as
+having specified a directory for your application. Your job will now
+abort.
+
+  Local host:        cstd01-024
+  Working dir:       /work/mprzbien/spindmft_matsubara/spinDMFT
+  Application name:  ./executable_DOUBLE.out
+  Error:             Communication error on send
+--------------------------------------------------------------------------
