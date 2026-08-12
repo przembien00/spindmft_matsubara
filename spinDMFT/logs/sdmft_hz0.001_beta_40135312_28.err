@@ -1,0 +1,711 @@
+HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+    major: Virtual Object Layer
+    minor: Can't open object
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+    major: File accessibility
+    minor: Unable to open file
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+    minor: Can't open object
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    minor: Unable to open file
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+    minor: Can't open object
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+terminate called after throwing an instance of 'std::runtime_error'
+terminate called after throwing an instance of 'std::runtime_error'
+HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+    minor: Can't open object
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+  what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+[cstd01-080:07947] *** Process received signal ***
+[cstd01-080:07947] Signal: Aborted (6)
+[cstd01-080:07947] Signal code:  (-6)
+terminate called after throwing an instance of 'std::runtime_error'
+[cstd01-080:07951] *** Process received signal ***
+[cstd01-080:07951] Signal: Aborted (6)
+[cstd01-080:07951] Signal code:  (-6)
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+terminate called after throwing an instance of 'std::runtime_error'
+    minor: Unable to open file
+  what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+  what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+terminate called after throwing an instance of 'std::runtime_error'
+[cstd01-080:07959] *** Process received signal ***
+[cstd01-080:07959] Signal: Aborted (6)
+[cstd01-080:07959] Signal code:  (-6)
+[cstd01-080:07956] *** Process received signal ***
+[cstd01-080:07956] Signal: Aborted (6)
+[cstd01-080:07956] Signal code:  (-6)
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+terminate called after throwing an instance of 'std::runtime_error'
+[cstd01-080:07951] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2b988a96e630]
+[cstd01-080:07951] [ 1]     major: File accessibility
+    minor: Unable to open file
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+[cstd01-080:07947] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2b1e8e7ff630]
+[cstd01-080:07947] [ 1]   what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+[cstd01-080:07955] *** Process received signal ***
+[cstd01-080:07955] Signal: Aborted (6)
+[cstd01-080:07955] Signal code:  (-6)
+  what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+/lib64/libc.so.6(gsignal+0x37)[0x2b1e8ea42387]
+[cstd01-080:07947] [ 2] [cstd01-080:07956] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2b38c42ae630]
+[cstd01-080:07956] [ 1] [cstd01-080:07950] *** Process received signal ***
+[cstd01-080:07950] Signal: Aborted (6)
+[cstd01-080:07950] Signal code:  (-6)
+/lib64/libc.so.6(gsignal+0x37)[0x2b988abb1387]
+[cstd01-080:07951] [ 2] /lib64/libc.so.6(abort+0x148)[0x2b988abb2a78]
+[cstd01-080:07951] [ 3] terminate called after throwing an instance of 'std::runtime_error'
+HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+[cstd01-080:07959] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2b84bc7c4630]
+[cstd01-080:07959] [ 1] /lib64/libc.so.6(abort+0x148)[0x2b1e8ea43a78]
+[cstd01-080:07947] [ 3] [cstd01-080:07955] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2ab43da42630]
+[cstd01-080:07955] [ 1] /lib64/libc.so.6(gsignal+0x37)[0x2b84bca07387]
+[cstd01-080:07959] [ 2] /lib64/libc.so.6(abort+0x148)[0x2b84bca08a78]
+[cstd01-080:07959] /lib64/libc.so.6(gsignal+0x37)[0x2b38c44f1387]
+[cstd01-080:07956] [ 2] /lib64/libc.so.6(abort+0x148)[0x2b38c44f2a78]
+[cstd01-080:07956] [ 3] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2b988a104733]
+[cstd01-080:07951] [ 4] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2b988a110356]
+  what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+[cstd01-080:07945] *** Process received signal ***
+[cstd01-080:07945] Signal: Aborted (6)
+[cstd01-080:07945] Signal code:  (-6)
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+    major: File accessibility
+    minor: Unable to open file
+/cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2b1e8df95733]
+[cstd01-080:07947] [ 4] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2b1e8dfa1356]
+[cstd01-080:07947] [ 5] terminate called after throwing an instance of 'std::runtime_error'
+  what():  /lib64/libc.so.6(gsignal+0x37)[0x2ab43dc85387]
+[cstd01-080:07955] [ 2] /lib64/libc.so.6(abort+0x148)[0x2ab43dc86a78]
+[cstd01-080:07955] [ 3] [ 3] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2b84bbf5a733]
+[cstd01-080:07959] [ 4] [cstd01-080:07950] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2accfaf11630]
+[cstd01-080:07950] [ 1] [cstd01-080:07951] [ 5] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2b988a1103a1]
+[cstd01-080:07951] [ 6] HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+/cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2b1e8dfa13a1]
+[cstd01-080:07947] [ 6] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2b1e8dfa15d5]
+[cstd01-080:07947] [ 7] HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+[cstd01-080:07946] *** Process received signal ***
+[cstd01-080:07946] Signal: Aborted (6)
+[cstd01-080:07946] Signal code:  (-6)
+/cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2ab43d1d8733]
+[cstd01-080:07955] [ 4] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2ab43d1e4356]
+[cstd01-080:07955] [ 5] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2b84bbf66356]
+[cstd01-080:07959] [ 5] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2b84bbf663a1]
+[cstd01-080:07959] [ 6] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2b38c3a44733]
+[cstd01-080:07956] [ 4] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2b38c3a50356]
+[cstd01-080:07956] [ 5] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2b38c3a503a1]
+[cstd01-080:07956] [ 6] /lib64/libc.so.6(gsignal+0x37)[0x2accfb154387]
+[cstd01-080:07950] [ 2] /lib64/libc.so.6(abort+0x148)[0x2accfb155a78]
+[cstd01-080:07950] [ 3] [cstd01-080:07945] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2b4b48d1f630]
+[cstd01-080:07945] [ 1] terminate called after throwing an instance of 'std::runtime_error'
+  what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+/cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2b988a1105d5]
+[cstd01-080:07951] [ 7] ./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07951] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07951] [ 9] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07951] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07951] [11]   #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07947] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07947] [ 9] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07947] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07947] [11] /lib64/libc.so.6(__libc_start_main+0xf5)[0x2b1e8ea2e555]
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+[cstd01-080:07946] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2b01d73bb630]
+[cstd01-080:07946] [ 1] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2ab43d1e43a1]
+[cstd01-080:07955] [ 6] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2ab43d1e45d5]
+[cstd01-080:07955] [ 7] ./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07955] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07955] [ 9] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2b84bbf665d5]
+[cstd01-080:07959] [ 7] ./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07959] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07959] [ 9] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07959] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07959] [11] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2b38c3a505d5]
+[cstd01-080:07956] [ 7] ./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07956] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07956] [ 9] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07956] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07956] [11] HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+/cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2accfa6a7733]
+[cstd01-080:07950] [ 4] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2accfa6b3356]
+[cstd01-080:07950] [ 5] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2accfa6b33a1]
+[cstd01-080:07950] [ 6] /lib64/libc.so.6(gsignal+0x37)[0x2b4b48f62387]
+[cstd01-080:07945] [ 2] /lib64/libc.so.6(abort+0x148)[0x2b4b48f63a78]
+[cstd01-080:07945] [ 3] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2b4b484b5733]
+[cstd01-080:07945] [ 4] [cstd01-080:07960] *** Process received signal ***
+[cstd01-080:07960] Signal: Aborted (6)
+[cstd01-080:07960] Signal code:  (-6)
+/lib64/libc.so.6(__libc_start_main+0xf5)[0x2b988ab9d555]
+[cstd01-080:07951] [12] ./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07951] *** End of error message ***
+[cstd01-080:07947] [12] ./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07947] *** End of error message ***
+terminate called after throwing an instance of 'std::runtime_error'
+[cstd01-080:07949] *** Process received signal ***
+[cstd01-080:07949] Signal: Aborted (6)
+[cstd01-080:07949] Signal code:  (-6)
+/lib64/libc.so.6(gsignal+0x37)[0x2b01d75fe387]
+[cstd01-080:07946] [ 2] /lib64/libc.so.6(abort+0x148)[0x2b01d75ffa78]
+[cstd01-080:07946] [ 3] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07955] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07955] [11] /lib64/libc.so.6(__libc_start_main+0xf5)[0x2ab43dc71555]
+[cstd01-080:07955] [12] ./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07955] *** End of error message ***
+HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+  #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+/lib64/libc.so.6(__libc_start_main+0xf5)[0x2b84bc9f3555]
+[cstd01-080:07959] [12] ./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07959] *** End of error message ***
+/lib64/libc.so.6(__libc_start_main+0xf5)[0x2b38c44dd555]
+[cstd01-080:07956] [12] ./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07956] *** End of error message ***
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+/cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2accfa6b35d5]
+[cstd01-080:07950] [ 7] ./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07950] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07950] [ 9] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07950] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07950] [11] [cstd01-080:07960] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2b8042bb5630]
+[cstd01-080:07960] [ 1] /lib64/libc.so.6(gsignal+0x37)[0x2b8042df8387]
+[cstd01-080:07960] [ 2] terminate called after throwing an instance of 'std::runtime_error'
+  what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+[cstd01-080:07957] *** Process received signal ***
+[cstd01-080:07957] Signal: Aborted (6)
+[cstd01-080:07957] Signal code:  (-6)
+  what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+[cstd01-080:07953] *** Process received signal ***
+[cstd01-080:07953] Signal: Aborted (6)
+[cstd01-080:07953] Signal code:  (-6)
+terminate called after throwing an instance of 'std::runtime_error'
+[cstd01-080:07949] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2b796d21a630]
+[cstd01-080:07949] [ 1] /lib64/libc.so.6(gsignal+0x37)[0x2b796d45d387]
+[cstd01-080:07949] [ 2] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2b01d6b51733]
+[cstd01-080:07946] [ 4] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2b01d6b5d356]
+[cstd01-080:07946] [ 5] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2b01d6b5d3a1]
+[cstd01-080:07946] [ 6]     minor: Can't open object
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+    major: Virtual File Layer
+    minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+/cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2b4b484c1356]
+[cstd01-080:07945] [ 5] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2b4b484c13a1]
+[cstd01-080:07945] [ 6] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2b4b484c15d5]
+[cstd01-080:07945] [ 7] /lib64/libc.so.6(__libc_start_main+0xf5)[0x2accfb140555]
+[cstd01-080:07950] [12] ./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07950] *** End of error message ***
+/lib64/libc.so.6(abort+0x148)[0x2b8042df9a78]
+[cstd01-080:07960] [ 3] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2b804234b733]
+[cstd01-080:07960] [ 4] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2b8042357356]
+[cstd01-080:07960] [ 5] [cstd01-080:07953] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2b060cf49630]
+[cstd01-080:07953] [ 1]   what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+[cstd01-080:07944] *** Process received signal ***
+[cstd01-080:07944] Signal: Aborted (6)
+[cstd01-080:07944] Signal code:  (-6)
+/lib64/libc.so.6(abort+0x148)[0x2b796d45ea78]
+[cstd01-080:07949] [ 3] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2b796c9b0733]
+[cstd01-080:07949] [ 4] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2b01d6b5d5d5]
+[cstd01-080:07946] [ 7] ./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07946] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07946] [ 9] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07946] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07946] [11] ./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07945] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07945] [ 9] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07945] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07945] [11] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2b80423573a1]
+[cstd01-080:07960] [ 6] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2b80423575d5]
+[cstd01-080:07957] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2b054f7ed630]
+[cstd01-080:07957] [ 1] /lib64/libc.so.6(gsignal+0x37)[0x2b054fa30387]
+HDF5-DIAG: Error detected in HDF5 (1.14.3) thread 0:
+/lib64/libc.so.6(__libc_start_main+0xf5)[0x2b4b48f4e555]
+[cstd01-080:07945] [12] ./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07945] *** End of error message ***
+/lib64/libc.so.6(gsignal+0x37)[0x2b060d18c387]
+[cstd01-080:07953] [ 2] /lib64/libc.so.6(abort+0x148)[0x2b060d18da78]
+[cstd01-080:07953] [ 3] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2b796c9bc356]
+[cstd01-080:07949] [ 5] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2b796c9bc3a1]
+[cstd01-080:07949] [ 6] terminate called after throwing an instance of 'std::runtime_error'
+  what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+[cstd01-080:07954] *** Process received signal ***
+/lib64/libc.so.6(__libc_start_main+0xf5)[0x2b01d75ea555]
+[cstd01-080:07946] [12] ./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07946] *** End of error message ***
+[cstd01-080:07960] [ 7] ./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07960] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07960] [ 9] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07960] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07960] [11] /lib64/libc.so.6(__libc_start_main+0xf5)[0x2b8042de4555]
+[cstd01-080:07960] [12] [cstd01-080:07957] [ 2] /lib64/libc.so.6(abort+0x148)[0x2b054fa31a78]
+[cstd01-080:07957] [ 3] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2b054ef83733]
+[cstd01-080:07957] [ 4]   #000: /home/mprzbien/hdf5/src/H5F.c line 836 in H5Fopen(): unable to synchronously open file
+    major: File accessibility
+    minor: Unable to open file
+  #001: /home/mprzbien/hdf5/src/H5F.c line 796 in H5F__open_api_common(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #002: /home/mprzbien/hdf5/src/H5VLcallback.c line 3863 in H5VL_file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #003: /home/mprzbien/hdf5/src/H5VLcallback.c line 3675 in H5VL__file_open(): open failed
+    major: Virtual Object Layer
+    minor: Can't open object
+  #004: /home/mprzbien/hdf5/src/H5VLnative_file.c line 128 in H5VL__native_file_open(): unable to open file
+    major: File accessibility
+    minor: Unable to open file
+  #005: /home/mprzbien/hdf5/src/H5Fint.c line 1852 in H5F_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', tent_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+  #006: /home/mprzbien/hdf5/src/H5FD.c line 769 in H5FD_open(): open failed
+    major: Virtual File Layer
+[cstd01-080:07944] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2b23efc44630]
+[cstd01-080:07944] [ 1] /lib64/libc.so.6(gsignal+0x37)[0x2b23efe87387]
+[cstd01-080:07944] [ 2] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2b060c6df733]
+[cstd01-080:07953] [ 4] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2b060c6eb356]
+[cstd01-080:07953] [ 5] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2b060c6eb3a1]
+[cstd01-080:07953] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2b796c9bc5d5]
+[cstd01-080:07949] [ 7] ./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07949] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07949] [ 9] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07949] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07949] [11] terminate called after throwing an instance of 'std::runtime_error'
+  what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found[cstd01-080:07954] Signal: Aborted (6)
+[cstd01-080:07954] Signal code:  (-6)
+./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07960] *** End of error message ***
+/cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2b054ef8f356]
+[cstd01-080:07957] [ 5] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2b054ef8f3a1]
+[cstd01-080:07957] [ 6]     minor: Unable to initialize object
+  #007: /home/mprzbien/hdf5/src/H5FDsec2.c line 326 in H5FD__sec2_open(): unable to open file: name = '../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5', errno = 2, error message = 'No such file or directory', flags = 0, o_flags = 0
+    major: File accessibility
+    minor: Unable to open file
+/lib64/libc.so.6(abort+0x148)[0x2b23efe88a78]
+[cstd01-080:07944] [ 3] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2b23ef3da733]
+[ 6] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2b060c6eb5d5]
+[cstd01-080:07953] [ 7] ./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07953] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07953] [ 9] /lib64/libc.so.6(__libc_start_main+0xf5)[0x2b796d449555]
+[cstd01-080:07949] [12] ./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07949] *** End of error message ***
+
+[cstd01-080:07952] *** Process received signal ***
+[cstd01-080:07952] Signal: Aborted (6)
+[cstd01-080:07952] Signal code:  (-6)
+[cstd01-080:07954] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2abfc54b7630]
+[cstd01-080:07954] [ 1] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2b054ef8f5d5]
+[cstd01-080:07957] [ 7] ./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07957] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07957] [ 9] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07957] [10] [cstd01-080:07944] [ 4] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2b23ef3e6356]
+[cstd01-080:07944] [ 5] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07953] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07953] [11] /lib64/libc.so.6(__libc_start_main+0xf5)[0x2b060d178555]
+[cstd01-080:07953] [12] [cstd01-080:07952] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2b5dced4f630]
+[cstd01-080:07952] [ 1] /lib64/libc.so.6(gsignal+0x37)[0x2abfc56fa387]
+[cstd01-080:07954] [ 2] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07957] [11] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2b23ef3e63a1]
+[cstd01-080:07944] [ 6] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2b23ef3e65d5]
+./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07953] *** End of error message ***
+[cstd01-080:07944] [ 7] ./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07944] [ 8] /lib64/libc.so.6(abort+0x148)[0x2abfc56fba78]
+[cstd01-080:07954] [ 3] /lib64/libc.so.6(__libc_start_main+0xf5)[0x2b054fa1c555]
+[cstd01-080:07957] [12] ./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07957] *** End of error message ***
+/lib64/libc.so.6(gsignal+0x37)[0x2b5dcef92387]
+[cstd01-080:07952] [ 2] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07944] [ 9] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07944] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07944] [11] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2abfc4c4d733]
+[cstd01-080:07954] [ 4] terminate called after throwing an instance of 'std::runtime_error'
+/lib64/libc.so.6(abort+0x148)[0x2b5dcef93a78]
+[cstd01-080:07952] [ 3] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2abfc4c59356]
+[cstd01-080:07954] [ 5] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2b5dce4e5733]
+[cstd01-080:07952] [ 4] /lib64/libc.so.6(__libc_start_main+0xf5)[0x2b23efe73555]
+[cstd01-080:07944] [12] ./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07944] *** End of error message ***
+/cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2abfc4c593a1]
+[cstd01-080:07954] [ 6]   what():  import file "../spinDMFT/Data/Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=2.9__h=z_h_abs=-0.1.hdf5" not found
+[cstd01-080:07948] *** Process received signal ***
+/cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2b5dce4f1356]
+[cstd01-080:07952] [ 5] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2abfc4c595d5]
+[cstd01-080:07954] [ 7] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2b5dce4f13a1]
+[cstd01-080:07952] [ 6] [cstd01-080:07948] Signal: Aborted (6)
+[cstd01-080:07948] Signal code:  (-6)
+./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07954] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07954] [ 9] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2b5dce4f15d5]
+[cstd01-080:07952] [ 7] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07954] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07954] [11] ./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07952] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07952] [ 9] [cstd01-080:07948] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2b7aba7a1630]
+[cstd01-080:07948] [ 1] /lib64/libc.so.6(__libc_start_main+0xf5)[0x2abfc56e6555]
+[cstd01-080:07954] [12] ./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07954] *** End of error message ***
+./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07952] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07952] [11] /lib64/libc.so.6(gsignal+0x37)[0x2b7aba9e4387]
+[cstd01-080:07948] [ 2] /lib64/libc.so.6(__libc_start_main+0xf5)[0x2b5dcef7e555]
+[cstd01-080:07952] [12] ./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07952] *** End of error message ***
+/lib64/libc.so.6(abort+0x148)[0x2b7aba9e5a78]
+[cstd01-080:07948] [ 3] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0x98733)[0x2b7ab9f37733]
+[cstd01-080:07948] [ 4] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa4356)[0x2b7ab9f43356]
+[cstd01-080:07948] [ 5] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa43a1)[0x2b7ab9f433a1]
+[cstd01-080:07948] [ 6] /cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/lib64/libstdc++.so.6(+0xa45d5)[0x2b7ab9f435d5]
+[cstd01-080:07948] [ 7] ./executable_DOUBLE.out[0x4133a7]
+[cstd01-080:07948] [ 8] ./executable_DOUBLE.out[0x413d5e]
+[cstd01-080:07948] [ 9] ./executable_DOUBLE.out[0x47788e]
+[cstd01-080:07948] [10] ./executable_DOUBLE.out[0x415213]
+[cstd01-080:07948] [11] /lib64/libc.so.6(__libc_start_main+0xf5)[0x2b7aba9d0555]
+[cstd01-080:07948] [12] ./executable_DOUBLE.out[0x4187af]
+[cstd01-080:07948] *** End of error message ***
+--------------------------------------------------------------------------
+Primary job  terminated normally, but 1 process returned
+a non-zero exit code. Per user-direction, the job has been aborted.
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+mpirun noticed that process rank 7 with PID 7951 on node cstd01-080 exited on signal 6 (Aborted).
+--------------------------------------------------------------------------

@@ -50,7 +50,7 @@ run_args=(
     --project=Magnetization_beta_scan
 )
 
-initfile="Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=${beta}__h=z_h_abs=0.1"
+initfile="Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=${beta}__h=z_h_abs=-0.1"
 run_args+=(--loadinit --initcorrfile="${initfile}")
 
 echo "Starting spinDMFT: beta=${beta}, h_z=0.001, initialized from h_z=0.1, task=${SLURM_ARRAY_TASK_ID}"

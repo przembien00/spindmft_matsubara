@@ -1,0 +1,2 @@
+Starting spinDMFT: beta=3.0, h_z=0.001, initialized from h_z=0.1, task=30
+7 total processes killed (some possibly by mpirun during cleanup)
