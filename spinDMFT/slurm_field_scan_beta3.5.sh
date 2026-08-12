@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=sdmft_field_beta3.5
+#SBATCH --job-name=sdmft_field_beta0.5
 #SBATCH --array=0-19
 #SBATCH --nodes=1
 #SBATCH --ntasks=16
@@ -35,7 +35,7 @@ run_args=(
     --spinmodel=ISO
     --cstype=C
     --JL=-2.449489743
-    --beta=3.5
+    --beta=0.5
     --Bname=z
     --Babs="${field}"
     --numTimeSteps=30
@@ -50,12 +50,12 @@ run_args=(
 )
 
 if (( SLURM_ARRAY_TASK_ID >= 9 )); then
-    initfile="Magnetization_field_scan/spinmodel=ISO__JL=-2.4495__beta=3.5__h=z_h_abs=0.1"
+    initfile="Magnetization_field_scan/spinmodel=ISO__JL=-2.4495__beta=0.5__h=z_h_abs=0.1"
     run_args+=(--loadinit --initcorrfile="${initfile}")
 fi
 
-echo "Starting spinDMFT: beta=3.5, h_z=${field}, task=${SLURM_ARRAY_TASK_ID}"
+echo "Starting spinDMFT: beta=0.5, h_z=${field}, task=${SLURM_ARRAY_TASK_ID}"
 
 mpirun -n 16 ./executable_DOUBLE.out "${run_args[@]}"
 
-echo "Finished spinDMFT: beta=3.5, h_z=${field}"
+echo "Finished spinDMFT: beta=0.5, h_z=${field}"
