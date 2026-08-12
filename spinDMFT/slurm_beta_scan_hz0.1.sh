@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=sdmft_hz0.001_beta
-#SBATCH --array=0-40
+#SBATCH --array=0-11
 #SBATCH --nodes=1
 #SBATCH --ntasks=16
 #SBATCH --partition=short
@@ -24,11 +24,10 @@ fi
 cd "${SPINDMFT_DIR}"
 
 betas=(
-    1.5 1.55 1.6 1.65 1.7 1.75 1.8 1.85 1.9 1.95
-    2.0 2.05 2.1 2.15 2.2 2.25 2.3 2.35 2.4 2.45
-    2.5 2.55 2.6 2.65 2.7 2.75 2.8 2.85 2.9 2.95
-    3.0 3.05 3.1 3.15 3.2 3.25 3.3 3.35 3.4 3.45
-    3.5
+    # Missing h_z=-0.001 outputs.
+    1.5 1.9 2 2.9 3
+    # Existing h_z=-0.001 outputs in NOT_CONVERGED/.
+    1.55 1.6 1.65 1.7 1.75 1.8 1.85
 )
 beta="${betas[${SLURM_ARRAY_TASK_ID}]}"
 
@@ -46,6 +45,7 @@ run_args=(
     --mhBurnIn=100
     --numBlocks=20
     --iterlimit=30
+    --reliterror=15
     --critneg=100
     --project=Magnetization_beta_scan
 )
