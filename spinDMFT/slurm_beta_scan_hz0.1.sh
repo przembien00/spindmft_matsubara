@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=sdmft_hz0.1_beta
+#SBATCH --job-name=sdmft_hz0.001_beta
 #SBATCH --array=0-40
 #SBATCH --nodes=1
 #SBATCH --ntasks=16
@@ -38,7 +38,7 @@ run_args=(
     --JL=-2.449489743
     --beta="${beta}"
     --Bname=z
-    --Babs=-0.1
+    --Babs=-0.001
     --numTimeSteps=30
     --numSamplesPerCore=500000
     --numSamplesPerSet=100
@@ -50,8 +50,11 @@ run_args=(
     --project=Magnetization_beta_scan
 )
 
-echo "Starting spinDMFT: beta=${beta}, h_z=0.1, task=${SLURM_ARRAY_TASK_ID}"
+initfile="Magnetization_beta_scan/spinmodel=ISO__JL=-2.4495__beta=${beta}__h=z_h_abs=0.1"
+run_args+=(--loadinit --initcorrfile="${initfile}")
+
+echo "Starting spinDMFT: beta=${beta}, h_z=0.001, initialized from h_z=0.1, task=${SLURM_ARRAY_TASK_ID}"
 
 mpirun -n 16 ./executable_DOUBLE.out "${run_args[@]}"
 
-echo "Finished spinDMFT: beta=${beta}, h_z=0.1"
+echo "Finished spinDMFT: beta=${beta}, h_z=0.001"

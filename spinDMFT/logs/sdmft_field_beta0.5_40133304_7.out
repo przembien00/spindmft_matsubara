@@ -1,2 +1,0 @@
-Starting spinDMFT: beta=0.5, h_z=0.15, task=7
-[1786463866.508268] [cstd01-062:18387:0]     ucp_worker.c:927  UCX  WARN  failed to remove event handler for fd -1: No such element
