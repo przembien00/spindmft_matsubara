@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=sdmft_field_beta3.5
-#SBATCH --array=0-19
+#SBATCH --job-name=sdmft_field_beta2.5
+#SBATCH --array=0-10
 #SBATCH --nodes=1
 #SBATCH --ntasks=16
 #SBATCH --partition=short
@@ -26,7 +26,7 @@ cd "${SPINDMFT_DIR}"
 # The h_z=0.1 point already exists. Tasks 9-19 use it as the initial
 # condition for the additional low-field series.
 fields=(
-    0.5 0.45 0.4 0.35 0.3 0.25 0.2 0.15 0.125
+#    0.5 0.45 0.4 0.35 0.3 0.25 0.2 0.15 0.125
     0.09 0.08 0.07 0.06 0.05 0.04 0.03 0.02 0.01 0.005 0.001
 )
 field="${fields[${SLURM_ARRAY_TASK_ID}]}"
@@ -35,7 +35,7 @@ run_args=(
     --spinmodel=ISO
     --cstype=C
     --JL=-2.449489743
-    --beta=3.5
+    --beta=2.5
     --Bname=z
     --Babs="-${field}"
     --numTimeSteps=30
@@ -50,7 +50,7 @@ run_args=(
 )
 
 if (( SLURM_ARRAY_TASK_ID >= 9 )); then
-    initfile="Magnetization_field_scan/spinmodel=ISO__JL=-2.4495__beta=3.5__h=z_h_abs=0.1"
+    initfile="Magnetization_field_scan/spinmodel=ISO__JL=-2.4495__beta=2.5__h=z_h_abs=-0.1"
     run_args+=(--loadinit --initcorrfile="${initfile}")
 fi
 

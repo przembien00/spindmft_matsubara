@@ -1,0 +1,44 @@
+[cstd01-018:29546:0:29546]  ucp_worker.c:164  UCX Fatal: failed to set active message handler id 6: Input/output error
+==== backtrace ====
+    0  /lib64/libucs.so.0(ucs_fatal_error+0xf7) [0x2aaabef1ed87]
+    1  /lib64/libucp.so.0(+0x14a5e) [0x2aaabe862a5e]
+    2  /lib64/libucp.so.0(+0x1585c) [0x2aaabe86385c]
+    3  /lib64/libucp.so.0(ucp_worker_iface_init+0x34b) [0x2aaabe863cfb]
+    4  /lib64/libucp.so.0(ucp_worker_create+0x392) [0x2aaabe864712]
+    5  /cluster/sfw/openmpi/gcc9.2.x/4.0.3/mpi_thread_multiple/lib/openmpi/mca_pml_ucx.so(mca_pml_ucx_init+0x79) [0x2aaabe444bf9]
+    6  /cluster/sfw/openmpi/gcc9.2.x/4.0.3/mpi_thread_multiple/lib/openmpi/mca_pml_ucx.so(+0x79cc) [0x2aaabe4469cc]
+    7  /cluster/sfw/openmpi/gcc9.2.x/4.0.3/mpi_thread_multiple/lib/libmpi.so.40(mca_pml_base_select+0x1c4) [0x2aaaad8df384]
+    8  /cluster/sfw/openmpi/gcc9.2.x/4.0.3/mpi_thread_multiple/lib/libmpi.so.40(ompi_mpi_init+0x6fa) [0x2aaaad8ebcaa]
+    9  /cluster/sfw/openmpi/gcc9.2.x/4.0.3/mpi_thread_multiple/lib/libmpi.so.40(MPI_Init+0x89) [0x2aaaad891fb9]
+   10  ./executable_DOUBLE.out() [0x4151b2]
+   11  /lib64/libc.so.6(__libc_start_main+0xf5) [0x2aaaaf8db555]
+   12  ./executable_DOUBLE.out() [0x4187af]
+===================
+[cstd01-018:29546] *** Process received signal ***
+[cstd01-018:29546] Signal: Aborted (6)
+[cstd01-018:29546] Signal code:  (-6)
+[cstd01-018:29546] [ 0] /lib64/libpthread.so.0(+0xf630)[0x2aaaaf6ac630]
+[cstd01-018:29546] [ 1] /lib64/libc.so.6(gsignal+0x37)[0x2aaaaf8ef387]
+[cstd01-018:29546] [ 2] /lib64/libc.so.6(abort+0x148)[0x2aaaaf8f0a78]
+[cstd01-018:29546] [ 3] /lib64/libucs.so.0(+0x15d8c)[0x2aaabef1ed8c]
+[cstd01-018:29546] [ 4] /lib64/libucp.so.0(+0x14a5e)[0x2aaabe862a5e]
+[cstd01-018:29546] [ 5] /lib64/libucp.so.0(+0x1585c)[0x2aaabe86385c]
+[cstd01-018:29546] [ 6] /lib64/libucp.so.0(ucp_worker_iface_init+0x34b)[0x2aaabe863cfb]
+[cstd01-018:29546] [ 7] /lib64/libucp.so.0(ucp_worker_create+0x392)[0x2aaabe864712]
+[cstd01-018:29546] [ 8] /cluster/sfw/openmpi/gcc9.2.x/4.0.3/mpi_thread_multiple/lib/openmpi/mca_pml_ucx.so(mca_pml_ucx_init+0x79)[0x2aaabe444bf9]
+[cstd01-018:29546] [ 9] /cluster/sfw/openmpi/gcc9.2.x/4.0.3/mpi_thread_multiple/lib/openmpi/mca_pml_ucx.so(+0x79cc)[0x2aaabe4469cc]
+[cstd01-018:29546] [10] /cluster/sfw/openmpi/gcc9.2.x/4.0.3/mpi_thread_multiple/lib/libmpi.so.40(mca_pml_base_select+0x1c4)[0x2aaaad8df384]
+[cstd01-018:29546] [11] /cluster/sfw/openmpi/gcc9.2.x/4.0.3/mpi_thread_multiple/lib/libmpi.so.40(ompi_mpi_init+0x6fa)[0x2aaaad8ebcaa]
+[cstd01-018:29546] [12] /cluster/sfw/openmpi/gcc9.2.x/4.0.3/mpi_thread_multiple/lib/libmpi.so.40(MPI_Init+0x89)[0x2aaaad891fb9]
+[cstd01-018:29546] [13] ./executable_DOUBLE.out[0x4151b2]
+[cstd01-018:29546] [14] /lib64/libc.so.6(__libc_start_main+0xf5)[0x2aaaaf8db555]
+[cstd01-018:29546] [15] ./executable_DOUBLE.out[0x4187af]
+[cstd01-018:29546] *** End of error message ***
+--------------------------------------------------------------------------
+Primary job  terminated normally, but 1 process returned
+a non-zero exit code. Per user-direction, the job has been aborted.
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+mpirun noticed that process rank 15 with PID 29546 on node cstd01-018 exited on signal 6 (Aborted).
+--------------------------------------------------------------------------
+[cstd01-018:29522] PMIX ERROR: ERROR in file gds_ds21_lock_pthread.c at line 99
