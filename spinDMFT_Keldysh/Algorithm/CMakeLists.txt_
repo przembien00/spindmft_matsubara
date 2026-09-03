@@ -1,0 +1,163 @@
+cmake_minimum_required(VERSION 3.10)
+
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 NEW)
+endif()
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# things to be adapted
+set(USE_TYPE DOUBLE)  # specify the type to be used (FLOAT or DOUBLE)
+#include_directories(/path/to/blaze)  # remove # and adapt path, if blaze is used header-only
+option(USE_EIGEN "Use Eigen instead of LAPACK for diagonalization" ON)
+
+
+# Project name
+project(spinDMFT_Keldysh)
+
+# Set the default build type to Release if not specified
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build (Debug or Release)" FORCE)
+endif()
+
+# Find MPI
+find_package(MPI REQUIRED)
+if(MPI_FOUND)
+    set(CMAKE_CXX_COMPILER ${MPI_CXX_COMPILER})
+    include_directories(${MPI_INCLUDE_PATH})
+    set(LINK_LIBS ${LINK_LIBS} ${MPI_LIBRARIES})
+endif()
+
+# Find HDF5
+find_package(HDF5 REQUIRED)
+if(HDF5_FOUND)
+    include_directories(${HDF5_INCLUDE_DIRS})
+    set(LINK_LIBS ${LINK_LIBS} ${HDF5_LIBRARIES})
+endif()
+
+# Autonne--Takagi requires Blaze's LAPACK backend.
+find_package(LAPACK REQUIRED)
+set(LINK_LIBS ${LINK_LIBS} ${LAPACK_LIBRARIES})
+if(USE_EIGEN)
+    find_path(EIGEN3_PARENT_INCLUDE_DIR NAMES eigen3/Eigen/Dense)
+    if(NOT EIGEN3_PARENT_INCLUDE_DIR)
+        message(FATAL_ERROR "Eigen headers not found. Load the Eigen module or set EIGEN3_PARENT_INCLUDE_DIR to the directory containing eigen3/.")
+    endif()
+    include_directories(${EIGEN3_PARENT_INCLUDE_DIR})
+    add_definitions(-DEIGEN)
+endif()
+
+# Find Boost
+find_package(Boost REQUIRED COMPONENTS program_options)
+if(Boost_FOUND)
+    include_directories(${Boost_INCLUDE_DIRS})
+    set(LINK_LIBS ${LINK_LIBS} ${Boost_LIBRARIES})
+endif()
+
+# Retain FFTW for frequency-space covariance transforms and future block acceleration.
+find_library(FFTW3_DOUBLE_LIB NAMES fftw3 HINTS ${FFTW3_ROOT}/lib /opt/homebrew/lib /usr/local/lib /usr/lib)
+find_library(FFTW3_FLOAT_LIB NAMES fftw3f HINTS ${FFTW3_ROOT}/lib /opt/homebrew/lib /usr/local/lib /usr/lib)
+find_path(FFTW3_INCLUDE_DIR NAMES fftw3.h HINTS ${FFTW3_ROOT}/include /opt/homebrew/include /usr/local/include /usr/include)
+if(NOT FFTW3_INCLUDE_DIR)
+    message(FATAL_ERROR "FFTW3 headers not found; set FFTW3_ROOT to the FFTW installation")
+endif()
+include_directories(${FFTW3_INCLUDE_DIR})
+if(USE_TYPE STREQUAL "FLOAT")
+    if(NOT FFTW3_FLOAT_LIB)
+        message(FATAL_ERROR "FFTW3 float library not found; set FFTW3_ROOT")
+    endif()
+    set(LINK_LIBS ${LINK_LIBS} ${FFTW3_FLOAT_LIB})
+else()
+    if(NOT FFTW3_DOUBLE_LIB)
+        message(FATAL_ERROR "FFTW3 double library not found; set FFTW3_ROOT")
+    endif()
+    set(LINK_LIBS ${LINK_LIBS} ${FFTW3_DOUBLE_LIB})
+endif()
+
+# Add definitions
+add_definitions(-DUSE_${USE_TYPE})
+
+# Include directories
+include_directories(../../cpp_libs)
+
+# Source files
+set(SOURCES
+    main.cpp
+    Storage_Concept/Storage_Concept.cpp
+    Functions/Functions.cpp
+    Functions/Complex_Gaussian.cpp
+    Functions/PCN_Chain.cpp
+    Contour/Contour_Kernel.cpp
+    Run_Time_Data/Run_Time_Data.cpp
+    Run_Time_Data/Ratio_Statistics.cpp
+    Parameter_Space/Parameter_Space.cpp
+    Time_Measure/Time_Measure.cpp
+)
+
+# Header files (for dependencies)
+set(GLOB_RECURSE HEADERS
+    "matrices.h"
+    "main_header.h"
+    "Time_Measure/*.h"
+    "Parameter_Space/*.h"
+    "Run_Time_Data/*.h"
+    "Functions/*.h"
+    "Contour/*.h"
+    "Storage_Concept/*.h"
+    "../../cpp_libs/*.h"
+)
+
+# Add executable
+add_executable(spinDMFT_Keldysh_${USE_TYPE} ${SOURCES} ${HEADERS})
+
+# Set the output directory for the executable
+set_target_properties(spinDMFT_Keldysh_${USE_TYPE} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/../
+    OUTPUT_NAME ../executable_${USE_TYPE}.out
+)
+
+# Link libraries
+target_link_libraries(spinDMFT_Keldysh_${USE_TYPE} ${LINK_LIBS})
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(test_complex_gaussian
+        Tests/test_complex_gaussian.cpp
+        Functions/Complex_Gaussian.cpp
+    )
+    target_link_libraries(test_complex_gaussian ${LINK_LIBS})
+    add_test(NAME complex_gaussian COMMAND test_complex_gaussian)
+
+    add_executable(test_contour_kernel Tests/test_contour_kernel.cpp Contour/Contour_Kernel.cpp)
+    target_link_libraries(test_contour_kernel ${LINK_LIBS})
+    add_test(NAME contour_kernel COMMAND test_contour_kernel)
+
+    add_executable(test_ratio_statistics Tests/test_ratio_statistics.cpp Run_Time_Data/Ratio_Statistics.cpp)
+    target_link_libraries(test_ratio_statistics ${LINK_LIBS})
+    add_test(NAME ratio_statistics COMMAND test_ratio_statistics)
+
+    add_executable(test_keldysh_propagation
+        Tests/test_keldysh_propagation.cpp
+        Functions/Functions.cpp Functions/Complex_Gaussian.cpp
+        Contour/Contour_Kernel.cpp Run_Time_Data/Run_Time_Data.cpp
+        Run_Time_Data/Ratio_Statistics.cpp)
+    target_link_libraries(test_keldysh_propagation ${LINK_LIBS})
+    add_test(NAME keldysh_propagation COMMAND test_keldysh_propagation)
+
+    add_executable(test_full_contour_measurement
+        Tests/test_full_contour_measurement.cpp
+        Functions/Functions.cpp Functions/Complex_Gaussian.cpp Functions/PCN_Chain.cpp
+        Contour/Contour_Kernel.cpp Run_Time_Data/Run_Time_Data.cpp
+        Run_Time_Data/Ratio_Statistics.cpp Parameter_Space/Parameter_Space.cpp)
+    target_link_libraries(test_full_contour_measurement ${LINK_LIBS})
+    add_test(NAME full_contour_measurement COMMAND test_full_contour_measurement)
+    add_test(NAME full_contour_measurement_antithetic_option
+        COMMAND test_full_contour_measurement
+                --samplingStrategy=independent --antitheticPairs
+                --numSamplesPerCore=2)
+    add_test(NAME full_contour_measurement_antithetic_pcn_option
+        COMMAND test_full_contour_measurement
+                --samplingStrategy=pcn --antitheticPairs
+                --numSamplesPerCore=1)
+endif()

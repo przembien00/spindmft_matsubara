@@ -1,0 +1,114 @@
+Start testing: Sep 03 12:48 CEST
+----------------------------------------------------------
+1/7 Testing: complex_gaussian
+1/7 Test: complex_gaussian
+Command: "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh/test_complex_gaussian"
+Directory: /Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh
+"complex_gaussian" start time: Sep 03 12:48 CEST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.25 sec
+----------------------------------------------------------
+Test Passed.
+"complex_gaussian" end time: Sep 03 12:48 CEST
+"complex_gaussian" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/7 Testing: contour_kernel
+2/7 Test: contour_kernel
+Command: "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh/test_contour_kernel"
+Directory: /Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh
+"contour_kernel" start time: Sep 03 12:48 CEST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"contour_kernel" end time: Sep 03 12:48 CEST
+"contour_kernel" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/7 Testing: ratio_statistics
+3/7 Test: ratio_statistics
+Command: "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh/test_ratio_statistics"
+Directory: /Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh
+"ratio_statistics" start time: Sep 03 12:48 CEST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"ratio_statistics" end time: Sep 03 12:48 CEST
+"ratio_statistics" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/7 Testing: keldysh_propagation
+4/7 Test: keldysh_propagation
+Command: "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh/test_keldysh_propagation"
+Directory: /Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh
+"keldysh_propagation" start time: Sep 03 12:48 CEST
+Output:
+----------------------------------------------------------
+<end of output>
+Test time =   0.02 sec
+----------------------------------------------------------
+Test Passed.
+"keldysh_propagation" end time: Sep 03 12:48 CEST
+"keldysh_propagation" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/7 Testing: full_contour_measurement
+5/7 Test: full_contour_measurement
+Command: "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh/test_full_contour_measurement"
+Directory: /Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh
+"full_contour_measurement" start time: Sep 03 12:48 CEST
+Output:
+----------------------------------------------------------
+[Przemeks-MacBook-Pro][[6788,0],0][btl_tcp_component.c:1021:mca_btl_tcp_component_create_listen] bind() failed: Operation not permitted (1)
+[1;32mTerminating: fixed point and contour diagnostics converged.[0m
+<end of output>
+Test time =   0.08 sec
+----------------------------------------------------------
+Test Passed.
+"full_contour_measurement" end time: Sep 03 12:48 CEST
+"full_contour_measurement" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/7 Testing: full_contour_measurement_antithetic_option
+6/7 Test: full_contour_measurement_antithetic_option
+Command: "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh/test_full_contour_measurement" "--samplingStrategy=independent" "--antitheticPairs" "--numSamplesPerCore=2"
+Directory: /Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh
+"full_contour_measurement_antithetic_option" start time: Sep 03 12:48 CEST
+Output:
+----------------------------------------------------------
+[Przemeks-MacBook-Pro][[5456,0],0][btl_tcp_component.c:1021:mca_btl_tcp_component_create_listen] bind() failed: Operation not permitted (1)
+[1;32mTerminating: fixed point and contour diagnostics converged.[0m
+<end of output>
+Test time =   0.09 sec
+----------------------------------------------------------
+Test Passed.
+"full_contour_measurement_antithetic_option" end time: Sep 03 12:49 CEST
+"full_contour_measurement_antithetic_option" time elapsed: 00:00:00
+----------------------------------------------------------
+
+7/7 Testing: full_contour_measurement_antithetic_pcn_option
+7/7 Test: full_contour_measurement_antithetic_pcn_option
+Command: "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh/test_full_contour_measurement" "--samplingStrategy=pcn" "--antitheticPairs" "--numSamplesPerCore=1"
+Directory: /Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh
+"full_contour_measurement_antithetic_pcn_option" start time: Sep 03 12:49 CEST
+Output:
+----------------------------------------------------------
+[Przemeks-MacBook-Pro][[38296,0],0][btl_tcp_component.c:1021:mca_btl_tcp_component_create_listen] bind() failed: Operation not permitted (1)
+[1;32mTerminating: fixed point and contour diagnostics converged.[0m
+<end of output>
+Test time =   0.04 sec
+----------------------------------------------------------
+Test Passed.
+"full_contour_measurement_antithetic_pcn_option" end time: Sep 03 12:49 CEST
+"full_contour_measurement_antithetic_pcn_option" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Sep 03 12:49 CEST

@@ -1,0 +1,53 @@
+{
+  "input": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Data/spinmodel=ISO__JL=-2__beta=1__h=z_h_abs=0.5.hdf5",
+  "termination": "by convergence",
+  "num_iterations": 4,
+  "num_imaginary_cells": 50,
+  "num_real_points": 101,
+  "covariance_dimension": 756,
+  "stored_takagi_rank": 755,
+  "stored_covariance_symmetry_error": 0.0,
+  "reconstructed_raw_symmetry_error": 1.5209045479189743e-17,
+  "mean_field_distribution_seconds": 2.6926942499999997,
+  "sampling_seconds": 1.1046794999999998,
+  "fourier_convention": "Gamma_hat = F Gamma F^T with orthonormal forward DFTs",
+  "fourier_frobenius_norm_relative_error": 1.6898924891532173e-16,
+  "paired_frequency_weight": {
+    "MM": 0.9999998721149149,
+    "++": 0.918633569932971,
+    "+-": 0.918471777439692,
+    "--": 0.9189526402658632
+  },
+  "mixed_Mplus_Mminus_max_difference": 0.0,
+  "mixed_singular_weight_rank": {
+    "0.9": 3,
+    "0.95": 3,
+    "0.99": 3,
+    "0.999": 6,
+    "0.9999": 6
+  },
+  "mixed_cumulative_weight_by_rank": {
+    "1": 0.36943099934594226,
+    "2": 0.7351225330883155,
+    "3": 0.9949424792460577,
+    "6": 0.9999814947895078
+  },
+  "mixed_relative_singular_value_rank": {
+    "0.01": 6,
+    "0.001": 9,
+    "0.0001": 20,
+    "1e-06": 66,
+    "1e-08": 139
+  },
+  "mixed_top_bin_weight": {
+    "0.001": 0.7683402616054185,
+    "0.005": 0.9263414062644876,
+    "0.01": 0.9569077027315646,
+    "0.05": 0.9938717297194012,
+    "0.1": 0.9976963050147828
+  },
+  "mixed_maximum_frequency": {
+    "matsubara_angular_frequency": 0.0,
+    "real_angular_frequency": -0.6220975551662956
+  }
+}
