@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 3.10)
 
+# Select the GNU compilers by default.  These must be chosen before project(),
+# when CMake performs its initial compiler and C++17 capability checks.  A
+# command-line or toolchain-file choice remains authoritative.
+if(NOT DEFINED CMAKE_C_COMPILER)
+    set(CMAKE_C_COMPILER gcc CACHE FILEPATH "C compiler")
+endif()
+if(NOT DEFINED CMAKE_CXX_COMPILER)
+    set(CMAKE_CXX_COMPILER g++ CACHE FILEPATH "C++ compiler")
+endif()
+
 if(POLICY CMP0167)
     cmake_policy(SET CMP0167 NEW)
 endif()
@@ -24,7 +34,6 @@ endif()
 # Find MPI
 find_package(MPI REQUIRED)
 if(MPI_FOUND)
-    set(CMAKE_CXX_COMPILER ${MPI_CXX_COMPILER})
     include_directories(${MPI_INCLUDE_PATH})
     set(LINK_LIBS ${LINK_LIBS} ${MPI_LIBRARIES})
 endif()
