@@ -162,7 +162,7 @@ inline DiagonalSpinCorrelation::DiagonalSpinCorrelation( const std::string& name
         m_parameters.emplace_back( Parameter{ "c_tscale", c_tscale } );
         f = [c_tscale]( const RealType& t ) -> RealType
         {
-            return RealType{0.25} * ( RealType{0.25} * (t * t -  c_tscale * t ) + RealType{1.0});
+            return RealType{0.25} * (t * t - c_tscale * t) + RealType{1.0};
         }; 
     }
     else if( m_name == "const" )
