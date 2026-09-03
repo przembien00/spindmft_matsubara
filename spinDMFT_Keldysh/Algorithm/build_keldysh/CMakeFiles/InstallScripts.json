@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh/Algorithm/build_keldysh/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
