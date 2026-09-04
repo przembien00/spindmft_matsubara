@@ -9,11 +9,11 @@
 #SBATCH --array=0-167
 #SBATCH --nodes=1
 #SBATCH --ntasks=16
-#SBATCH --partition=short
+#SBATCH --partition=med
 #SBATCH --mem-per-cpu=2G
-#SBATCH --time=24:00:00
-#SBATCH --output=slurm_%x_%A_%a.out
-#SBATCH --error=slurm_%x_%A_%a.err
+#SBATCH --time=8:00:00
+#SBATCH --output=logs/slurm_%x_%A_%a.out
+#SBATCH --error=logs/slurm_%x_%A_%a.err
 
 set -euo pipefail
 
@@ -69,6 +69,8 @@ run_args=(
     --numSamplesPerCore="${samples_per_core}"
     --project="${project}"
     --fileext="samples_per_core=${samples_per_core}"
+    --spinInsertionStrategy=prefix
+    --samplingStrategy=independent
 )
 
 case "${case_index}" in

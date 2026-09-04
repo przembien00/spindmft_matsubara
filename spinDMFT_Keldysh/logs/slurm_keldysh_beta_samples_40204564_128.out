@@ -1,0 +1,2 @@
+Starting task 128: beta=2, samples/core=100000, project=Keldysh_stype_A
+[1788446890.629093] [cstd01-037:5004 :0]     ucp_worker.c:927  UCX  WARN  failed to remove event handler for fd -1: No such element
