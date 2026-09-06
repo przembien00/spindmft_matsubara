@@ -57,7 +57,7 @@ class RunTimeData
     std::vector<RealType> denominator_constancy_residuals{};
     std::vector<RealType> mh_acceptance_rates{};
     std::vector<RealType> mh_nonpositive_rejection_rates{};
-    std::vector<RealType> maximum_relative_imaginary_partitions{};
+    std::vector<RealType> maximum_relative_imaginary_sampling_weights{};
     std::vector<RealType> blocking_curve_block_lengths{};
     std::vector<RealType> blocking_curve_mean_errors{};
     std::vector<RealType> blocking_curve_max_errors{};
@@ -93,7 +93,7 @@ class RunTimeData
                                            size_t largest_factorization_dimension );
     void record_pcn_diagnostics( size_t accepted, size_t proposed,
                                  size_t rejected_nonpositive,
-                                 RealType maximum_relative_imaginary_partition );
+                                 RealType maximum_relative_imaginary_sampling_weight );
     void mpi_reduce_and_finalize( CorrelationSet& correlations,
                                   CorrelationSet& standard_errors );
     void record_iteration_error( RealType absolute_error,
@@ -116,6 +116,7 @@ class RunTimeData
         std::vector<MagVec> mag_Re{};
         std::vector<MagVec> mag_Im{};
         std::vector<ComplexType> closure{};
+        std::vector<RealType> closure_abs{};
     };
 
     int m_my_rank{};
@@ -134,6 +135,7 @@ class RunTimeData
     bool m_harmonic_bath{};
     bool m_pcn{};
     bool m_antithetic_pairs{};
+    bool m_closed_contour_observable_normalization{};
     RealType m_iteration_error_sigma_threshold{};
     size_t m_iteration_limit{};
     RealType m_covariance_tolerance{};

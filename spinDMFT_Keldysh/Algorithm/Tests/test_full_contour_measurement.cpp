@@ -52,7 +52,7 @@ ComplexType prefix_numerator( const func::ContourTrajectory& trajectory,
 
 int check_measurement( const ps::ParameterSpace& p,
                        const func::ContourTrajectory& trajectory, int rank,
-                       const std::string& insertion_strategy="full-contour" )
+                       const std::string& insertion_strategy="closed-contour" )
 {
     rtd::RunTimeData runtime(p,rank);
     for( size_t sample=0;sample<p.num_SamplesPerCore;++sample )
@@ -62,6 +62,13 @@ int check_measurement( const ps::ParameterSpace& p,
     runtime.mpi_reduce_and_finalize(correlations,errors);
     const std::array<const Observable*,3> spins{&S_X,&S_Y,&S_Z};
     RealType correlation_error{},magnetization_error{},closure_error{};
+    Operator final_density=trajectory.imaginary_density_operator;
+    for( size_t t=1;t<p.num_RealTimePoints;++t )
+        final_density=trajectory.forward_steps[t]*final_density
+                     *trajectory.backward_steps[t];
+    const ComplexType observable_denominator=
+        p.correlation_normalization=="closed-contour"
+        ?blaze::trace(final_density):trajectory.partition_function;
     Operator density=trajectory.imaginary_density_operator;
     for( size_t t=0;t<p.num_RealTimePoints;++t )
     {
@@ -79,7 +86,7 @@ int check_measurement( const ps::ParameterSpace& p,
                     trajectory.imaginary_density_operator,*spins[a],t)
                 :full_numerator(trajectory,
                     trajectory.imaginary_density_operator,*spins[a],t))
-                /trajectory.partition_function;
+                /observable_denominator;
             const ComplexType actual{runtime.magnetization_time_Re[t][a],
                                      runtime.magnetization_time_Im[t][a]};
             magnetization_error=std::max(magnetization_error,std::abs(actual-expected));
@@ -96,7 +103,7 @@ int check_measurement( const ps::ParameterSpace& p,
                     :full_numerator(trajectory,
                         trajectory.imaginary_edge_insertions[ab[1]][tau],
                         *spins[ab[0]],t))
-                    /trajectory.partition_function;
+                    /observable_denominator;
                 const ComplexType actual{correlations.Re[t][pair][tau],
                                          correlations.Im[t][pair][tau]};
                 correlation_error=std::max(correlation_error,std::abs(actual-expected));
@@ -104,9 +111,9 @@ int check_measurement( const ps::ParameterSpace& p,
         }
     }
     return require(correlation_error<RealType{2e-12},
-                   "all correlation components and times include the full contour")
+                   "all correlation components and times include the closed contour")
          + require(magnetization_error<RealType{2e-12},
-                   "magnetization uses the same full-contour spin insertion")
+                   "magnetization uses the same closed-contour spin insertion")
          + require(closure_error<RealType{2e-12},
                    "prefix contour-closure diagnostic remains unchanged");
 }
@@ -156,8 +163,20 @@ int main( int argc, char** argv )
                 RealType{0.08}*(2*k+c+1)};
         }
     const auto distinct=func::compute_contour_trajectory(p,fields,mean);
+    Operator distinct_final_density=distinct.imaginary_density_operator;
+    for( size_t t=1;t<p.num_RealTimePoints;++t )
+        distinct_final_density=distinct.forward_steps[t]*distinct_final_density
+                             *distinct.backward_steps[t];
+    failures+=require(std::abs(distinct.final_closed_contour_trace
+                              -blaze::trace(distinct_final_density))
+                      <RealType{2e-12},
+        "trajectory retains the final closed-contour sampling weight");
     failures+=check_measurement(p,distinct,rank);
     failures+=check_measurement(p,distinct,rank,"prefix");
+    p.correlation_normalization="closed-contour";
+    failures+=check_measurement(p,distinct,rank);
+    failures+=check_measurement(p,distinct,rank,"prefix");
+    p.correlation_normalization="partition-function";
 
     // Earlier insertions must depend on both future forward and backward steps.
     for( const bool change_forward : {false,true} )
@@ -200,6 +219,42 @@ int main( int argc, char** argv )
     p.num_RealTimeSteps=0; p.num_RealTimePoints=1;
     failures+=check_measurement(p,zero,rank);
 
+    // Closed-contour normalization is a ratio of accumulated means, not an
+    // average of trajectorywise N/D values, for either sampling path.
+    p.correlation_normalization="closed-contour";
+    p.num_SamplesPerCore=2; p.num_blocks=2;
+    for( const std::string strategy : {"independent","pcn"} )
+    {
+        p.sampling_strategy=strategy;
+        rtd::RunTimeData normalized(p,rank);
+        for( const auto sample : std::array<std::array<RealType,2>,2>{
+                 std::array<RealType,2>{RealType{1.},RealType{2.}},
+                 std::array<RealType,2>{RealType{3.},RealType{12.}}} )
+        {
+            normalized.begin_sample(ComplexType{1.,0.});
+            normalized.accumulate_closed_contour_trace(
+                0,ComplexType{sample[0],0.});
+            normalized.accumulate_edge_correlation(
+                0,0,0,ComplexType{sample[1],0.});
+            normalized.accumulate_magnetization(
+                0,0,ComplexType{sample[1],0.});
+            normalized.end_sample();
+        }
+        contour::CorrelationSet normalized_mean,normalized_error;
+        normalized.mpi_reduce_and_finalize(normalized_mean,normalized_error);
+        failures+=require(
+            std::abs(normalized_mean.Re[0][0][0]-RealType{3.5})
+                <RealType{1e-13},
+            "closed-contour correlation normalization uses sum N over sum D(T)");
+        failures+=require(
+            std::abs(normalized.magnetization_time_Re[0]
+                    [normalized.magnetization_direction(0)]-RealType{3.5})
+                <RealType{1e-13},
+            "closed-contour magnetization normalization uses sum M over sum D(T)");
+    }
+    p.correlation_normalization="partition-function";
+    p.sampling_strategy="independent";
+
     p.self_consistency=true;
     p.Iteration_Limit=20;
     p.iteration_error_sigma_threshold=RealType{5.};
@@ -241,8 +296,8 @@ int main( int argc, char** argv )
     for( size_t step=0;step<6;++step ) constant_chain.step();
     failures+=require(constant_chain.proposed()==6&&constant_chain.accepted()==6,
         "constant-likelihood pCN accepts every proposal");
-    failures+=require(constant_chain.real_partition()>RealType{},
-        "pCN current state has positive real partition function");
+    failures+=require(constant_chain.real_sampling_weight()>RealType{},
+        "pCN current state has a positive real sampling weight");
 
     // Antithetic pCN keeps both signs in one state and uses their summed real
     // partition function as the Metropolis likelihood.  For the zero-rank
@@ -257,7 +312,7 @@ int main( int argc, char** argv )
         std::real(paired_chain.trajectory().partition_function)
        +std::real(paired_chain.antithetic_trajectory().partition_function);
     failures+=require(paired_chain.uses_antithetic_pairs()
-                      &&std::abs(paired_chain.real_partition()-paired_partition)
+                      &&std::abs(paired_chain.real_sampling_weight()-paired_partition)
                          <RealType{1e-13},
         "antithetic pCN likelihood is the sum over both latent signs");
     failures+=require(paired_chain.proposed()==6&&paired_chain.accepted()==6,
@@ -268,7 +323,7 @@ int main( int argc, char** argv )
         func::compute_contour_pair_correlations(
             paired_runtime,paired_chain.trajectory(),
             paired_chain.antithetic_trajectory(),
-            RealType{1.}/paired_chain.real_partition());
+            RealType{1.}/paired_chain.real_sampling_weight());
     contour::CorrelationSet paired_mean,paired_error;
     paired_runtime.mpi_reduce_and_finalize(paired_mean,paired_error);
 
@@ -277,13 +332,52 @@ int main( int argc, char** argv )
     for( size_t sample=0;sample<p.num_SamplesPerCore;++sample )
         func::compute_contour_correlations(
             ordinary_runtime,constant_chain.trajectory(),
-            RealType{1.}/constant_chain.real_partition());
+            RealType{1.}/constant_chain.real_sampling_weight());
     contour::CorrelationSet ordinary_mean,ordinary_error;
     ordinary_runtime.mpi_reduce_and_finalize(ordinary_mean,ordinary_error);
     failures+=require(
         func::max_contour_difference(paired_mean,ordinary_mean)
             <RealType{1e-13},
         "sign-symmetrized pair measurement is accumulated as one pCN state");
+
+    // With fixed closed-contour normalization, the pCN likelihood is Re D(T),
+    // not Re Z_M. A single fluctuating forward-branch mode makes the two
+    // quantities distinct while retaining a positive likelihood.
+    p.antithetic_pairs=false;
+    p.correlation_normalization="closed-contour";
+    func::ComplexDynamicMatrix forward_covariance(
+        pcn_layout.dimension(),pcn_layout.dimension(),ComplexType{});
+    const size_t forward_mode=pcn_layout.flat(
+        contour::Branch::Forward,1,0);
+    forward_covariance(forward_mode,forward_mode)=RealType{0.02};
+    func::DenseComplexGaussianSampler forward_sampler(forward_covariance);
+    std::mt19937 closed_contour_engine{24680};
+    func::PCNChain closed_contour_chain(
+        p,forward_sampler,zero_mean,RealType{0.4},closed_contour_engine);
+    failures+=require(
+        std::abs(closed_contour_chain.real_sampling_weight()
+                 -std::real(closed_contour_chain.trajectory()
+                                .final_closed_contour_trace))
+            <RealType{1e-13},
+        "closed-contour pCN uses Re D(T) as its likelihood");
+    failures+=require(
+        std::abs(closed_contour_chain.trajectory().final_closed_contour_trace
+                 -closed_contour_chain.trajectory().partition_function)
+            >RealType{1e-8},
+        "closed-contour pCN test distinguishes D(T) from Z_M");
+    p.antithetic_pairs=true;
+    std::mt19937 closed_pair_engine{13579};
+    func::PCNChain closed_pair_chain(
+        p,forward_sampler,zero_mean,RealType{0.4},closed_pair_engine);
+    const ComplexType paired_closed_weight=
+        closed_pair_chain.trajectory().final_closed_contour_trace
+       +closed_pair_chain.antithetic_trajectory().final_closed_contour_trace;
+    failures+=require(
+        std::abs(closed_pair_chain.real_sampling_weight()
+                 -std::real(paired_closed_weight))<RealType{1e-13},
+        "antithetic closed-contour pCN uses Re[D(r)+D(-r)]");
+    p.antithetic_pairs=false;
+    p.correlation_normalization="partition-function";
 
     // Deliberately correlated block means: merging adjacent equal blocks must
     // increase the reported uncertainty, demonstrating that the pCN path does

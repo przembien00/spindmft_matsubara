@@ -111,6 +111,10 @@ void HDF5_Storage::create_file( const ps::ParameterSpace& pspace )
     {
         filename += "__mag=constant";
     }
+    if( pspace.correlation_normalization=="closed-contour" )
+    {
+        filename += "__corrnorm=D";
+    }
     if( pspace.filename_extension != "" )
     {
         filename += "_" + pspace.filename_extension;
@@ -225,13 +229,21 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
     // ...concerning complex-field sampling
     hdf5r::store_string( ps_group_id, "sampling_strategy",
                          pspace.sampling_strategy );
+    hdf5r::store_string( ps_group_id, "pcn_sampling_weight",
+        pspace.sampling_strategy!="pcn"
+        ?"not applicable"
+        :pspace.correlation_normalization=="closed-contour"
+         ?"Re D(T), where D(T)=Tr[U_+(T,0) rho_M B_-(T,0)]"
+         :"Re Z_M" );
     hdf5r::store_string( ps_group_id, "antithetic_pairs",
                          hdf5r::bool_to_string(pspace.antithetic_pairs) );
     hdf5r::store_string( ps_group_id, "antithetic_pair_definition",
         !pspace.antithetic_pairs
         ?"disabled"
         :pspace.sampling_strategy=="pcn"
-         ?"Sign-symmetrized pCN: each Markov state evaluates r and -r, targets p0(r) Re[Z_M(r)+Z_M(-r)], and measures [N(r)+N(-r)]/Re[Z_M(r)+Z_M(-r)]. num_Samples counts pair states."
+         ?pspace.correlation_normalization=="closed-contour"
+          ?"Sign-symmetrized pCN: each Markov state evaluates r and -r, targets p0(r) Re[D_r(T)+D_-r(T)], and reweights the summed observables by that real likelihood. num_Samples counts pair states."
+          :"Sign-symmetrized pCN: each Markov state evaluates r and -r, targets p0(r) Re[Z_M(r)+Z_M(-r)], and reweights the summed observables by that real likelihood. num_Samples counts pair states."
          :"Each independent real Gaussian latent draw r is evaluated as two trajectories with fluctuations Lr and -Lr. num_Samples counts both trajectories; numerator and Z_M remain accumulated into the global complex ratio." );
     if( pspace.antithetic_pairs )
         hdf5r::store_scalar( ps_group_id, "num_antithetic_pairs",
@@ -255,22 +267,38 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
                          pspace.fft_cross_frequency_cutoff );
     hdf5r::store_string( ps_group_id, "gaussian_factorization_options",
         "dense: physical-grid real-lift Autonne--Takagi; svd: physical-grid canonical complex-SVD Takagi; fft: doubled-real FFT with one Matsubara plus low-real-frequency block, discarded high-frequency Matsubara-real covariance, independently sampled high {omega,-omega} Takagi blocks without a global dense factor, inverse FFT, and physical-grid restriction" );
+    hdf5r::store_string( ps_group_id, "correlation_normalization",
+                         pspace.correlation_normalization );
+    hdf5r::store_string( ps_group_id, "magnetization_normalization",
+                         pspace.correlation_normalization );
     hdf5r::store_string( ps_group_id, "normalization_strategy",
-        pspace.sampling_strategy=="pcn"
+        pspace.correlation_normalization=="closed-contour"
+        ?pspace.sampling_strategy=="pcn"
+         ?pspace.antithetic_pairs
+          ?"pCN target pi_pair(r) proportional to p0(r) Re[D_r(T)+D_-r(T)]; fixed-final-contour ratio sum[(A(r)+A(-r))/Re(D_r(T)+D_-r(T))]/sum[(D_r(T)+D_-r(T))/Re(D_r(T)+D_-r(T))] for correlations and magnetization at every time"
+          :"pCN target pi(r) proportional to p0(r) Re D_r(T); fixed-final-contour ratio sum[A/Re D(T)]/sum[D(T)/Re D(T)] for correlations and magnetization at every time"
+         :"bare-prior fixed-final-contour ratio: (sum numerator)/(sum D(T)) for correlations and magnetization at every time"
+        :pspace.sampling_strategy=="pcn"
         ?pspace.antithetic_pairs
-         ?"sign-symmetrized pCN target pi_pair(r) proportional to p0(r) Re[Z_M(r)+Z_M(-r)], with both Re Z_M positive; arithmetic mean of [N(r)+N(-r)]/Re[Z_M(r)+Z_M(-r)]"
+         ?"sign-symmetrized pCN target pi_pair(r) proportional to p0(r) Re[Z_M(r)+Z_M(-r)]; arithmetic mean of [N(r)+N(-r)]/Re[Z_M(r)+Z_M(-r)]"
          :"pCN target pi(r) proportional to p0(r) Re Z_M(r), Re Z_M>0; arithmetic mean of numerator/Re Z_M"
         :"bare-prior exact complex ratio: (sum numerator)/(sum Z_M)" );
     hdf5r::store_string( ps_group_id, "spin_insertion_strategy",
         pspace.spin_insertion_strategy=="prefix"
         ?"prefix: U_+(0,t) S B_-(t,0) for correlations and magnetization"
-        :"full contour: B_-(T,0) U_+(t,T) S U_+(t,0) for correlations and magnetization; U_+(t,T) is the forward continuation t -> T, not an inverse" );
+        :"closed contour: B_-(T,0) U_+(t,T) S U_+(t,0) for correlations and magnetization; U_+(t,T) is the forward continuation t -> T, not an inverse" );
     hdf5r::store_string( ps_group_id, "closed_contour_diagnostic_definition",
         pspace.sampling_strategy=="pcn"
         ?pspace.antithetic_pairs
-         ?"prefix diagnostic D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]; stored value is the sign-symmetrized pCN mean of [D_r(t)+D_-r(t)]/Re[Z_M(r)+Z_M(-r)]"
-         :"prefix diagnostic D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]; stored value is the pCN mean of D(t)/Re Z_M"
-        :"prefix diagnostic D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]; stored ratio is (sum D(t))/(sum Z_M), not the full-contour observable denominator" );
+         ?pspace.correlation_normalization=="closed-contour"
+          ?"prefix diagnostic D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]; stored value is the sign-symmetrized pCN mean of [D_r(t)+D_-r(t)]/Re[D_r(T)+D_-r(T)]"
+          :"prefix diagnostic D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]; stored value is the sign-symmetrized pCN mean of [D_r(t)+D_-r(t)]/Re[Z_M(r)+Z_M(-r)]"
+         :pspace.correlation_normalization=="closed-contour"
+          ?"prefix diagnostic D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]; stored value is the pCN mean of D(t)/Re D(T)"
+          :"prefix diagnostic D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]; stored value is the pCN mean of D(t)/Re Z_M"
+        :pspace.correlation_normalization=="closed-contour"
+         ?"prefix D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]; stored diagnostic ratio is (sum D(t))/(sum Z_M), and only its final value sum D(T) is the selected correlation and magnetization denominator at every time"
+         :"prefix diagnostic D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]; stored ratio is (sum D(t))/(sum Z_M), not the closed-contour observable denominator" );
     hdf5r::store_string( ps_group_id, "connected_correlation_strategy",
         pspace.uses_harmonic_bath()
         ?"not used for field construction in prescribed harmonic-bath mode"
@@ -367,7 +395,7 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
     {
         hdf5r::store_list( rtd_group_id, "mh_acceptance_rates",       rtdata.mh_acceptance_rates );
         hdf5r::store_list( rtd_group_id, "mh_nonpositive_rejection_rates",rtdata.mh_nonpositive_rejection_rates );
-        hdf5r::store_list( rtd_group_id, "maximum_relative_imaginary_partitions",rtdata.maximum_relative_imaginary_partitions );
+        hdf5r::store_list( rtd_group_id, "maximum_relative_imaginary_sampling_weights",rtdata.maximum_relative_imaginary_sampling_weights );
         hdf5r::store_list( rtd_group_id, "blocking_curve_block_length",rtdata.blocking_curve_block_lengths );
         hdf5r::store_list( rtd_group_id, "blocking_curve_mean_error", rtdata.blocking_curve_mean_errors );
         hdf5r::store_list( rtd_group_id, "blocking_curve_max_error",  rtdata.blocking_curve_max_errors );

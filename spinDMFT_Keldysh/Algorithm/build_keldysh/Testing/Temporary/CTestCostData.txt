@@ -1,0 +1,8 @@
+complex_gaussian 2 0.0827774
+contour_kernel 2 0.00345304
+ratio_statistics 2 0.00308592
+keldysh_propagation 2 0.00403731
+full_contour_measurement 2 0.0100208
+full_contour_measurement_antithetic_option 2 0.010893
+full_contour_measurement_antithetic_pcn_option 2 0.0105236
+---

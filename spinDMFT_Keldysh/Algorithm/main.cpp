@@ -4,8 +4,8 @@
 
    Edge-grid V_M and correlated V_+,V_- fields are sampled from E[V V^T].
    Independent mode uses (sum N)/(sum Z_M), optionally with paired latent
-   fluctuations r,-r. Ordinary pCN targets p0(r) Re Z_M(r); antithetic pCN
-   targets p0(r) Re[Z_M(r)+Z_M(-r)] and measures the sign-symmetrized pair. */
+   fluctuations r,-r. pCN targets the real part of the selected observable
+   denominator: Z_M or the fixed final closed-contour D(T). */
 
 int main( const int argC, char* const argV[] )
 {
@@ -105,17 +105,18 @@ int main( const int argC, char* const argV[] )
         if( my_pspace.antithetic_pairs )
           func::compute_contour_pair_correlations(
               my_rtdata,chain.trajectory(),chain.antithetic_trajectory(),
-              RealType{1.}/chain.real_partition(),
+              RealType{1.}/chain.real_sampling_weight(),
               my_pspace.spin_insertion_strategy);
         else
           func::compute_contour_correlations(
-              my_rtdata,chain.trajectory(),RealType{1.}/chain.real_partition(),
+              my_rtdata,chain.trajectory(),
+              RealType{1.}/chain.real_sampling_weight(),
               my_pspace.spin_insertion_strategy);
         my_MC_estimator.obtain(my_clock.measure(sampling_loop_name));
       }
       my_rtdata.record_pcn_diagnostics(
           chain.accepted(),chain.proposed(),chain.rejected_nonpositive(),
-          chain.maximum_relative_imaginary_partition());
+          chain.maximum_relative_imaginary_sampling_weight());
     }
     else
     {

@@ -45,7 +45,8 @@ RunTimeData::ComplexBlockSums::ComplexBlockSums(
     : correlations(symmetry,num_imaginary_edge_points,num_real_points),
       mag_Re(num_real_points,MagVec{symmetry}),
       mag_Im(num_real_points,MagVec{symmetry}),
-      closure(num_real_points,ComplexType{})
+      closure(num_real_points,ComplexType{}),
+      closure_abs(num_real_points,RealType{})
 {}
 
 RunTimeData::RunTimeData( const ps::ParameterSpace& pspace, int my_rank )
@@ -64,6 +65,8 @@ RunTimeData::RunTimeData( const ps::ParameterSpace& pspace, int my_rank )
       m_pcn(pspace.sampling_strategy=="pcn"),
       m_antithetic_pairs(pspace.antithetic_pairs
                          &&pspace.sampling_strategy=="independent"),
+      m_closed_contour_observable_normalization(
+          pspace.correlation_normalization=="closed-contour"),
       m_iteration_error_sigma_threshold(pspace.iteration_error_sigma_threshold),
       m_iteration_limit(pspace.Iteration_Limit),
       m_covariance_tolerance(pspace.covariance_tolerance),
@@ -132,6 +135,8 @@ void RunTimeData::accumulate_closed_contour_trace( size_t t, ComplexType value )
         throw std::runtime_error("invalid closed-contour trace");
     value*=m_current_observable_normalization;
     m_total.closure[t]+=value; m_blocks[m_current_block].closure[t]+=value;
+    m_total.closure_abs[t]+=std::abs(value);
+    m_blocks[m_current_block].closure_abs[t]+=std::abs(value);
 }
 
 void RunTimeData::accumulate_magnetization( size_t t, size_t c,
@@ -203,7 +208,7 @@ void RunTimeData::record_complex_field_diagnostics(
 void RunTimeData::record_pcn_diagnostics(
     const size_t accepted,const size_t proposed,
     const size_t rejected_nonpositive,
-    const RealType maximum_relative_imaginary_partition )
+    const RealType maximum_relative_imaginary_sampling_weight )
 {
     std::array<RealType,3> local{
         static_cast<RealType>(accepted),static_cast<RealType>(proposed),
@@ -212,12 +217,12 @@ void RunTimeData::record_pcn_diagnostics(
     MPI_Allreduce(local.data(),global.data(),static_cast<int>(global.size()),
                   mpi_real_type(),MPI_SUM,MPI_COMM_WORLD);
     RealType global_imaginary{};
-    MPI_Allreduce(&maximum_relative_imaginary_partition,&global_imaginary,1,
+    MPI_Allreduce(&maximum_relative_imaginary_sampling_weight,&global_imaginary,1,
                   mpi_real_type(),MPI_MAX,MPI_COMM_WORLD);
     mh_acceptance_rates.push_back(global[1]>RealType{}?global[0]/global[1]:RealType{});
     mh_nonpositive_rejection_rates.push_back(
         global[1]>RealType{}?global[2]/global[1]:RealType{});
-    maximum_relative_imaginary_partitions.push_back(global_imaginary);
+    maximum_relative_imaginary_sampling_weights.push_back(global_imaginary);
 }
 
 void RunTimeData::mpi_reduce_and_finalize(
@@ -233,7 +238,8 @@ void RunTimeData::mpi_reduce_and_finalize(
     // nested-tensor implementation issued O(N_t*N_components) Allreduces.
     const size_t square_count=m_pcn?2*corr_count:0;
     std::vector<RealType> totals(
-        4+2*(corr_count+mag_count+m_num_real_points)+square_count);
+        4+2*(corr_count+mag_count+m_num_real_points)
+          +m_num_real_points+square_count);
     size_t total_offset{};
     totals[total_offset++]=std::real(m_total.partition);
     totals[total_offset++]=std::imag(m_total.partition);
@@ -257,6 +263,8 @@ void RunTimeData::mpi_reduce_and_finalize(
         totals[total_offset++]=std::real(value);
         totals[total_offset++]=std::imag(value);
     }
+    for( const RealType value:m_total.closure_abs )
+        totals[total_offset++]=value;
     if( m_pcn )
         for( size_t t=0;t<m_num_real_points;++t )
             for( size_t p=0;p<m_corr_directions.size();++p )
@@ -292,6 +300,8 @@ void RunTimeData::mpi_reduce_and_finalize(
         value={totals[total_offset],totals[total_offset+1]};
         total_offset+=2;
     }
+    for( auto& value:m_total.closure_abs )
+        value=totals[total_offset++];
     if( m_pcn )
         for( size_t t=0;t<m_num_real_points;++t )
             for( size_t p=0;p<m_corr_directions.size();++p )
@@ -304,6 +314,11 @@ void RunTimeData::mpi_reduce_and_finalize(
         throw std::logic_error("internal unpacked-total size mismatch");
     if( !m_pcn&&!denominator_resolved(m_total.partition,m_total.partition_abs) )
         throw std::runtime_error("the complex Z_M sum is statistically/numerically unresolved");
+    if( m_closed_contour_observable_normalization
+        &&!denominator_resolved(
+            m_total.closure.back(),m_total.closure_abs.back()) )
+        throw std::runtime_error(
+            "the final closed-contour D(T) sum is statistically/numerically unresolved");
 
     partition_sum_Re.push_back(std::real(m_total.partition));
     partition_sum_Im.push_back(std::imag(m_total.partition));
@@ -320,6 +335,13 @@ void RunTimeData::mpi_reduce_and_finalize(
                     :exact_complex_ratio(
                         numerator,m_total.partition,m_total.partition_abs);
     };
+    auto observable_estimate=[&]( const ComplexType numerator )
+    {
+        return m_closed_contour_observable_normalization
+            ?exact_complex_ratio(
+                numerator,m_total.closure.back(),m_total.closure_abs.back())
+            :estimate(numerator);
+    };
 
     correlations=CorrelationSet{m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
     for( size_t t=0;t<m_num_real_points;++t )
@@ -327,7 +349,8 @@ void RunTimeData::mpi_reduce_and_finalize(
         {
             for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau )
             {
-                const auto ratio=estimate(edge_value(m_total.correlations,t,p,tau));
+                const auto ratio=observable_estimate(
+                    edge_value(m_total.correlations,t,p,tau));
                 correlations.Re[t][p][tau]=std::real(ratio);
                 correlations.Im[t][p][tau]=std::imag(ratio);
             }
@@ -341,7 +364,7 @@ void RunTimeData::mpi_reduce_and_finalize(
         for( size_t c=0;c<m_mag_directions.size();++c )
         {
             const ComplexType numerator{m_total.mag_Re[t][c],m_total.mag_Im[t][c]};
-            const auto ratio=estimate(numerator);
+            const auto ratio=observable_estimate(numerator);
             const size_t direction=m_mag_directions[c];
             magnetization_time_Re[t][direction]=std::real(ratio);
             magnetization_time_Im[t][direction]=std::imag(ratio);
@@ -420,6 +443,21 @@ void RunTimeData::mpi_reduce_and_finalize(
             std::vector<RealType> moments(moment_stride*quantity_count,RealType{});
             const RealType inverse_group_samples=RealType{1.}/static_cast<RealType>(
                 merge*m_samples_per_block);
+            auto group_observable_estimate=[&](
+                const ComplexType numerator,const size_t first )
+            {
+                if( !m_closed_contour_observable_normalization )
+                    return inverse_group_samples*numerator;
+                ComplexType denominator{};
+                RealType denominator_abs{};
+                for( size_t b=0;b<merge;++b )
+                {
+                    denominator+=m_blocks[first+b].closure.back();
+                    denominator_abs+=m_blocks[first+b].closure_abs.back();
+                }
+                return exact_complex_ratio(
+                    numerator,denominator,denominator_abs);
+            };
             for( size_t group=0;group<local_groups;++group )
             {
                 const size_t first=group*merge;
@@ -433,7 +471,7 @@ void RunTimeData::mpi_reduce_and_finalize(
                                 sum+=edge_value(
                                     m_blocks[first+b].correlations,t,p,tau);
                             add_value(moments,corr_base+flat,
-                                      inverse_group_samples*sum);
+                                      group_observable_estimate(sum,first));
                         }
                 for( size_t t=0;t<m_num_real_points;++t )
                     for( size_t c=0;c<m_mag_directions.size();++c )
@@ -446,7 +484,8 @@ void RunTimeData::mpi_reduce_and_finalize(
                         }
                         const size_t flat_mag=t*m_mag_directions.size()+c;
                         add_value(moments,mag_base+flat_mag,
-                                  inverse_group_samples*ComplexType{re,im});
+                            group_observable_estimate(
+                                ComplexType{re,im},first));
                     }
                 for( size_t t=0;t<m_num_real_points;++t )
                 {
@@ -490,7 +529,8 @@ void RunTimeData::mpi_reduce_and_finalize(
                                 sum+=edge_value(
                                     m_blocks[first+b].correlations,t,p,tau);
                             add_centered_value(
-                                corr_base+flat,inverse_group_samples*sum);
+                                corr_base+flat,
+                                group_observable_estimate(sum,first));
                         }
                 for( size_t t=0;t<m_num_real_points;++t )
                     for( size_t c=0;c<m_mag_directions.size();++c )
@@ -503,7 +543,8 @@ void RunTimeData::mpi_reduce_and_finalize(
                         }
                         add_centered_value(
                             mag_base+t*m_mag_directions.size()+c,
-                            inverse_group_samples*ComplexType{re,im});
+                            group_observable_estimate(
+                                ComplexType{re,im},first));
                     }
                 for( size_t t=0;t<m_num_real_points;++t )
                 {
@@ -646,6 +687,17 @@ void RunTimeData::mpi_reduce_and_finalize(
             m_total.partition-block.partition,
             m_total.partition_abs-block.partition_abs);
     };
+    auto observable_block_ratio=[&](
+        const ComplexType total_numerator,
+        const ComplexType block_numerator,const ComplexBlockSums& block )
+    {
+        return m_closed_contour_observable_normalization
+            ?exact_complex_ratio(
+                total_numerator-block_numerator,
+                m_total.closure.back()-block.closure.back(),
+                m_total.closure_abs.back()-block.closure_abs.back())
+            :block_ratio(total_numerator,block_numerator,block);
+    };
 
     for( const auto& block:m_blocks )
     {
@@ -656,10 +708,10 @@ void RunTimeData::mpi_reduce_and_finalize(
                 {
                     const ComplexType total=edge_value(
                         m_total.correlations,t,p,tau);
-                    const ComplexType replicate=block_ratio(
+                    const ComplexType replicate=observable_block_ratio(
                         total,edge_value(block.correlations,t,p,tau),block);
                     add_moment(corr_base+flat,replicate,
-                        exact_complex_ratio(total,m_total.partition,m_total.partition_abs));
+                        observable_estimate(total));
                 }
 
         for( size_t c=0;c<m_mag_directions.size();++c )
@@ -671,9 +723,9 @@ void RunTimeData::mpi_reduce_and_finalize(
                     m_total.mag_Re[t][c],m_total.mag_Im[t][c]};
                 const ComplexType block_value{
                     block.mag_Re[t][c],block.mag_Im[t][c]};
-                const ComplexType current=block_ratio(total,block_value,block);
-                const ComplexType center=exact_complex_ratio(
-                    total,m_total.partition,m_total.partition_abs);
+                const ComplexType current=observable_block_ratio(
+                    total,block_value,block);
+                const ComplexType center=observable_estimate(total);
                 add_moment(mag_base+flat_mag,current,center);
             }
         }
@@ -752,8 +804,8 @@ bool RunTimeData::diagnostics_pass() const
         ||gaussian_factor_reconstruction_errors.back()>m_takagi_tolerance
         ||average_phase_magnitudes.back()<m_minimum_phase_magnitude
         ||denominator_constancy_residuals.back()>m_denominator_constancy_tolerance ) return false;
-    // if( m_pcn&&(maximum_relative_imaginary_partitions.empty()
-    //     ||maximum_relative_imaginary_partitions.back()
+    // if( m_pcn&&(maximum_relative_imaginary_sampling_weights.empty()
+    //     ||maximum_relative_imaginary_sampling_weights.back()
     //       >m_partition_imaginary_tolerance) ) return false;
     for( const size_t direction:m_mag_directions )
         if( std::abs(magnetization_time_Im.front()[direction])>
@@ -794,7 +846,7 @@ void RunTimeData::finalize_iteration_step()
             std::cout
               <<print::quantity_to_output_line(36,"MH acceptance rate",
                  print::round_value_to_string(mh_acceptance_rates.back(),m_num_print_digits))
-              <<print::quantity_to_output_line(36,"nonpositive-Z rejection rate",
+              <<print::quantity_to_output_line(36,"nonpositive-weight rejection rate",
                  print::round_value_to_string(
                      mh_nonpositive_rejection_rates.back(),m_num_print_digits));
         }

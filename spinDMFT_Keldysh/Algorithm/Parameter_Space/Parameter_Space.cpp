@@ -154,7 +154,7 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "set the seed for the random generator (random : seed is determined by clock)"
     )(
     "samplingStrategy", bpo::value<std::string>()->default_value("pcn"),
-    "Monte-Carlo strategy: pcn targets p0(r) Re Z_M(r); independent retains the bare-Gaussian complex-ratio estimator"
+    "Monte-Carlo strategy: pcn targets the real part of the selected correlation denominator (Z_M or final D(T)); independent retains the bare-Gaussian complex-ratio estimator"
     )(
     "antitheticPairs",
     "evaluate Gaussian latent states as r and -r pairs; independent mode counts total trajectories, while pCN mode counts sign-symmetrized pair states"
@@ -166,7 +166,7 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "pCN burn-in steps per MPI chain after every bath/self-consistency update"
     )(
     "partitionImagTolerance", bpo::value<RealType>()->default_value(RealType{1e-8}),
-    "maximum observed |Im Z_M|/|Re Z_M| allowed by the real-positive pCN target assumption"
+    "maximum observed relative imaginary part of the selected pCN sampling weight"
     )(
     "numBlocks", bpo::value<size_t>()->default_value(size_t{32}),
     "number of contiguous blocks per core; pCN errors use a multi-scale batch-means plateau"
@@ -177,8 +177,11 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "fftCrossFrequencyCutoff", bpo::value<RealType>()->default_value(RealType{3.}),
     "for gaussianFactorization=fft, retain dense Matsubara-real coupling for |omega| up to this cutoff; a negative value disables truncation"
     )(
-    "spinInsertionStrategy", bpo::value<std::string>()->default_value("full-contour"),
-    "real-time spin insertion: full-contour uses B_-(T,0) U_+(t,T) S U_+(t,0); prefix uses U_+(0,t) S B_-(t,0)"
+    "spinInsertionStrategy", bpo::value<std::string>()->default_value("closed-contour"),
+    "real-time spin insertion: closed-contour uses B_-(T,0) U_+(t,T) S U_+(t,0); prefix uses U_+(0,t) S B_-(t,0)"
+    )(
+    "correlationNormalization", bpo::value<std::string>()->default_value("partition-function"),
+    "correlation and magnetization denominator: partition-function uses Z_M; closed-contour uses the fixed final D(T)=Tr[U_+(T,0) rho_M B_-(T,0)] at every time"
     )(
     // ...concerning the iteration
     "reliterror", bpo::value<RealType>()->default_value(RealType{5.0}),
@@ -358,10 +361,15 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
             "gaussianFactorization must be dense, svd, or fft" );
     fft_cross_frequency_cutoff=vm["fftCrossFrequencyCutoff"].as<RealType>();
     spin_insertion_strategy=vm["spinInsertionStrategy"].as<std::string>();
-    if( spin_insertion_strategy!="full-contour"
+    if( spin_insertion_strategy!="closed-contour"
         && spin_insertion_strategy!="prefix" )
         throw std::invalid_argument(
-            "spinInsertionStrategy must be full-contour or prefix" );
+            "spinInsertionStrategy must be closed-contour or prefix" );
+    correlation_normalization=vm["correlationNormalization"].as<std::string>();
+    if( correlation_normalization!="partition-function"
+        && correlation_normalization!="closed-contour" )
+        throw std::invalid_argument(
+            "correlationNormalization must be partition-function or closed-contour" );
 
     // ...concerning the initially inserted correlations and the iteration 
     iteration_error_sigma_threshold=vm["reliterror"].as<RealType>();
@@ -546,6 +554,7 @@ std::string ParameterSpace::create_essentials_string() const
     << print::quantity_to_output_line( pre_colon_space, "mh_burn_in", std::to_string(mh_burn_in) )
     << print::quantity_to_output_line( pre_colon_space, "gaussian_factorization", gaussian_factorization )
     << print::quantity_to_output_line( pre_colon_space, "fft_cross_frequency_cutoff", std::to_string(fft_cross_frequency_cutoff) )
+    << print::quantity_to_output_line( pre_colon_space, "correlation_normalization", correlation_normalization )
     << print::quantity_to_output_line( pre_colon_space, "iteration_error_sigma_threshold", print::remove_zeros(print::round_value_to_string(iteration_error_sigma_threshold,num_PrintDigits)) )
     << print::quantity_to_output_line( pre_colon_space, "constant_magnetization_time", print::bool_to_string(constant_magnetization_time) )
     << print::quantity_to_output_line( pre_colon_space, "information_text" , information_text );

@@ -393,6 +393,26 @@ int main()
         mag_Re_errors,mag_Im_errors);
     failures+=require(std::isinf(unresolved.standardized),
         "a nonzero residual with zero statistical error cannot converge");
+    contour::CorrelationSet exact_old{'A',2,1};
+    contour::CorrelationSet exact_raw{'A',2,1};
+    contour::CorrelationSet exact_errors{'A',2,1};
+    exact_old.Re[0][0][0]=RealType{0.25};
+    exact_raw.Re[0][0][0]=std::nextafter(
+        RealType{0.25},RealType{1.});
+    exact_old.Re[0][0][1]=RealType{0.25};
+    exact_raw.Re[0][0][1]=std::nextafter(
+        RealType{0.25},RealType{});
+    const auto endpoint_roundoff=func::iteration_residual(
+        exact_old,exact_raw,exact_errors,old_mag,old_mag,
+        mag_Re_errors,mag_Im_errors);
+    failures+=require(endpoint_roundoff.standardized==RealType{},
+        "roundoff at zero-variance t=0 tau endpoints is resolved");
+    exact_raw.Re[0][0][1]=RealType{0.24};
+    const auto endpoint_mismatch=func::iteration_residual(
+        exact_old,exact_raw,exact_errors,old_mag,old_mag,
+        mag_Re_errors,mag_Im_errors);
+    failures+=require(std::isinf(endpoint_mismatch.standardized),
+        "a physical zero-variance t=0 tau endpoint mismatch remains unresolved");
     iteration_errors.Re[0][0][0]=std::numeric_limits<RealType>::quiet_NaN();
     const auto nonfinite=func::iteration_residual(
         old_iteration,raw_iteration,iteration_errors,old_mag,raw_mag,

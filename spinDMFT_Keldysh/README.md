@@ -111,11 +111,14 @@ quadrupolar interaction, which is proportional to the identity for spin `1/2`.
 Higher-spin or non-scalar local-interaction cases retain the general matrix
 exponential.
 
-Correlations and magnetization use the full-contour spin insertion
+Correlations and magnetization use the closed-contour spin insertion
 
 ```text
-S_full(t) = B_-(T,0) U_+(t,T) S U_+(t,0).
+S_closed(t) = B_-(T,0) U_+(t,T) S U_+(t,0).
 ```
+
+This is selected by the default option
+`--spinInsertionStrategy=closed-contour`; the alternative remains `prefix`.
 
 Here `U_+(t,T)` denotes the forward continuation from `t` to `T`, namely
 `U_N ... U_{t+1}`, not an inverse propagator. Every forward and backward step
@@ -131,10 +134,30 @@ They are contracted with fixed imaginary-time insertions (or `rho_M` for
 magnetization) through `Tr(A B)=sum_ij A_ij B_ji` without a temporary matrix
 product. No inverse or adjoint relation is assumed.
 
-Separately, `R(t+dt)=U_step R(t) B_step` is retained only for the existing
-prefix closure diagnostic `D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]`. It is not used
-as the observable normalization. New HDF5 files record the insertion rule in
-`parameters/spin_insertion_strategy` (an attribute).
+For the mixed correlation currently accumulated by the implementation, the
+two equal-time spin insertions are not adjacent on the closed contour. At
+`t=0`, `tau=0`, its numerator is
+`Tr[rho_M S_b B_-(T,0) U_+(T,0) S_a]`. Even for `a=b` and spin `1/2`, this
+does not reduce to `Tr[rho_M B_-(T,0) U_+(T,0)]/4`, because the complete
+real-time contour product lies between the two spin operators. Consequently,
+closed-contour normalization alone does not enforce `G^{aa}(0,0)=1/4`.
+
+Separately, `R(t+dt)=U_step R(t) B_step` computes
+`D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]`. By default this remains only the prefix
+closure diagnostic. Select
+
+```text
+--correlationNormalization=closed-contour
+```
+
+to normalize correlations and magnetization at every real time by the single
+fixed endpoint value `D(T)` instead of `Z_M`. The denominator therefore always
+contains the complete product `B_-(T,0) U_+(T,0)` and is independent of the
+measurement time. The default is `partition-function`. New HDF5 files record
+the normalization in `parameters/correlation_normalization` and
+`parameters/magnetization_normalization`, and the insertion choice in
+`parameters/spin_insertion_strategy`.
+Closed-contour-normalized filenames receive `__corrnorm=D`.
 
 The authoritative correlation is represented on the imaginary edge grid:
 
@@ -145,13 +168,21 @@ X_edge^{ab}(t,tau_k)       = <S_b(-i tau_k) S_a(t)>
 The edge endpoints independently measure greater and lesser functions, and the
 edge values supply the mixed field covariances. Independent samples accumulate
 raw complex `N`, `Z_M`, the closed-contour trace `D(t)`, and `m_a(t)`. The
-physical bare-prior estimator is
+default physical bare-prior estimator is
 
 ```text
 (sum N) / (sum Z_M).
 ```
 
-There is no trajectorywise division and no absolute-`Z` normalization.
+There is no trajectorywise division and no absolute-`Z` normalization. With
+`--correlationNormalization=closed-contour`, the correlation and magnetization
+estimators are instead `(sum N(t))/(sum D(T))` and
+`(sum M(t))/(sum D(T))`. They remain ratios of ensemble sums rather than
+averages of trajectorywise ratios. In pCN mode this setting also changes the
+importance target to `p0(r) Re D_r(T)`. The estimator is formed as
+`sum[A/Re D(T)]/sum[D(T)/Re D(T)]`, with `A=N` or `M`. With
+partition-function normalization, pCN instead retains the `p0(r) Re Z_M(r)`
+target.
 Uncertainty is computed with a delete-one-block jackknife of paired complex
 numerator and denominator sums across MPI ranks. `sum |Z_M|` is retained only
 for phase and effective-sample-size diagnostics. Iteration totals are packed
@@ -181,23 +212,24 @@ With pCN, the same flag selects a sign-symmetrized Markov chain:
 --samplingStrategy=pcn --antitheticPairs
 ```
 
-One pCN state consists of both `r` and `-r`. Writing
-`z(r)=Re Z_M(r)`, the chain targets
+One pCN state consists of both `r` and `-r`. Writing `W(r)=D_r(T)` for
+closed-contour normalization and `W(r)=Z_M(r)` for partition-function
+normalization, the chain targets
 
 ```text
-pi_pair(r) proportional to p0(r) [z(r) + z(-r)]
+pi_pair(r) proportional to p0(r) Re[W(r) + W(-r)]
 ```
 
 and accepts the usual pCN proposal with the likelihood ratio
-`[z(r')+z(-r')]/[z(r)+z(-r)]`. The measured pair observable is
+`Re[W(r')+W(-r')]/Re[W(r)+W(-r)]`. The measured pair observable is
 
 ```text
-[N(r) + N(-r)] / [z(r) + z(-r)].
+[N(r) + N(-r)] / Re[W(r) + W(-r)].
 ```
 
 This preserves the ordinary pCN expectation while integrating out the binary
-sign of the latent state. Both real partition functions must be finite and
-positive, consistently with the real-positive pCN target assumption.
+sign of the latent state. The real part of the summed pair weight must be
+finite and positive.
 `numSamplesPerCore` counts production pair states (not individual contour
 trajectories), and pCN blocking lengths and autocorrelation times are expressed
 in pair steps. Every proposed state costs two contour-trajectory evaluations;

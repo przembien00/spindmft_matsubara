@@ -74,6 +74,7 @@ SelfConsistentField prescribed_harmonic_bath_field(
 struct ContourTrajectory
 {
     ComplexType partition_function{};
+    ComplexType final_closed_contour_trace{};
     Operator imaginary_density_operator{};
     OperatorTrajectories imaginary_edge_insertions{};
     // One-step real-branch maps. Measurements build B_-(T,0) U_+(t,T)
@@ -92,20 +93,21 @@ Operator spin_half_field_exponential(
     ComplexType contour_step );
 
 // Construct the unnormalized trajectory. Sampling strategy is handled by the
-// caller: independent mode retains raw N and Z_M, while pCN accumulates N/Re Z_M.
-// Antithetic pCN instead combines both signs over Re[Z_M(r)+Z_M(-r)].
+// caller. pCN uses the real part of the selected observable denominator as its
+// likelihood: Z_M for partition-function normalization and D(T) for fixed
+// closed-contour normalization.
 ContourTrajectory compute_contour_trajectory(
     const ps::ParameterSpace& pspace,
     const DenseComplexGaussianSampler::FieldVector& joint_field,
     const MeanFieldTrajectory& mean_field_time );
 
-// Correlations and magnetization use either the full-contour insertion
+// Correlations and magnetization use either the closed-contour insertion
 // B_-(T,0) U_+(t,T) S U_+(t,0), or the prefix insertion
 // U_+(0,t) S B_-(t,0), selected by insertion_strategy.
 void compute_contour_correlations( rtd::RunTimeData& rtdata,
                                    const ContourTrajectory& trajectory,
                                    RealType observable_normalization=RealType{1.},
-                                   const std::string& insertion_strategy="full-contour" );
+                                   const std::string& insertion_strategy="closed-contour" );
 
 // Treat two sign-related trajectories as one Markov observation. Their raw
 // numerators are added before the shared normalization and before sample
@@ -115,7 +117,7 @@ void compute_contour_pair_correlations(
     const ContourTrajectory& positive_trajectory,
     const ContourTrajectory& negative_trajectory,
     RealType observable_normalization,
-    const std::string& insertion_strategy="full-contour" );
+    const std::string& insertion_strategy="closed-contour" );
 
 // Pure correlations are boundary views of the contour tensor, not independent traces:
 // G_imag^{ab}(tau)=C^{ba}(0,tau), G_real^{ab}(t)=C^{ab}(t,beta).

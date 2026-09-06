@@ -520,6 +520,11 @@ ContourTrajectory compute_contour_trajectory(
             backward_fields[t],mean_field_time[t],
             ComplexType{RealType{0.},+pspace.delta_real_t});
     }
+    Operator final_density=result.imaginary_density_operator;
+    for( size_t t=1;t<pspace.num_RealTimePoints;++t )
+        final_density=result.forward_steps[t]*final_density
+                    *result.backward_steps[t];
+    result.final_closed_contour_trace=blaze::trace(final_density);
     return result;
 }
 
@@ -535,7 +540,7 @@ void accumulate_contour_observables(
     if( num_real_points==0 || trajectory.forward_steps.size()!=num_real_points
         || trajectory.backward_steps.size()!=num_real_points )
         throw std::invalid_argument("trajectory and measurement real-time grids differ");
-    if( insertion_strategy!="full-contour" && insertion_strategy!="prefix" )
+    if( insertion_strategy!="closed-contour" && insertion_strategy!="prefix" )
         throw std::invalid_argument("unknown spin insertion strategy");
 
     // left[t] = B_-(T,0) U_+(t,T), where U_+(t,T) denotes the forward
@@ -550,8 +555,9 @@ void accumulate_contour_observables(
     for( size_t t=num_real_points-1;t>0;--t )
         left[t-1]=left[t]*trajectory.forward_steps[t];
 
-    // Preserve the prefix closure diagnostic D(t); it is not the estimator
-    // denominator and is separate from the full-contour spin insertions.
+    // Preserve the prefix closure trajectory D(t). Its final value is also the
+    // fixed denominator and pCN likelihood when closed-contour normalization
+    // is selected; intermediate values remain diagnostics.
     Operator density=trajectory.imaginary_density_operator;
     Operator forward=IDENTITY;
     Operator backward_prefix=IDENTITY;
@@ -738,7 +744,8 @@ IterationResidual iteration_residual(
         throw std::invalid_argument("iteration residual inputs have different grids");
 
     IterationResidual result{};
-    auto update=[&]( const RealType difference, const RealType error )
+    auto update=[&]( const RealType difference, const RealType error,
+                     const RealType zero_error_roundoff_scale=RealType{} )
     {
         if( !std::isfinite(difference)||!std::isfinite(error) )
         {
@@ -751,7 +758,12 @@ IterationResidual iteration_residual(
             throw std::invalid_argument("iteration residual standard errors must be non-negative");
         if( error==RealType{0.} )
         {
-            if( difference!=RealType{0.} )
+            const RealType roundoff_limit=RealType{64.}
+                *std::numeric_limits<RealType>::epsilon()
+                *zero_error_roundoff_scale;
+            if( difference!=RealType{0.}
+                &&!(zero_error_roundoff_scale>RealType{}
+                    &&std::abs(difference)<=roundoff_limit) )
                 result.standardized=std::numeric_limits<RealType>::infinity();
             return;
         }
@@ -772,8 +784,21 @@ IterationResidual iteration_residual(
                     ||errors[t][p].size()!=raw_values[t][p].size() )
                     throw std::invalid_argument("iteration residual inputs have different grids");
                 for( size_t tau=0;tau<raw_values[t][p].size();++tau )
+                {
+                    // At t=0 the tau=0 and tau=beta values can be exact spin
+                    // identities with genuinely zero sampling variance.  Do
+                    // not turn last-bit ratio arithmetic at those two
+                    // endpoints into an infinite standardized residual.
+                    const bool exact_endpoint=t==0
+                        &&(tau==0||tau+1==raw_values[t][p].size());
+                    const RealType roundoff_scale=exact_endpoint
+                        ?std::max({RealType{1.},
+                                   std::abs(old_values[t][p][tau]),
+                                   std::abs(raw_values[t][p][tau])})
+                        :RealType{};
                     update(raw_values[t][p][tau]-old_values[t][p][tau],
-                           errors[t][p][tau]);
+                           errors[t][p][tau],roundoff_scale);
+                }
             }
         }
     };

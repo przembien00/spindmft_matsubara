@@ -83,7 +83,8 @@ class ParameterSpace
   size_t num_blocks{};
   std::string gaussian_factorization{"dense"};
   RealType fft_cross_frequency_cutoff{RealType{3.}};
-  std::string spin_insertion_strategy{"full-contour"};
+  std::string spin_insertion_strategy{"closed-contour"};
+  std::string correlation_normalization{"partition-function"};
 
   // ...concerning the iteration 
   RealType iteration_error_sigma_threshold{RealType{5.}};
