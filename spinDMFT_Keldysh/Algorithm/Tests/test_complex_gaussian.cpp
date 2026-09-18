@@ -211,6 +211,18 @@ func::ComplexDynamicMatrix make_doubled_frequency_covariance()
 
 }
 
+func::ComplexDynamicMatrix sampler_factor(func::JointComplexGaussianSampler& sampler)
+{
+    func::ComplexDynamicMatrix L(sampler.size(),sampler.latent_dimension());
+    func::JointComplexGaussianSampler::LatentVector e(sampler.latent_dimension(),RealType{});
+    for(size_t j=0;j<e.size();++j)
+    {
+        e[j]=RealType{1.};const auto field=sampler.field_from_latent(e);e[j]=RealType{};
+        for(size_t i=0;i<field.size();++i)L(i,j)=field[i];
+    }
+    return L;
+}
+
 int main()
 {
     int failures{};
@@ -268,12 +280,12 @@ int main()
         const auto positive=sampler.field_from_latent(latent);
         for( auto& value:latent ) value=-value;
         const auto negative=sampler.field_from_latent(latent);
-        RealType antithetic_residual{};
+        RealType sign_residual{};
         for( size_t i=0;i<positive.size();++i )
-            antithetic_residual=std::max(
-                antithetic_residual,std::abs(positive[i]+negative[i]));
-        failures += require( antithetic_residual<RealType{1e-13},
-                             "negated latent vector produces the antithetic field" );
+            sign_residual=std::max(
+                sign_residual,std::abs(positive[i]+negative[i]));
+        failures += require( sign_residual<RealType{1e-13},
+                             "negated latent vector produces the negated field" );
     }
     {
         func::ComplexDynamicMatrix nonsymmetric( 2, 2, ComplexType{} );
@@ -391,6 +403,38 @@ int main()
                           "truncated FFT sampler physical draw size");
     }
     {
+        // A rank-zero realization must stay zero on both shifted Gauss grids.
+        // This also checks the interval/branch/component layout.
+        constexpr size_t matsubara_intervals=3;
+        constexpr size_t real_points=5;
+        const size_t dimension=3*(matsubara_intervals+1)+6*real_points;
+        func::ComplexDynamicMatrix covariance(
+            dimension,dimension,ComplexType{});
+        func::DenseComplexGaussianSampler dense_sampler(covariance);
+        std::mt19937 dense_engine{7718};
+        const auto dense_sample=dense_sampler.contour_field_from_latent(
+            dense_sampler.draw_latent(dense_engine),true);
+        failures+=require(dense_sample.edge_field.size()==dimension
+                          &&!dense_sample.has_real_gauss_fields(),
+                          "dense CF4 sample retains edges for interpolation");
+
+        func::FFTDenseComplexGaussianSampler sampler(
+            covariance,matsubara_intervals,real_points,RealType{0.2},-1.);
+        std::mt19937 engine{7719};
+        const auto latent=sampler.draw_latent(engine);
+        const auto sample=sampler.contour_field_from_latent(latent,true);
+        failures+=require(sample.edge_field.size()==dimension,
+                          "CF4 FFT sample retains the edge field");
+        for( const auto& shifted:sample.real_gauss_fields )
+        {
+            failures+=require(shifted.size()==6*(real_points-1),
+                              "CF4 FFT sample has one value per real interval");
+            for( const auto value:shifted )
+                failures+=require(std::abs(value)==RealType{},
+                                  "zero FFT field remains zero on shifted grids");
+        }
+    }
+    {
         // Every zero-rank frequency block must explicitly clear its persistent
         // output buffer rather than retain data from an earlier draw.
         func::ComplexDynamicMatrix zero(18,18,ComplexType{});
@@ -413,6 +457,64 @@ int main()
         }
         catch( const std::invalid_argument& ) { rejected=true; }
         failures+=require(rejected,"unknown sampler algorithm is rejected");
+    }
+    {
+        // Three identical disconnected sectors: reuse their factors, but
+        // retain independent latent variables and the whole-matrix cutoff.
+        func::ComplexDynamicMatrix covariance(9,9,ComplexType{});
+        func::ComplexDynamicMatrix block(3,3,ComplexType{});
+        block(0,0)={1.2,0.3};block(1,1)={0.8,-0.2};block(2,2)={0.6,0.1};
+        block(0,1)=block(1,0)={0.2,0.1};block(1,2)=block(2,1)={0.1,-0.15};
+        for(size_t c=0;c<3;++c)for(size_t i=0;i<3;++i)for(size_t j=0;j<3;++j)
+            covariance(3*i+c,3*j+c)=block(i,j);
+        const auto reference=func::autonne_takagi(covariance);
+        for(const std::string algorithm:{"dense","svd"})
+        {
+            auto sampler=func::make_complex_gaussian_sampler(algorithm,covariance,0,0);
+            failures+=require(sampler->largest_factorization_dimension()==3,
+                              "exact disconnected sectors use smaller factors");
+            const auto L=sampler_factor(*sampler);
+            failures+=require(relative_residual(L*blaze::trans(L),covariance)<RealType{1e-12},
+                              "symmetry blocks preserve pseudo-covariance");
+            failures+=require(relative_residual(L*blaze::ctrans(L),hermitian_covariance(reference))<RealType{1e-12},
+                              "symmetry blocks preserve the full real Gaussian ensemble");
+            auto single=func::make_complex_gaussian_sampler(algorithm,covariance,0,0);
+            auto batched=func::make_complex_gaussian_sampler(algorithm,covariance,0,0);
+            std::mt19937 single_engine{922},batch_engine{922};
+            for(size_t count:{size_t{1},size_t{7},size_t{32},size_t{3}})
+            {
+                const auto batch=batched->draw_contour_batch(batch_engine,count,true);
+                for(const auto& sample:batch)
+                {
+                    const auto value=single->draw(single_engine);
+                    RealType error{};for(size_t i=0;i<value.size();++i)
+                        error=std::max(error,std::abs(value[i]-sample.edge_field[i]));
+                    failures+=require(error<RealType{1e-12},"batching preserves sample-major draws across tails");
+                }
+            }
+            failures+=require(single_engine==batch_engine,"batching consumes the same RNG sequence");
+        }
+        covariance(0,1)=covariance(1,0)=RealType{1e-14};
+        covariance(1,2)=covariance(2,1)=RealType{1e-14};
+        func::DenseComplexGaussianSampler coupled(covariance);
+        failures+=require(coupled.largest_factorization_dimension()==9,
+                          "small nonzero couplings are never discarded for symmetry");
+    }
+    {
+        func::ComplexDynamicMatrix covariance(6,6,ComplexType{});
+        covariance(0,0)=RealType{1.};covariance(1,1)=RealType{1e-14};
+        const auto reference=func::autonne_takagi(covariance);
+        func::DenseComplexGaussianSampler split(covariance);
+        failures+=require(split.latent_dimension()==reference.numerical_rank,
+                          "block splitting retains the original global rank threshold");
+        const auto L=sampler_factor(split);
+        failures+=require(relative_residual(L*blaze::ctrans(L),hermitian_covariance(reference))<RealType{1e-13},
+                          "global rank filtering preserves Hermitian covariance");
+        func::DenseComplexGaussianSampler zero(func::ComplexDynamicMatrix(6,6,ComplexType{}));
+        std::mt19937 engine{774};
+        for(const auto& field:zero.draw_contour_batch(engine,5,false))
+            for(auto value:field.edge_field)
+                failures+=require(value==ComplexType{},"zero-rank batch produces zero fields");
     }
     return failures == 0 ? 0 : 1;
 }

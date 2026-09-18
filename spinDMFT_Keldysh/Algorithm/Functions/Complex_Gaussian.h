@@ -1,10 +1,14 @@
 #pragma once
 
+#include<array>
 #include<complex>
 #include<cstddef>
 #include<memory>
+#include<functional>
+#include<vector>
 #include<random>
 #include<string>
+#include<stdexcept>
 
 #include<blaze/Math.h>
 #include<Globals/Types.h>
@@ -26,7 +30,28 @@ struct TakagiFactor
     ComplexDynamicMatrix L{};
     RealType reconstruction_error{};
     size_t numerical_rank{};
+    std::vector<RealType> singular_values{};
 };
+
+// Read-only physical covariance view. The callable is used only during
+// factor construction, permitting FFT setup without a dense physical matrix.
+struct CovarianceSource
+{
+    size_t dimension{};
+    std::function<ComplexType(size_t,size_t)> value;
+    CovarianceSource() = default;
+    CovarianceSource(size_t n, std::function<ComplexType(size_t,size_t)> entry)
+        : dimension(n),value(std::move(entry)) {}
+    CovarianceSource(const ComplexDynamicMatrix& matrix)
+        : dimension(matrix.rows()),value([&matrix](size_t i,size_t j){return matrix(i,j);})
+    {
+        if(matrix.rows()!=matrix.columns()) throw std::invalid_argument("covariance must be square");
+    }
+    size_t rows() const { return dimension; }
+    size_t columns() const { return dimension; }
+    ComplexType operator()(size_t i,size_t j) const { return value(i,j); }
+};
+struct GaussianBlockFactors;
 
 // Autonne--Takagi factorization of a complex symmetric pseudo-covariance.
 // A nonsymmetric input is rejected instead of being projected. The factor is
@@ -48,6 +73,21 @@ class JointComplexGaussianSampler
     using FieldVector = blaze::DynamicVector<ComplexType,blaze::columnVector>;
     using LatentVector = blaze::DynamicVector<RealType,blaze::columnVector>;
 
+    struct ContourFieldSample
+    {
+        FieldVector edge_field{};
+        // For CF4, node 0/1 is the earlier/later Gauss--Legendre node in
+        // every real-time interval. Each vector is laid out as
+        // [interval][forward x,y,z; backward x,y,z].
+        std::array<FieldVector,2> real_gauss_fields{};
+
+        bool has_real_gauss_fields() const
+        {
+            return real_gauss_fields[0].size()!=0
+                && real_gauss_fields[1].size()!=0;
+        }
+    };
+
     virtual ~JointComplexGaussianSampler() = default;
     // Every factorization exposes the same independent N(0,1) latent state.
     // pCN must act here: applying it directly to the complex physical field
@@ -55,6 +95,12 @@ class JointComplexGaussianSampler
     virtual LatentVector draw_latent( std::mt19937& engine ) = 0;
     virtual FieldVector field_from_latent( const LatentVector& latent ) = 0;
     virtual FieldVector draw( std::mt19937& engine ) = 0;
+    virtual ContourFieldSample contour_field_from_latent(
+        const LatentVector& latent, bool include_real_gauss_fields );
+    ContourFieldSample draw_contour_field(
+        std::mt19937& engine, bool include_real_gauss_fields );
+    virtual std::vector<ContourFieldSample> draw_contour_batch(
+        std::mt19937& engine, size_t count, bool include_real_gauss_fields );
     virtual RealType reconstruction_error() const = 0;
     virtual RealType covariance_approximation_error() const { return RealType{}; }
     virtual size_t latent_dimension() const = 0;
@@ -76,13 +122,16 @@ class DenseComplexGaussianSampler : public JointComplexGaussianSampler
     FieldVector field_from_latent( const LatentVector& latent ) override;
     FieldVector draw( std::mt19937& engine ) override;
 
-    RealType reconstruction_error() const override { return m_factor.reconstruction_error; }
-    size_t numerical_rank() const { return m_factor.numerical_rank; }
-    size_t latent_dimension() const override { return m_factor.numerical_rank; }
-    size_t size() const override { return m_factor.L.rows(); }
+    RealType reconstruction_error() const override;
+    size_t numerical_rank() const { return latent_dimension(); }
+    size_t latent_dimension() const override;
+    size_t size() const override;
+    size_t largest_factorization_dimension() const override;
+    std::vector<ContourFieldSample> draw_contour_batch(
+        std::mt19937& engine,size_t count,bool include_real_gauss_fields ) override;
 
  private:
-    TakagiFactor m_factor{};
+    std::shared_ptr<GaussianBlockFactors> m_factors;
     std::normal_distribution<RealType> m_standard_normal{ RealType{0.}, RealType{1.} };
 };
 
@@ -100,12 +149,15 @@ class SVDComplexGaussianSampler : public JointComplexGaussianSampler
     LatentVector draw_latent( std::mt19937& engine ) override;
     FieldVector field_from_latent( const LatentVector& latent ) override;
     FieldVector draw( std::mt19937& engine ) override;
-    RealType reconstruction_error() const override { return m_factor.reconstruction_error; }
-    size_t latent_dimension() const override { return m_factor.numerical_rank; }
-    size_t size() const override { return m_factor.L.rows(); }
+    RealType reconstruction_error() const override;
+    size_t latent_dimension() const override;
+    size_t size() const override;
+    size_t largest_factorization_dimension() const override;
+    std::vector<ContourFieldSample> draw_contour_batch(
+        std::mt19937& engine,size_t count,bool include_real_gauss_fields ) override;
 
  private:
-    TakagiFactor m_factor{};
+    std::shared_ptr<GaussianBlockFactors> m_factors;
     std::normal_distribution<RealType> m_standard_normal{ RealType{0.}, RealType{1.} };
 };
 
@@ -120,7 +172,7 @@ class FFTDenseComplexGaussianSampler : public JointComplexGaussianSampler
     using LatentVector = JointComplexGaussianSampler::LatentVector;
     using FieldVector = JointComplexGaussianSampler::FieldVector;
 
-    FFTDenseComplexGaussianSampler( const ComplexDynamicMatrix& covariance,
+    FFTDenseComplexGaussianSampler( const CovarianceSource& covariance,
                                     size_t num_matsubara_intervals,
                                     size_t num_real_points,
                                     RealType delta_real_time,
@@ -130,6 +182,8 @@ class FFTDenseComplexGaussianSampler : public JointComplexGaussianSampler
     LatentVector draw_latent( std::mt19937& engine ) override;
     FieldVector field_from_latent( const LatentVector& latent ) override;
     FieldVector draw( std::mt19937& engine ) override;
+    ContourFieldSample contour_field_from_latent(
+        const LatentVector& latent, bool include_real_gauss_fields ) override;
     RealType reconstruction_error() const override { return m_reconstruction_error; }
     RealType covariance_approximation_error() const override
     { return m_covariance_approximation_error; }
@@ -155,6 +209,10 @@ class FFTDenseComplexGaussianSampler : public JointComplexGaussianSampler
     std::unique_ptr<FFTPlans> m_fft{};
     std::normal_distribution<RealType> m_standard_normal{ RealType{0.}, RealType{1.} };
 };
+
+std::unique_ptr<JointComplexGaussianSampler> make_complex_gaussian_sampler(
+    const CovarianceSource& covariance, size_t num_matsubara_intervals,
+    size_t num_real_points, RealType delta_real_time, RealType cross_frequency_cutoff );
 
 std::unique_ptr<JointComplexGaussianSampler> make_complex_gaussian_sampler(
     const std::string& algorithm,

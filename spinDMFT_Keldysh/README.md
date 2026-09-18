@@ -43,8 +43,8 @@ symmetrized `eta-eta` block, a causal `eta-nu` response block, and a zero
 
 Three sampling algorithms are available:
 
-- `--gaussianFactorization=dense` (default) applies one Autonne--Takagi
-  factorization to the complete joint-contour covariance;
+- `--gaussianFactorization=dense` (default) applies Autonne--Takagi
+  factorizations to exactly disconnected blocks of the joint-contour covariance;
 - `--gaussianFactorization=svd` constructs the same canonical Takagi ensemble
   from a full complex SVD of the joint covariance;
 - `--gaussianFactorization=fft` is the frequency-truncated sampler. It
@@ -57,10 +57,12 @@ Three sampling algorithms are available:
   Matsubara coupling to higher real frequencies is set to zero and each
   remaining high-frequency `{omega,-omega}` real block is factorized
   independently. Covariance construction writes directly into these retained
-  blocks: the real-real blocks come from one FFT of the `6x6` circulant lag
+  blocks directly from a read-only contour-covariance source: the real-real blocks come from one FFT of the `6x6` circulant lag
   kernel, and omitted mixed-frequency blocks are never allocated. Each block
-  is also sampled independently into persistent FFT buffers; neither a global
-  doubled covariance nor a global dense factor is assembled.
+  is also sampled independently into persistent FFT buffers. Exact spin-component
+  blocks are split within each retained frequency block. Neither a physical-grid
+  dense covariance, a global doubled covariance, nor a global dense factor is
+  assembled in the FFT production path.
   The complete frequency field is inverse-transformed and the physical
   real-time interval is retained. The default cutoff is `3`; a
   negative cutoff restores the untruncated full-frequency dense test.
@@ -74,8 +76,10 @@ L L^dagger = U Sigma U^dagger = sqrt(Gamma Gamma^dagger).
 ```
 
 Consequently `dense` and `svd` have identical pseudo-covariance, Hermitian
-covariance, and complete real Gaussian distribution. Both draw one independent
-real latent vector and perform one factor multiplication per trajectory. The
+covariance, and complete real Gaussian distribution. Both draw independent real latent coordinates for every block. Exactly identical
+blocks reuse their factorization while retaining independent random coordinates.
+The rank cutoff is evaluated at the original whole-matrix dimension and spectral
+scale. No nonzero coupling is discarded to create a block. The
 `fft` path preserves the Matsubara--Matsubara and real--real
 pseudo-covariances, but deliberately removes the high-frequency tail of the
 Matsubara--real pseudo-covariance. The discarded relative Frobenius norm and
@@ -86,9 +90,11 @@ separately selectable comparison algorithm.
 
 ## Propagation and estimators
 
-The imaginary branch uses edge fields and the three-exponential CFET4-opt
-composition from `spinDMFT`, with insertions on the same edge grid. Writing
-that endpoint composition as `C4(H_new,H_old;z)`, the real branches are
+By default, the imaginary branch uses edge fields and the three-exponential
+endpoint CFET composition from `spinDMFT`, with insertions on the same edge
+grid. Despite its historical `CFET4-opt` name, using only endpoint Hamiltonians
+makes this path globally second order for a general time-dependent field.
+Writing that endpoint composition as `C4(H_new,H_old;z)`, the real branches are
 propagated independently:
 
 ```text
@@ -100,8 +106,40 @@ The reversed endpoint order on the backward branch reverses the CFET4
 exponential composition, so equal forward/backward fields still close the
 real contour algebraically.
 
-Both exponentials support general complex non-Hermitian matrices. `B_-` is not
+Both branch propagators support general complex non-Hermitian matrices. `B_-` is not
 formed from `U_+^{-1}` or `U_+^dagger`.
+
+Pass
+
+```text
+--gaussianFactorization=fft --cf4Propagator
+```
+
+to select the genuine fourth-order commutator-free Magnus propagator. It uses
+the two Gauss--Legendre nodes in every interval and two exponentials per step.
+For FFT factorization, both shifted real-time grids are evaluated from the same
+sampled frequency realization by applying the appropriate Fourier phases before
+the inverse transforms; no extra Gaussian variables or enlarged covariance are
+introduced.
+
+The same propagator can be selected for dense factorization with
+
+```text
+--gaussianFactorization=dense --cf4Propagator
+```
+
+Here the field is assumed to vary smoothly between sampled edges, and both
+internal Gauss nodes are obtained by local four-point cubic interpolation. This
+does not enlarge or repeat the dense covariance factorization. For both
+factorizations the deterministic mean field and the one-sided Matsubara edge
+field, including its distinct beta endpoint, are interpolated in the same way.
+
+The backward branch exchanges the early and late Gauss nodes and changes the
+contour-step sign. Thus the noncommuting exponential product is reversed and
+equal forward/backward fields continue to close algebraically. The option
+currently rejects `svd` factorization. New CF4 files receive the
+`__prop=cf4` suffix and store `parameters/propagator=gauss-cf4`; the default
+endpoint behavior and filenames are unchanged.
 
 For spin `1/2`, each CFET exponential is evaluated directly from its weighted
 complex field with the Pauli identity
@@ -181,8 +219,11 @@ estimators are instead `(sum N(t))/(sum D(T))` and
 averages of trajectorywise ratios. In pCN mode this setting also changes the
 importance target to `p0(r) Re D_r(T)`. The estimator is formed as
 `sum[A/Re D(T)]/sum[D(T)/Re D(T)]`, with `A=N` or `M`. With
-partition-function normalization, pCN instead retains the `p0(r) Re Z_M(r)`
-target.
+partition-function normalization, pCN instead retains the
+`p0(r) Re Z_M(r)` target and forms the self-normalized complex ratio
+`sum[N/Re Z_M]/sum[Z_M/Re Z_M]`. Keeping the reweighted denominator is
+important at finite chain length: it preserves exact samplewise identities
+such as `g^{aa}(0)=1/4` instead of leaving them with residual phase noise.
 Uncertainty is computed with a delete-one-block jackknife of paired complex
 numerator and denominator sums across MPI ranks. `sum |Z_M|` is retained only
 for phase and effective-sample-size diagnostics. Iteration totals are packed
@@ -190,51 +231,48 @@ into one `MPI_Allreduce`; each rank then evaluates its local delete-one-block
 replicates and a second packed `MPI_Allreduce` combines their centered moments.
 No rank gathers or replicates the block-resolved correlation tensors.
 
-Both sampling strategies optionally support antithetic Gaussian pairs:
+## Execution and statistical accounting
 
-```text
---samplingStrategy=independent --antitheticPairs
-```
+Independent sampling processes up to 32 trajectories per batch, including a
+short final batch when needed. Dense and SVD samplers use matrix-matrix products
+for the block factors. Random coordinates are generated in sample-major order,
+so batch boundaries do not change the random sequence. Exactly
+`numSamplesPerCore` observations are accumulated on every iteration. There is
+no adaptive sample-count or convergence change.
 
-For every independent real latent vector `r`, it evaluates the two joint
-contour-field fluctuations `L r` and `-L r`. The deterministic mean field is
-unchanged, and all Matsubara, forward, and backward fluctuations are negated
-together. `numSamplesPerCore` remains the total number of evaluated
-trajectories and must be even, so the number of independent latent draws is
-half that value. Numerators and `Z_M` from both members remain in the global
-complex ratio; no memberwise ratios are formed. Jackknife blocks are adjusted
-downward when necessary so that a block never splits an `r,-r` pair. Output
-filenames receive the suffix `__antithetic`.
+Observable measurement uses contiguous cached numerators, fixed-size spin-1/2
+matrix contractions, and reusable trajectory and measurement workspaces.
+Higher spins retain the general matrix path. Prefix insertion avoids building
+closed-contour suffixes, and closed-contour insertion avoids maintaining an
+unused backward prefix. Both preserve the independently propagated branches
+and all imaginary- and real-time measurement points.
 
-With pCN, the same flag selects a sign-symmetrized Markov chain:
+pCN refreshes its cached observables only after acceptance or before the first
+production measurement. Every rejected state is still accumulated with its
+original weight, sample square, and position in the contiguous statistical
+blocks. With partition-function normalization, proposals first propagate the
+Matsubara branch; real-time propagation and spin insertions are completed only
+after acceptance. Closed-contour normalization still evaluates the complete
+trajectory to obtain the proposal likelihood `Re D(T)`.
 
-```text
---samplingStrategy=pcn --antitheticPairs
-```
+Covariance construction skips exactly zero rotation coefficients and diagnoses
+the raw transpose residual while filling its canonical triangle. FFT setup
+uses a read-only covariance source instead of allocating a dense physical-grid
+matrix. Existing cutoff, reconstruction, and raw-kernel diagnostics remain in
+the output. Gauss-node Fourier phases are precomputed for each FFT grid.
 
-One pCN state consists of both `r` and `-r`. Writing `W(r)=D_r(T)` for
-closed-contour normalization and `W(r)=Z_M(r)` for partition-function
-normalization, the chain targets
+`--antitheticPairs` has been removed. New files contain ordinary trajectory or
+pCN-state counting metadata. Existing historical output files remain readable
+by analysis scripts. The scan entry points are `slurm_beta_sample_scan.sh` and
+`slurm_beta_discretization_scan.sh`.
 
-```text
-pi_pair(r) proportional to p0(r) Re[W(r) + W(-r)]
-```
+Symmetry splitting changes the latent basis. Identical seeds therefore need
+not reproduce fields from older binaries, even though the factorized
+pseudo-covariance and Hermitian covariance are preserved to the numerical rank
+tolerance. This implementation is recorded in the HDF5 execution metadata.
 
-and accepts the usual pCN proposal with the likelihood ratio
-`Re[W(r')+W(-r')]/Re[W(r)+W(-r)]`. The measured pair observable is
-
-```text
-[N(r) + N(-r)] / Re[W(r) + W(-r)].
-```
-
-This preserves the ordinary pCN expectation while integrating out the binary
-sign of the latent state. The real part of the summed pair weight must be
-finite and positive.
-`numSamplesPerCore` counts production pair states (not individual contour
-trajectories), and pCN blocking lengths and autocorrelation times are expressed
-in pair steps. Every proposed state costs two contour-trajectory evaluations;
-rejected states reuse the already stored pair. Output filenames retain the
-`__antithetic` suffix and store the pair-state counting convention in HDF5.
+Local timings, numerical validation, and instructions for reproducing the
+fixed-input benchmark are in [the performance report](Analysis/performance/README.md).
 
 ## Prescribed harmonic-bath validation
 

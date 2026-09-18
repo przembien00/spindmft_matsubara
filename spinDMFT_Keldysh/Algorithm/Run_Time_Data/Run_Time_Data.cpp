@@ -63,8 +63,6 @@ RunTimeData::RunTimeData( const ps::ParameterSpace& pspace, int my_rank )
       m_self_consistency(pspace.self_consistency),
       m_harmonic_bath(pspace.uses_harmonic_bath()),
       m_pcn(pspace.sampling_strategy=="pcn"),
-      m_antithetic_pairs(pspace.antithetic_pairs
-                         &&pspace.sampling_strategy=="independent"),
       m_closed_contour_observable_normalization(
           pspace.correlation_normalization=="closed-contour"),
       m_iteration_error_sigma_threshold(pspace.iteration_error_sigma_threshold),
@@ -90,15 +88,9 @@ RunTimeData::RunTimeData( const ps::ParameterSpace& pspace, int my_rank )
     if( m_num_samples_per_core==0 )
         throw std::invalid_argument("numSamplesPerCore must be positive");
     m_num_blocks=std::min(std::max<size_t>(1,pspace.num_blocks),m_num_samples_per_core);
-    while( m_num_blocks>1
-        &&(m_num_samples_per_core%m_num_blocks!=0
-           ||(m_antithetic_pairs
-              &&(m_num_samples_per_core/m_num_blocks)%2!=0)) )
+    while( m_num_blocks>1 && m_num_samples_per_core%m_num_blocks!=0 )
         --m_num_blocks;
     m_samples_per_block=m_num_samples_per_core/m_num_blocks;
-    if( m_antithetic_pairs&&m_samples_per_block%2!=0 )
-        throw std::logic_error(
-            "antithetic-pair jackknife blocks must contain complete pairs");
     begin_iteration_accumulation();
 }
 
@@ -122,6 +114,12 @@ void RunTimeData::begin_sample( ComplexType Z, RealType observable_normalization
         throw std::runtime_error("a contour trajectory produced a non-finite sample weight");
     m_current_observable_normalization=observable_normalization;
     m_current_block=std::min(m_samples_seen/m_samples_per_block,m_num_blocks-1);
+    // In pCN mode observable_normalization is the inverse real likelihood.
+    // Its unknown normalization must cancel between the reweighted numerator
+    // and denominator. Accumulating raw Z here loses that complex denominator
+    // at finite sample count and breaks identities such as <(S^a)^2>=1/4.
+    // Independent sampling passes a normalization of one and is unchanged.
+    Z*=observable_normalization;
     m_total.partition+=Z; m_total.partition_abs+=std::abs(Z);
     m_total.partition_abs_sq+=std::norm(Z);
     auto& block=m_blocks[m_current_block];
@@ -183,6 +181,52 @@ void RunTimeData::end_sample()
                     m_current_sample.Re[t][p][tau]=RealType{};
                     m_current_sample.Im[t][p][tau]=RealType{};
                 }
+    ++m_samples_seen;
+}
+
+void RunTimeData::accumulate_sample( const MeasuredSample& sample,
+                                      const RealType normalization )
+{
+    const size_t nt=m_num_real_points,nc=m_corr_directions.size();
+    const size_t nm=m_mag_directions.size(),ni=m_num_imaginary_edge_points;
+    if( sample.correlations.size()!=nt*nc*ni
+        ||sample.magnetization.size()!=nt*nm||sample.closure.size()!=nt )
+        throw std::invalid_argument("cached observable dimensions differ from accumulator");
+    begin_sample(sample.partition,normalization);
+    auto& block=m_blocks[m_current_block];
+    size_t index{};
+    for( size_t t=0;t<nt;++t )
+    {
+        accumulate_closed_contour_trace(t,sample.closure[t]);
+        for( size_t c=0;c<nm;++c )
+            accumulate_magnetization(t,c,sample.magnetization[t*nm+c]);
+        for( size_t c=0;c<nc;++c )
+        {
+            RealType* total_re=m_total.correlations.Re[t][c].data();
+            RealType* total_im=m_total.correlations.Im[t][c].data();
+            RealType* block_re=block.correlations.Re[t][c].data();
+            RealType* block_im=block.correlations.Im[t][c].data();
+            RealType* square_re=m_pcn?m_sample_squares.Re[t][c].data():nullptr;
+            RealType* square_im=m_pcn?m_sample_squares.Im[t][c].data():nullptr;
+            for( size_t tau=0;tau<ni;++tau,++index )
+            {
+                const ComplexType raw=sample.correlations[index];
+                if( !finite(raw) )
+                    throw std::runtime_error("non-finite edge contour-correlation numerator");
+                const ComplexType value=raw*normalization;
+                const RealType re=std::real(value),im=std::imag(value);
+                total_re[tau]+=re; total_im[tau]+=im;
+                block_re[tau]+=re; block_im[tau]+=im;
+                if( m_pcn )
+                {
+                    square_re[tau]+=re*re;
+                    square_im[tau]+=im*im;
+                }
+            }
+        }
+    }
+    // The complete state was accumulated above, including its sample square.
+    // Rejected pCN steps take this same path and keep their block position.
     ++m_samples_seen;
 }
 
@@ -331,9 +375,8 @@ void RunTimeData::mpi_reduce_and_finalize(
         m_num_samples_per_core*m_num_cores);
     auto estimate=[&]( const ComplexType numerator )
     {
-        return m_pcn?numerator/global_sample_count
-                    :exact_complex_ratio(
-                        numerator,m_total.partition,m_total.partition_abs);
+        return exact_complex_ratio(
+            numerator,m_total.partition,m_total.partition_abs);
     };
     auto observable_estimate=[&]( const ComplexType numerator )
     {
@@ -441,13 +484,24 @@ void RunTimeData::mpi_reduce_and_finalize(
             const size_t local_groups=m_num_blocks/merge;
             const size_t global_groups=local_groups*m_num_cores;
             std::vector<RealType> moments(moment_stride*quantity_count,RealType{});
-            const RealType inverse_group_samples=RealType{1.}/static_cast<RealType>(
-                merge*m_samples_per_block);
+            auto group_partition_estimate=[&](
+                const ComplexType numerator,const size_t first )
+            {
+                ComplexType denominator{};
+                RealType denominator_abs{};
+                for( size_t b=0;b<merge;++b )
+                {
+                    denominator+=m_blocks[first+b].partition;
+                    denominator_abs+=m_blocks[first+b].partition_abs;
+                }
+                return exact_complex_ratio(
+                    numerator,denominator,denominator_abs);
+            };
             auto group_observable_estimate=[&](
                 const ComplexType numerator,const size_t first )
             {
                 if( !m_closed_contour_observable_normalization )
-                    return inverse_group_samples*numerator;
+                    return group_partition_estimate(numerator,first);
                 ComplexType denominator{};
                 RealType denominator_abs{};
                 for( size_t b=0;b<merge;++b )
@@ -493,7 +547,7 @@ void RunTimeData::mpi_reduce_and_finalize(
                     for( size_t b=0;b<merge;++b )
                         sum+=m_blocks[first+b].closure[t];
                     add_value(moments,closure_base+t,
-                              inverse_group_samples*sum);
+                              group_partition_estimate(sum,first));
                 }
             }
             mpi_sum_buffer(moments);
@@ -552,7 +606,7 @@ void RunTimeData::mpi_reduce_and_finalize(
                     for( size_t b=0;b<merge;++b )
                         sum+=m_blocks[first+b].closure[t];
                     add_centered_value(
-                        closure_base+t,inverse_group_samples*sum);
+                        closure_base+t,group_partition_estimate(sum,first));
                 }
             }
             mpi_sum_buffer(centered_moments);
@@ -625,8 +679,13 @@ void RunTimeData::mpi_reduce_and_finalize(
             for( size_t p=0;p<m_corr_directions.size();++p )
                 for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau )
                 {
-                    const RealType mean_re=correlations.Re[t][p][tau];
-                    const RealType mean_im=correlations.Im[t][p][tau];
+                    // These squares contain individually reweighted
+                    // numerators, so center them on that arithmetic mean. The
+                    // blocking error above uses the paired complex ratios.
+                    const RealType mean_re=
+                        m_total.correlations.Re[t][p][tau]/global_sample_count;
+                    const RealType mean_im=
+                        m_total.correlations.Im[t][p][tau]/global_sample_count;
                     const RealType var_re=std::max(RealType{},
                         m_sample_squares.Re[t][p][tau]/global_sample_count
                         -mean_re*mean_re);

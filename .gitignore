@@ -1,6 +1,8 @@
-#do not upload plots
-spinDMFT/Plots/*
-CspinDMFT_finite_T/Plots/*
+# do not upload plot directories
+**/Plots/
+
+# do not upload Notes folders
+**/Notes/
 
 # do not upload CMakeLists.txt
 CMakeLists.txt
@@ -13,7 +15,7 @@ Makefile
 
 
 # do not upload build directories
-build/
+**/build/
 
 # do not upload cache
 __pycache__/
@@ -21,3 +23,10 @@ __pycache__/
 # do not upload DS_Store files
 .DS_Store
 **/.DS_Store
+
+# do not upload logs
+*/logs/
+
+# do not upload analysis
+
+**/Analysis/

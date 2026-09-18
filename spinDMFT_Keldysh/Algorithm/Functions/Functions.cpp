@@ -62,6 +62,70 @@ Operator cfet4_step( const ps::ParameterSpace& pspace,
     return exponentials[0]*exponentials[1]*exponentials[2];
 }
 
+Operator gauss_cfet4_step( const ps::ParameterSpace& pspace,
+                           const ComplexFieldVector& fluctuating_early,
+                           const FieldVector& mean_early,
+                           const ComplexFieldVector& fluctuating_late,
+                           const FieldVector& mean_late,
+                           const ComplexType& contour_step )
+{
+    // Two-node, two-exponential fourth-order commutator-free Magnus step.
+    // The left exponential is weighted toward the later Gauss node, while
+    // the right exponential is weighted toward the earlier node.
+    const RealType root_three=std::sqrt(RealType{3.});
+    const RealType a_early=(RealType{3.}-RealType{2.}*root_three)/RealType{12.};
+    const RealType a_late =(RealType{3.}+RealType{2.}*root_three)/RealType{12.};
+    const ComplexFieldVector field_early=total_field(
+        pspace,fluctuating_early,mean_early);
+    const ComplexFieldVector field_late=total_field(
+        pspace,fluctuating_late,mean_late);
+
+    const auto exponential=[&]( const RealType early_weight,
+                                const RealType late_weight )
+    {
+        const ComplexFieldVector weighted_field=
+            early_weight*field_early+late_weight*field_late;
+        const RealType rest_weight=early_weight+late_weight;
+        if( pspace.num_HilbertSpaceDimension==2 && H_REST_IS_SCALAR )
+            return spin_half_field_exponential(
+                weighted_field,rest_weight*H_REST_SCALAR,contour_step);
+        const Operator weighted_hamiltonian=
+            spin_scalar_product(weighted_field)+rest_weight*H_REST;
+        return general_matrix_exponential(contour_step*weighted_hamiltonian);
+    };
+    return exponential(a_early,a_late)*exponential(a_late,a_early);
+}
+
+template<typename Vector>
+Vector cubic_interval_value( const std::vector<Vector>& values,
+                             const size_t interval,
+                             const RealType fraction )
+{
+    if( values.size()<4 )
+        throw std::invalid_argument(
+            "Gauss-node CF4 interpolation needs at least four edge points");
+    if( interval+1>=values.size() )
+        throw std::out_of_range("CF4 interpolation interval is out of range");
+
+    const size_t first=interval==0?0
+        :interval+2>=values.size()?values.size()-4:interval-1;
+    const RealType x=static_cast<RealType>(interval)+fraction;
+    Vector result{};
+    for( size_t j=0;j<4;++j )
+    {
+        const RealType xj=static_cast<RealType>(first+j);
+        RealType weight{1.};
+        for( size_t k=0;k<4;++k )
+            if( k!=j )
+            {
+                const RealType xk=static_cast<RealType>(first+k);
+                weight*=(x-xk)/(xj-xk);
+            }
+        result+=weight*values[first+j];
+    }
+    return result;
+}
+
 RealType complex_matrix_symmetry_error( const ComplexDynamicMatrix& matrix )
 {
     RealType numerator{},denominator{};
@@ -121,26 +185,6 @@ void mix_tensor( CorrTen& output, const CorrTen& old_values,
                          +alpha*raw_values[p][i];
 }
 
-ComplexType rotated_connected_entry(
-    const ps::ParameterSpace& pspace,
-    const contour::CorrelationSet& connected_correlations,
-    const contour::ContourLayout& layout,
-    const contour::ContourIndex& first, const contour::ContourIndex& second )
-{
-    const auto& D=pspace.spin_model.coupling_matrix;
-    ComplexType rotated{};
-    for( size_t c=0;c<3;++c )
-        for( size_t d=0;d<3;++d )
-        {
-            const ComplexType connected=contour::branch_correlation(
-                connected_correlations,layout,{first.branch,first.point,c},
-                                              {second.branch,second.point,d});
-            rotated+=D(first.component,c)*D(second.component,d)*connected;
-        }
-    return pspace.JQ*pspace.JQ*rotated
-        +ComplexType{pspace.noise.m_variance_in(first.component,second.component),
-                     RealType{0.}};
-}
 
 }
 
@@ -346,44 +390,83 @@ CorrelationSet connected_contour_primitive(
     return connected;
 }
 
+namespace
+{
+SelfConsistentField covariance_from_primitive( const ps::ParameterSpace& pspace,
+    CorrelationSet primitive,const bool prescribed,const bool materialize )
+{
+    const contour::ContourLayout layout{pspace.num_TimePoints,pspace.num_RealTimePoints};
+    struct Term {size_t c,d;RealType coefficient;};
+    std::array<std::vector<Term>,9> rotations;
+    std::array<RealType,9> noise{};
+    for(size_t a=0;a<3;++a)for(size_t b=0;b<3;++b)
+    {
+        if(prescribed)rotations[3*a+b].push_back({a,b,RealType{1.}});
+        else
+        {
+            const auto& D=pspace.spin_model.coupling_matrix;
+            for(size_t c=0;c<3;++c)for(size_t d=0;d<3;++d)
+            {
+                const RealType coefficient=D(a,c)*D(b,d);
+                if(coefficient!=RealType{})rotations[3*a+b].push_back({c,d,coefficient});
+            }
+            noise[3*a+b]=pspace.noise.m_variance_in(a,b);
+        }
+    }
+    const RealType scale=prescribed?RealType{1.}:pspace.JQ*pspace.JQ;
+    auto values=std::make_shared<CorrelationSet>(std::move(primitive));
+    // Capture owned values and rotation coefficients, never a ParameterSpace
+    // reference: the source remains valid independently of its caller.
+    const auto raw=[values,layout,rotations,noise,scale](size_t row,size_t col)
+    {
+        const auto first=layout.decode(row),second=layout.decode(col);
+        const size_t pair=3*first.component+second.component;
+        ComplexType value{};
+        for(const auto& term:rotations[pair])
+            value+=term.coefficient*contour::branch_correlation(*values,layout,
+                {first.branch,first.point,term.c},{second.branch,second.point,term.d});
+        return scale*value+ComplexType{noise[pair],RealType{}};
+    };
+    SelfConsistentField result;
+    const size_t n=layout.dimension();
+    if(materialize)result.covariance.resize(n,n,false);
+    RealType difference{},norm{};
+    // Diagnose the original unsymmetrized kernel while filling only the
+    // canonical triangle. No second dense raw covariance is allocated.
+    for(size_t i=0;i<n;++i)for(size_t j=i;j<n;++j)
+    {
+        const ComplexType upper=raw(i,j);
+        if(i==j)norm+=std::norm(upper);
+        else
+        {
+            const ComplexType lower=raw(j,i);
+            norm+=std::norm(upper)+std::norm(lower);
+            difference+=RealType{2.}*std::norm(upper-lower);
+        }
+        if(materialize){result.covariance(i,j)=upper;result.covariance(j,i)=upper;}
+    }
+    result.branch_identity_error=norm>RealType{}?std::sqrt(difference/norm):std::sqrt(difference);
+    result.covariance_symmetry_error=RealType{};
+    result.covariance_source=CovarianceSource(n,[raw](size_t i,size_t j)
+    {return i<=j?raw(i,j):raw(j,i);});
+    return result;
+}
+}
+
 SelfConsistentField self_consistent_equations(
     const ps::ParameterSpace& pspace, const CorrelationSet& correlations,
-    const ComplexMagnetizationTrajectory& magnetization_time )
+    const ComplexMagnetizationTrajectory& magnetization_time,
+    const bool materialize_covariance )
 {
-    const contour::ContourLayout layout{
-        pspace.num_TimePoints,pspace.num_RealTimePoints};
-    const CorrelationSet connected_correlations=
-        connected_contour_primitive(correlations,magnetization_time);
-    ComplexDynamicMatrix raw(layout.dimension(),layout.dimension(),ComplexType{});
-    for( size_t row=0;row<layout.dimension();++row )
-    {
-        const auto first=layout.decode(row);
-        for( size_t col=0;col<layout.dimension();++col )
-            raw(row,col)=rotated_connected_entry(
-                pspace,connected_correlations,layout,first,layout.decode(col));
-    }
-
-    ComplexDynamicMatrix covariance(layout.dimension(),layout.dimension(),ComplexType{});
-    for( size_t row=0;row<layout.dimension();++row )
-        for( size_t col=row;col<layout.dimension();++col )
-        {
-            covariance(row,col)=raw(row,col);
-            covariance(col,row)=raw(row,col);
-        }
-
-    SelfConsistentField result{};
+    SelfConsistentField result=covariance_from_primitive(pspace,
+        connected_contour_primitive(correlations,magnetization_time),false,materialize_covariance);
     result.mean_time.resize(magnetization_time.size());
-    for( size_t t=0;t<magnetization_time.size();++t )
+    for(size_t t=0;t<magnetization_time.size();++t)
     {
         FieldVector physical_magnetization{};
-        for( size_t c=0;c<3;++c )
-            physical_magnetization[c]=std::real(magnetization_time[t][c]);
-        result.mean_time[t]=pspace.JL
-            *(pspace.spin_model.coupling_matrix*physical_magnetization);
+        for(size_t c=0;c<3;++c)physical_magnetization[c]=std::real(magnetization_time[t][c]);
+        result.mean_time[t]=pspace.JL*(pspace.spin_model.coupling_matrix*physical_magnetization);
     }
-    result.branch_identity_error=complex_matrix_symmetry_error(raw);
-    result.covariance_symmetry_error=complex_matrix_symmetry_error(covariance);
-    result.covariance=std::move(covariance);
     return result;
 }
 
@@ -428,30 +511,10 @@ CorrelationSet harmonic_bath_primitive( const ps::ParameterSpace& pspace )
 }
 
 SelfConsistentField prescribed_harmonic_bath_field(
-    const ps::ParameterSpace& pspace )
+    const ps::ParameterSpace& pspace,const bool materialize_covariance )
 {
-    const contour::ContourLayout layout{
-        pspace.num_TimePoints,pspace.num_RealTimePoints};
-    const CorrelationSet bath=harmonic_bath_primitive(pspace);
-    ComplexDynamicMatrix raw(layout.dimension(),layout.dimension(),ComplexType{});
-    for( size_t row=0;row<layout.dimension();++row )
-        for( size_t col=0;col<layout.dimension();++col )
-            raw(row,col)=contour::branch_correlation(
-                bath,layout,layout.decode(row),layout.decode(col));
-
-    ComplexDynamicMatrix covariance(layout.dimension(),layout.dimension(),ComplexType{});
-    for( size_t row=0;row<layout.dimension();++row )
-        for( size_t col=row;col<layout.dimension();++col )
-        {
-            covariance(row,col)=raw(row,col);
-            covariance(col,row)=raw(row,col);
-        }
-
-    SelfConsistentField result{};
+    auto result=covariance_from_primitive(pspace,harmonic_bath_primitive(pspace),true,materialize_covariance);
     result.mean_time.assign(pspace.num_RealTimePoints,FieldVector{});
-    result.branch_identity_error=complex_matrix_symmetry_error(raw);
-    result.covariance_symmetry_error=complex_matrix_symmetry_error(covariance);
-    result.covariance=std::move(covariance);
     return result;
 }
 
@@ -460,16 +523,51 @@ ContourTrajectory compute_contour_trajectory(
     const DenseComplexGaussianSampler::FieldVector& joint_field,
     const MeanFieldTrajectory& mean_field_time )
 {
+    JointComplexGaussianSampler::ContourFieldSample field_sample{};
+    field_sample.edge_field=joint_field;
+    return compute_contour_trajectory(pspace,field_sample,mean_field_time);
+}
+
+ContourTrajectory compute_contour_trajectory(
+    const ps::ParameterSpace& pspace,
+    const JointComplexGaussianSampler::ContourFieldSample& field_sample,
+    const MeanFieldTrajectory& mean_field_time )
+{
+    ContourTrajectory result;
+    TrajectoryWorkspace workspace;
+    build_contour_trajectory(pspace,field_sample,mean_field_time,result,workspace);
+    return result;
+}
+
+void build_contour_trajectory( const ps::ParameterSpace& pspace,
+    const JointComplexGaussianSampler::ContourFieldSample& field_sample,
+    const MeanFieldTrajectory& mean_field_time, ContourTrajectory& result,
+    TrajectoryWorkspace& workspace, const bool imaginary_only )
+{
     const contour::ContourLayout layout{
         pspace.num_TimePoints,pspace.num_RealTimePoints};
+    const auto& joint_field=field_sample.edge_field;
     if( joint_field.size()!=layout.dimension() )
         throw std::invalid_argument("joint Keldysh field has the wrong dimension");
     if( mean_field_time.size()!=pspace.num_RealTimePoints )
         throw std::invalid_argument("mean-field trajectory has the wrong real-time grid");
+    if( pspace.cf4_propagator
+        &&(field_sample.real_gauss_fields[0].size()!=0
+           ||field_sample.real_gauss_fields[1].size()!=0) )
+    {
+        const size_t expected=6*pspace.num_RealTimeSteps;
+        if( field_sample.real_gauss_fields[0].size()!=expected
+            ||field_sample.real_gauss_fields[1].size()!=expected )
+            throw std::invalid_argument(
+                "CF4 trajectory received malformed Gauss-node real-field grids");
+    }
 
-    std::vector<ComplexFieldVector> imaginary_fields(pspace.num_TimePoints);
-    std::vector<ComplexFieldVector> forward_fields(pspace.num_RealTimePoints);
-    std::vector<ComplexFieldVector> backward_fields(pspace.num_RealTimePoints);
+    auto& imaginary_fields=workspace.imaginary_fields;
+    auto& forward_fields=workspace.forward_fields;
+    auto& backward_fields=workspace.backward_fields;
+    imaginary_fields.resize(pspace.num_TimePoints);
+    forward_fields.resize(pspace.num_RealTimePoints);
+    backward_fields.resize(pspace.num_RealTimePoints);
     for( size_t k=0;k<pspace.num_TimePoints;++k )
         for( size_t c=0;c<3;++c )
             imaginary_fields[k][c]=joint_field[layout.flat(contour::Branch::Matsubara,k,c)];
@@ -480,24 +578,52 @@ ContourTrajectory compute_contour_trajectory(
             backward_fields[t][c]=joint_field[layout.flat(contour::Branch::Backward,t,c)];
         }
 
-    ContourTrajectory result{};
-    std::vector<Operator> imaginary_steps(pspace.num_TimeSteps);
+    auto& imaginary_steps=workspace.imaginary_steps;
+    imaginary_steps.resize(pspace.num_TimeSteps);
     for( size_t k=0;k<pspace.num_TimeSteps;++k )
     {
-        imaginary_steps[k]=cfet4_step(
-            pspace,imaginary_fields[k+1],mean_field_time.front(),
-            imaginary_fields[k],mean_field_time.front(),
-            ComplexType{-pspace.delta_t,RealType{0.}});
+        if( pspace.cf4_propagator )
+        {
+            const RealType offset=std::sqrt(RealType{3.})/RealType{6.};
+            const auto early=cubic_interval_value(
+                imaginary_fields,k,RealType{0.5}-offset);
+            const auto late=cubic_interval_value(
+                imaginary_fields,k,RealType{0.5}+offset);
+            imaginary_steps[k]=gauss_cfet4_step(
+                pspace,early,mean_field_time.front(),
+                late,mean_field_time.front(),
+                ComplexType{-pspace.delta_t,RealType{0.}});
+        }
+        else
+            imaginary_steps[k]=cfet4_step(
+                pspace,imaginary_fields[k+1],mean_field_time.front(),
+                imaginary_fields[k],mean_field_time.front(),
+                ComplexType{-pspace.delta_t,RealType{0.}});
     }
-    std::vector<Operator> prefix(pspace.num_TimeSteps+1,IDENTITY);
-    std::vector<Operator> suffix(pspace.num_TimeSteps+1,IDENTITY);
+    auto& prefix=workspace.prefix;
+    prefix.resize(pspace.num_TimeSteps+1); prefix.front()=IDENTITY;
     for( size_t k=0;k<pspace.num_TimeSteps;++k )
         prefix[k+1]=imaginary_steps[k]*prefix[k];
-    for( size_t k=pspace.num_TimeSteps;k-- >0; )
-        suffix[k]=suffix[k+1]*imaginary_steps[k];
     result.imaginary_density_operator=prefix.back();
     result.partition_function=blaze::trace(result.imaginary_density_operator);
 
+    if( !imaginary_only )
+        complete_contour_trajectory(pspace,field_sample,mean_field_time,result,workspace);
+}
+
+void complete_contour_trajectory( const ps::ParameterSpace& pspace,
+    const JointComplexGaussianSampler::ContourFieldSample& field_sample,
+    const MeanFieldTrajectory& mean_field_time, ContourTrajectory& result,
+    TrajectoryWorkspace& workspace )
+{
+    const auto& prefix=workspace.prefix;
+    const auto& imaginary_steps=workspace.imaginary_steps;
+    const auto& forward_fields=workspace.forward_fields;
+    const auto& backward_fields=workspace.backward_fields;
+    auto& suffix=workspace.suffix;
+    suffix.resize(pspace.num_TimeSteps+1); suffix.back()=IDENTITY;
+    for( size_t k=pspace.num_TimeSteps;k-- >0; )
+        suffix[k]=suffix[k+1]*imaginary_steps[k];
     const std::array<const Observable*,3> spins{&S_X,&S_Y,&S_Z};
     for( size_t c=0;c<3;++c )
     {
@@ -507,126 +633,193 @@ ContourTrajectory compute_contour_trajectory(
                 suffix[tau]*(*spins[c])*prefix[tau];
     }
 
-    result.forward_steps.assign(pspace.num_RealTimePoints,IDENTITY);
-    result.backward_steps.assign(pspace.num_RealTimePoints,IDENTITY);
+    result.forward_steps.resize(pspace.num_RealTimePoints);
+    result.backward_steps.resize(pspace.num_RealTimePoints);
+    result.forward_steps.front()=IDENTITY; result.backward_steps.front()=IDENTITY;
     for( size_t t=1;t<pspace.num_RealTimePoints;++t )
     {
-        result.forward_steps[t]=cfet4_step(
-            pspace,forward_fields[t],mean_field_time[t],
-            forward_fields[t-1],mean_field_time[t-1],
-            ComplexType{RealType{0.},-pspace.delta_real_t});
-        result.backward_steps[t]=cfet4_step(
-            pspace,backward_fields[t-1],mean_field_time[t-1],
-            backward_fields[t],mean_field_time[t],
-            ComplexType{RealType{0.},+pspace.delta_real_t});
+        if( pspace.cf4_propagator )
+        {
+            const size_t interval=t-1;
+            const RealType offset=std::sqrt(RealType{3.})/RealType{6.};
+            const FieldVector mean_early=cubic_interval_value(
+                mean_field_time,interval,RealType{0.5}-offset);
+            const FieldVector mean_late=cubic_interval_value(
+                mean_field_time,interval,RealType{0.5}+offset);
+            ComplexFieldVector forward_early{},forward_late{};
+            ComplexFieldVector backward_early{},backward_late{};
+            if( field_sample.has_real_gauss_fields() )
+            {
+                for( size_t c=0;c<3;++c )
+                {
+                    forward_early[c]=field_sample.real_gauss_fields[0][6*interval+c];
+                    forward_late[c]=field_sample.real_gauss_fields[1][6*interval+c];
+                    backward_early[c]=field_sample.real_gauss_fields[0][6*interval+3+c];
+                    backward_late[c]=field_sample.real_gauss_fields[1][6*interval+3+c];
+                }
+            }
+            else
+            {
+                // Dense factorization samples only the physical edge grid.
+                // Under the smooth-field assumption, four-point interpolation
+                // supplies both internal Gauss nodes with fourth-order
+                // accuracy without enlarging the covariance factorization.
+                forward_early=cubic_interval_value(
+                    forward_fields,interval,RealType{0.5}-offset);
+                forward_late=cubic_interval_value(
+                    forward_fields,interval,RealType{0.5}+offset);
+                backward_early=cubic_interval_value(
+                    backward_fields,interval,RealType{0.5}-offset);
+                backward_late=cubic_interval_value(
+                    backward_fields,interval,RealType{0.5}+offset);
+            }
+            result.forward_steps[t]=gauss_cfet4_step(
+                pspace,forward_early,mean_early,forward_late,mean_late,
+                ComplexType{RealType{0.},-pspace.delta_real_t});
+            // The backward branch traverses the interval from late to early.
+            // Swapping both nodes reverses the noncommuting product, so equal
+            // forward/backward fields close exactly.
+            result.backward_steps[t]=gauss_cfet4_step(
+                pspace,backward_late,mean_late,backward_early,mean_early,
+                ComplexType{RealType{0.},+pspace.delta_real_t});
+        }
+        else
+        {
+            result.forward_steps[t]=cfet4_step(
+                pspace,forward_fields[t],mean_field_time[t],
+                forward_fields[t-1],mean_field_time[t-1],
+                ComplexType{RealType{0.},-pspace.delta_real_t});
+            result.backward_steps[t]=cfet4_step(
+                pspace,backward_fields[t-1],mean_field_time[t-1],
+                backward_fields[t],mean_field_time[t],
+                ComplexType{RealType{0.},+pspace.delta_real_t});
+        }
     }
     Operator final_density=result.imaginary_density_operator;
     for( size_t t=1;t<pspace.num_RealTimePoints;++t )
         final_density=result.forward_steps[t]*final_density
                     *result.backward_steps[t];
     result.final_closed_contour_trace=blaze::trace(final_density);
-    return result;
 }
 
 namespace
 {
-void accumulate_contour_observables(
-    rtd::RunTimeData& rtdata,
-    const ContourTrajectory& trajectory,
-    const std::string& insertion_strategy )
+template<typename Matrix>
+void measure_observables_impl( const rtd::RunTimeData& rtdata,
+    const ContourTrajectory& trajectory, rtd::MeasuredSample& sample,
+    MeasurementWorkspace& workspace, std::vector<Matrix>& left,
+    const bool prefix_insertion )
 {
-    const std::array<const Observable*,3> spins{&S_X,&S_Y,&S_Z};
-    const size_t num_real_points=rtdata.num_real_time_points();
-    if( num_real_points==0 || trajectory.forward_steps.size()!=num_real_points
-        || trajectory.backward_steps.size()!=num_real_points )
-        throw std::invalid_argument("trajectory and measurement real-time grids differ");
-    if( insertion_strategy!="closed-contour" && insertion_strategy!="prefix" )
-        throw std::invalid_argument("unknown spin insertion strategy");
-
-    // left[t] = B_-(T,0) U_+(t,T), where U_+(t,T) denotes the forward
-    // continuation t -> T: U_N ... U_{t+1}, not an inverse propagator.
-    // Build it right-to-left so every forward/backward step occurs once in
-    // left[t] S U_+(t,0), including for t=0. No branch cancellation is assumed.
-    Operator backward_total=IDENTITY;
-    for( size_t t=1;t<num_real_points;++t )
-        backward_total=backward_total*trajectory.backward_steps[t];
-    std::vector<Operator> left(num_real_points,IDENTITY);
-    left.back()=backward_total;
-    for( size_t t=num_real_points-1;t>0;--t )
-        left[t-1]=left[t]*trajectory.forward_steps[t];
-
-    // Preserve the prefix closure trajectory D(t). Its final value is also the
-    // fixed denominator and pCN likelihood when closed-contour normalization
-    // is selected; intermediate values remain diagnostics.
-    Operator density=trajectory.imaginary_density_operator;
-    Operator forward=IDENTITY;
-    Operator backward_prefix=IDENTITY;
-    std::array<bool,3> measured_directions{};
-    for( size_t p=0;p<rtdata.num_correlation_components();++p )
-        measured_directions[rtdata.correlation_direction(p)[0]]=true;
-    for( size_t c=0;c<rtdata.num_magnetization_components();++c )
-        measured_directions[rtdata.magnetization_direction(c)]=true;
-    std::array<Operator,3> measured_spins{};
-    for( size_t t=0;t<num_real_points;++t )
+    const size_t nt=rtdata.num_real_time_points();
+    const size_t ni=rtdata.num_imaginary_edge_points();
+    const size_t nc=rtdata.num_correlation_components();
+    const size_t nm=rtdata.num_magnetization_components();
+    sample.partition=trajectory.partition_function;
+    sample.correlations.resize(nt*nc*ni);
+    sample.magnetization.resize(nt*nm);
+    sample.closure.resize(nt);
+    std::array<bool,3> measured{},inserted{};
+    for( size_t p=0;p<nc;++p )
+    {
+        const auto direction=rtdata.correlation_direction(p);
+        measured[direction[0]]=true; inserted[direction[1]]=true;
+    }
+    for( size_t c=0;c<nm;++c ) measured[rtdata.magnetization_direction(c)]=true;
+    if constexpr( std::is_same_v<Matrix,SpinHalfOperator> )
+        for( size_t c=0;c<3;++c ) if( inserted[c] )
+        {
+            auto& packed=workspace.spin_half_insertions[c]; packed.resize(ni);
+            for( size_t tau=0;tau<ni;++tau )
+            {
+                const auto& op=trajectory.imaginary_edge_insertions[c][tau];
+                packed[tau]={op(0,0),op(0,1),op(1,0),op(1,1)};
+            }
+        }
+    const Matrix identity(IDENTITY);
+    const std::array<Matrix,3> spins{Matrix(S_X),Matrix(S_Y),Matrix(S_Z)};
+    if( !prefix_insertion )
+    {
+        Matrix backward_total=identity;
+        for( size_t t=1;t<nt;++t )
+            backward_total=backward_total*Matrix(trajectory.backward_steps[t]);
+        left.resize(nt); left.back()=backward_total;
+        for( size_t t=nt-1;t>0;--t )
+            left[t-1]=left[t]*Matrix(trajectory.forward_steps[t]);
+    }
+    const Matrix rho(trajectory.imaginary_density_operator);
+    Matrix density=rho,forward=identity,backward_prefix=identity;
+    std::array<Matrix,3> measured_spins{};
+    const auto contract=[](const auto& a,const auto& b)
+    {
+        if constexpr( std::is_same_v<Matrix,SpinHalfOperator> )
+            return a(0,0)*b(0,0)+a(0,1)*b(1,0)
+                  +a(1,0)*b(0,1)+a(1,1)*b(1,1);
+        else return trace_product(a,b);
+    };
+    for( size_t t=0;t<nt;++t )
     {
         if( t>0 )
         {
-            forward=trajectory.forward_steps[t]*forward;
-            backward_prefix=backward_prefix*trajectory.backward_steps[t];
-            density=trajectory.forward_steps[t]*density*trajectory.backward_steps[t];
+            const Matrix u(trajectory.forward_steps[t]),b(trajectory.backward_steps[t]);
+            forward=u*forward;
+            if( prefix_insertion ) backward_prefix=backward_prefix*b;
+            density=u*density*b;
         }
-        rtdata.accumulate_closed_contour_trace(t,blaze::trace(density));
-        for( size_t direction=0;direction<3;++direction )
-            if( measured_directions[direction] )
-                measured_spins[direction]=insertion_strategy=="prefix"
-                    ?backward_prefix*(*spins[direction])*forward
-                    :left[t]*(*spins[direction])*forward;
-        for( size_t c=0;c<rtdata.num_magnetization_components();++c )
-        {
-            const size_t direction=rtdata.magnetization_direction(c);
-            rtdata.accumulate_magnetization(
-                t,c,trace_product(trajectory.imaginary_density_operator,
-                                  measured_spins[direction]));
-        }
-        for( size_t p=0;p<rtdata.num_correlation_components();++p )
+        sample.closure[t]=blaze::trace(density);
+        for( size_t c=0;c<3;++c ) if( measured[c] )
+            measured_spins[c]=(prefix_insertion?backward_prefix:left[t])*spins[c]*forward;
+        for( size_t c=0;c<nm;++c )
+            sample.magnetization[t*nm+c]=contract(rho,measured_spins[rtdata.magnetization_direction(c)]);
+        for( size_t p=0;p<nc;++p )
         {
             const auto direction=rtdata.correlation_direction(p);
-            for( size_t tau=0;tau<rtdata.num_imaginary_edge_points();++tau )
-                rtdata.accumulate_edge_correlation(t,p,tau,trace_product(
-                    trajectory.imaginary_edge_insertions[direction[1]][tau],
-                    measured_spins[direction[0]]));
+            const Matrix& b=measured_spins[direction[0]];
+            ComplexType* output=sample.correlations.data()+(t*nc+p)*ni;
+            if constexpr( std::is_same_v<Matrix,SpinHalfOperator> )
+            {
+                const auto& packed=workspace.spin_half_insertions[direction[1]];
+                const ComplexType b00=b(0,0),b10=b(1,0),b01=b(0,1),b11=b(1,1);
+                for( size_t tau=0;tau<ni;++tau )
+                {
+                    const auto& a=packed[tau];
+                    output[tau]=a[0]*b00+a[1]*b10+a[2]*b01+a[3]*b11;
+                }
+            }
+            else
+                for( size_t tau=0;tau<ni;++tau )
+                    output[tau]=contract(trajectory.imaginary_edge_insertions[direction[1]][tau],b);
         }
     }
 }
 }
 
-void compute_contour_correlations( rtd::RunTimeData& rtdata,
-                                   const ContourTrajectory& trajectory,
-                                   const RealType observable_normalization,
-                                   const std::string& insertion_strategy )
+void measure_contour_observables( const rtd::RunTimeData& layout,
+    const ContourTrajectory& trajectory, rtd::MeasuredSample& sample,
+    MeasurementWorkspace& workspace, const std::string& insertion_strategy )
 {
-    rtdata.begin_sample(
-        trajectory.partition_function,observable_normalization);
-    accumulate_contour_observables(rtdata,trajectory,insertion_strategy);
-    rtdata.end_sample();
+    const size_t nt=layout.num_real_time_points();
+    if( nt==0||trajectory.forward_steps.size()!=nt||trajectory.backward_steps.size()!=nt )
+        throw std::invalid_argument("trajectory and measurement real-time grids differ");
+    if( insertion_strategy!="closed-contour"&&insertion_strategy!="prefix" )
+        throw std::invalid_argument("unknown spin insertion strategy");
+    for( const auto& insertions:trajectory.imaginary_edge_insertions )
+        if( insertions.size()!=layout.num_imaginary_edge_points() )
+            throw std::invalid_argument("trajectory and measurement imaginary-time grids differ");
+    const bool prefix=insertion_strategy=="prefix";
+    if( trajectory.imaginary_density_operator.rows()==2 )
+        measure_observables_impl(layout,trajectory,sample,workspace,workspace.spin_half_left,prefix);
+    else
+        measure_observables_impl(layout,trajectory,sample,workspace,workspace.general_left,prefix);
 }
 
-void compute_contour_pair_correlations(
-    rtd::RunTimeData& rtdata,
-    const ContourTrajectory& positive_trajectory,
-    const ContourTrajectory& negative_trajectory,
-    const RealType observable_normalization,
+void compute_contour_correlations( rtd::RunTimeData& rtdata,
+    const ContourTrajectory& trajectory, const RealType observable_normalization,
     const std::string& insertion_strategy )
 {
-    rtdata.begin_sample(
-        positive_trajectory.partition_function
-            +negative_trajectory.partition_function,
-        observable_normalization);
-    accumulate_contour_observables(
-        rtdata,positive_trajectory,insertion_strategy);
-    accumulate_contour_observables(
-        rtdata,negative_trajectory,insertion_strategy);
-    rtdata.end_sample();
+    rtd::MeasuredSample sample;
+    MeasurementWorkspace workspace;
+    measure_contour_observables(rtdata,trajectory,sample,workspace,insertion_strategy);
+    rtdata.accumulate_sample(sample,observable_normalization);
 }
 
 CorrTen imaginary_time_slice( const contour::ContourCorrelation& correlations )

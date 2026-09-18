@@ -156,9 +156,6 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "samplingStrategy", bpo::value<std::string>()->default_value("pcn"),
     "Monte-Carlo strategy: pcn targets the real part of the selected correlation denominator (Z_M or final D(T)); independent retains the bare-Gaussian complex-ratio estimator"
     )(
-    "antitheticPairs",
-    "evaluate Gaussian latent states as r and -r pairs; independent mode counts total trajectories, while pCN mode counts sign-symmetrized pair states"
-    )(
     "mhStepSize", bpo::value<RealType>()->default_value(RealType{0.3}),
     "pCN proposal parameter beta in (0,1]: r'=sqrt(1-beta^2)r+beta xi"
     )(
@@ -177,7 +174,10 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "fftCrossFrequencyCutoff", bpo::value<RealType>()->default_value(RealType{3.}),
     "for gaussianFactorization=fft, retain dense Matsubara-real coupling for |omega| up to this cutoff; a negative value disables truncation"
     )(
-    "spinInsertionStrategy", bpo::value<std::string>()->default_value("closed-contour"),
+    "cf4Propagator",
+    "use the two-Gauss-node, two-exponential fourth-order commutator-free propagator; dense uses cubic edge interpolation and fft uses spectral shifted grids"
+    )(
+    "spinInsertionStrategy", bpo::value<std::string>()->default_value("prefix"),
     "real-time spin insertion: closed-contour uses B_-(T,0) U_+(t,T) S U_+(t,0); prefix uses U_+(0,t) S B_-(t,0)"
     )(
     "correlationNormalization", bpo::value<std::string>()->default_value("partition-function"),
@@ -339,17 +339,13 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     num_Samples             = world_size * num_SamplesPerCore;
     seed                    = vm["seed"].as<std::string>();
     sampling_strategy       = vm["samplingStrategy"].as<std::string>();
-    antithetic_pairs        = vm.count("antitheticPairs")>0;
     mh_step_size            = vm["mhStepSize"].as<RealType>();
     mh_burn_in              = vm["mhBurnIn"].as<size_t>();
     partition_imaginary_tolerance=vm["partitionImagTolerance"].as<RealType>();
     num_blocks              = vm["numBlocks"].as<size_t>();
     if( sampling_strategy!="pcn"&&sampling_strategy!="independent" )
         throw std::invalid_argument("samplingStrategy must be pcn or independent");
-    if( antithetic_pairs&&sampling_strategy=="independent"
-        &&num_SamplesPerCore%2!=0 )
-        throw std::invalid_argument(
-            "independent antitheticPairs requires an even numSamplesPerCore on every MPI rank");
+
     if( mh_step_size<=RealType{0.}||mh_step_size>RealType{1.} )
         throw std::invalid_argument("mhStepSize must lie in (0,1]");
     if( partition_imaginary_tolerance<RealType{0.} )
@@ -360,6 +356,13 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
         throw std::invalid_argument(
             "gaussianFactorization must be dense, svd, or fft" );
     fft_cross_frequency_cutoff=vm["fftCrossFrequencyCutoff"].as<RealType>();
+    cf4_propagator=vm.count("cf4Propagator")>0;
+    if( cf4_propagator&&gaussian_factorization=="svd" )
+        throw std::invalid_argument(
+            "cf4Propagator currently supports gaussianFactorization=dense or fft" );
+    if( cf4_propagator&&(num_TimePoints<4||num_RealTimePoints<4) )
+        throw std::invalid_argument(
+            "cf4Propagator requires at least three imaginary- and real-time steps" );
     spin_insertion_strategy=vm["spinInsertionStrategy"].as<std::string>();
     if( spin_insertion_strategy!="closed-contour"
         && spin_insertion_strategy!="prefix" )
@@ -549,11 +552,11 @@ std::string ParameterSpace::create_essentials_string() const
     << print::quantity_to_output_line( pre_colon_space, "equal_time_prescription", "symmetric_theta_half" )
     << print::quantity_to_output_line( pre_colon_space, "num_Samples"   , std::to_string(num_Samples) )
     << print::quantity_to_output_line( pre_colon_space, "sampling_strategy", sampling_strategy )
-    << print::quantity_to_output_line( pre_colon_space, "antithetic_pairs", print::bool_to_string(antithetic_pairs) )
     << print::quantity_to_output_line( pre_colon_space, "mh_step_size", print::remove_zeros(print::round_value_to_string(mh_step_size,num_PrintDigits)) )
     << print::quantity_to_output_line( pre_colon_space, "mh_burn_in", std::to_string(mh_burn_in) )
     << print::quantity_to_output_line( pre_colon_space, "gaussian_factorization", gaussian_factorization )
     << print::quantity_to_output_line( pre_colon_space, "fft_cross_frequency_cutoff", std::to_string(fft_cross_frequency_cutoff) )
+    << print::quantity_to_output_line( pre_colon_space, "propagator", cf4_propagator?"gauss-cf4":"endpoint-cfet4" )
     << print::quantity_to_output_line( pre_colon_space, "correlation_normalization", correlation_normalization )
     << print::quantity_to_output_line( pre_colon_space, "iteration_error_sigma_threshold", print::remove_zeros(print::round_value_to_string(iteration_error_sigma_threshold,num_PrintDigits)) )
     << print::quantity_to_output_line( pre_colon_space, "constant_magnetization_time", print::bool_to_string(constant_magnetization_time) )

@@ -3,8 +3,7 @@
 /* Three-branch finite-temperature real-time spinDMFT.
 
    Edge-grid V_M and correlated V_+,V_- fields are sampled from E[V V^T].
-   Independent mode uses (sum N)/(sum Z_M), optionally with paired latent
-   fluctuations r,-r. pCN targets the real part of the selected observable
+   Independent mode uses (sum N)/(sum Z_M). pCN targets the real part of the selected observable
    denominator: Z_M or the fixed final closed-contour D(T). */
 
 int main( const int argC, char* const argV[] )
@@ -39,12 +38,7 @@ int main( const int argC, char* const argV[] )
 
   std::vector<size_t> loop_sizes{ my_pspace.num_SamplesPerCore };
   const std::string sampling_loop_name=my_pspace.sampling_strategy=="pcn"
-      ?my_pspace.antithetic_pairs
-       ?"antithetic pCN complex-field sampling"
-       :"pCN complex-field sampling"
-      :my_pspace.antithetic_pairs
-       ?"antithetic independent complex-field sampling"
-       :"independent complex-field sampling";
+      ?"pCN complex-field sampling":"independent complex-field sampling";
   std::vector<std::string> loop_names{ sampling_loop_name };
   tmm::DurationEstimator my_MC_estimator(
       my_rank, "Monte-Carlo simulation", loop_sizes, loop_names, true );
@@ -71,10 +65,15 @@ int main( const int argC, char* const argV[] )
                                         my_pspace.num_TimePoints,
                                         my_pspace.num_RealTimePoints };
     const func::SelfConsistentField field = my_pspace.uses_harmonic_bath()
-        ?func::prescribed_harmonic_bath_field(my_pspace)
+        ?func::prescribed_harmonic_bath_field(my_pspace,my_pspace.gaussian_factorization!="fft")
         :func::self_consistent_equations(
-            my_pspace,my_correlations,my_magnetization_time);
-    auto sampler=func::make_complex_gaussian_sampler(
+            my_pspace,my_correlations,my_magnetization_time,
+            my_pspace.gaussian_factorization!="fft");
+    auto sampler=my_pspace.gaussian_factorization=="fft"
+        ?func::make_complex_gaussian_sampler(field.covariance_source,
+            my_pspace.num_TimeSteps,my_pspace.num_RealTimePoints,
+            my_pspace.delta_real_t,my_pspace.fft_cross_frequency_cutoff)
+        :func::make_complex_gaussian_sampler(
         my_pspace.gaussian_factorization,field.covariance,
         my_pspace.num_TimeSteps,my_pspace.num_RealTimePoints,
         my_pspace.delta_real_t,my_pspace.fft_cross_frequency_cutoff );
@@ -90,6 +89,8 @@ int main( const int argC, char* const argV[] )
 
     my_rtdata.begin_iteration_accumulation();
     my_clock.enter_loop();
+    rtd::MeasuredSample measured_sample;
+    func::MeasurementWorkspace measurement_workspace;
     if( my_pspace.sampling_strategy=="pcn" )
     {
       func::PCNChain chain(
@@ -99,19 +100,17 @@ int main( const int argC, char* const argV[] )
       // timer here, its full duration is attributed to the first sample and
       // multiplied by num_SamplesPerCore by the duration estimator.
       my_clock.update_time();
+      bool measured=false;
       for( size_t sample=0;sample<my_pspace.num_SamplesPerCore;++sample )
       {
-        chain.step();
-        if( my_pspace.antithetic_pairs )
-          func::compute_contour_pair_correlations(
-              my_rtdata,chain.trajectory(),chain.antithetic_trajectory(),
-              RealType{1.}/chain.real_sampling_weight(),
-              my_pspace.spin_insertion_strategy);
-        else
-          func::compute_contour_correlations(
-              my_rtdata,chain.trajectory(),
-              RealType{1.}/chain.real_sampling_weight(),
-              my_pspace.spin_insertion_strategy);
+        const bool accepted=chain.step();
+        if( accepted||!measured )
+        {
+          func::measure_contour_observables(my_rtdata,chain.trajectory(),
+              measured_sample,measurement_workspace,my_pspace.spin_insertion_strategy);
+          measured=true;
+        }
+        my_rtdata.accumulate_sample(measured_sample,RealType{1.}/chain.real_sampling_weight());
         my_MC_estimator.obtain(my_clock.measure(sampling_loop_name));
       }
       my_rtdata.record_pcn_diagnostics(
@@ -120,31 +119,27 @@ int main( const int argC, char* const argV[] )
     }
     else
     {
-      const auto accumulate_field=[&]( const auto& joint_field )
+      func::ContourTrajectory trajectory;
+      func::TrajectoryWorkspace trajectory_workspace;
+      // This changes execution granularity only. Each iteration still uses
+      // exactly the requested samples, in sample-major RNG order.
+      constexpr size_t batch_size=32;
+      for(size_t first=0;first<my_pspace.num_SamplesPerCore;first+=batch_size)
       {
-        const auto trajectory=func::compute_contour_trajectory(
-            my_pspace,joint_field,field.mean_time);
-        func::compute_contour_correlations(
-            my_rtdata,trajectory,RealType{1.},
-            my_pspace.spin_insertion_strategy);
-        my_MC_estimator.obtain(my_clock.measure(sampling_loop_name));
-      };
-      if( my_pspace.antithetic_pairs )
-      {
-        for( size_t pair=0;pair<my_pspace.num_SamplesPerCore/2;++pair )
+        const size_t count=std::min(batch_size,my_pspace.num_SamplesPerCore-first);
+        const auto fields=sampler->draw_contour_batch(engine,count,my_pspace.cf4_propagator);
+        for(const auto& field_sample:fields)
         {
-          auto latent=sampler->draw_latent(engine);
-          const auto positive_field=sampler->field_from_latent(latent);
-          for( auto& value:latent ) value=-value;
-          const auto negative_field=sampler->field_from_latent(latent);
-          accumulate_field(positive_field);
-          accumulate_field(negative_field);
+          func::build_contour_trajectory(my_pspace,field_sample,field.mean_time,
+                                        trajectory,trajectory_workspace);
+          func::measure_contour_observables(my_rtdata,trajectory,measured_sample,
+              measurement_workspace,my_pspace.spin_insertion_strategy);
+          my_rtdata.accumulate_sample(measured_sample);
         }
-      }
-      else
-      {
-        for( size_t sample=0;sample<my_pspace.num_SamplesPerCore;++sample )
-          accumulate_field(sampler->draw(engine));
+        // Amortize progress/timer overhead, retaining per-sample duration units.
+        auto per_sample=my_clock.measure(sampling_loop_name);
+        per_sample.m_duration/=static_cast<RealType>(count);
+        for(size_t i=0;i<count;++i)my_MC_estimator.obtain(per_sample);
       }
     }
     my_clock.leave_loop();

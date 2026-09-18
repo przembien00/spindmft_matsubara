@@ -161,12 +161,15 @@ if(BUILD_TESTING)
         Run_Time_Data/Ratio_Statistics.cpp Parameter_Space/Parameter_Space.cpp)
     target_link_libraries(test_full_contour_measurement ${LINK_LIBS})
     add_test(NAME full_contour_measurement COMMAND test_full_contour_measurement)
-    add_test(NAME full_contour_measurement_antithetic_option
+    add_test(NAME full_contour_measurement_dense_cf4_option
         COMMAND test_full_contour_measurement
-                --samplingStrategy=independent --antitheticPairs
+                --gaussianFactorization=dense --cf4Propagator)
+    add_test(NAME full_contour_measurement_independent_option
+        COMMAND test_full_contour_measurement
+                --samplingStrategy=independent
                 --numSamplesPerCore=2)
-    add_test(NAME full_contour_measurement_antithetic_pcn_option
+    add_test(NAME full_contour_measurement_pcn_option
         COMMAND test_full_contour_measurement
-                --samplingStrategy=pcn --antitheticPairs
+                --samplingStrategy=pcn
                 --numSamplesPerCore=1)
 endif()

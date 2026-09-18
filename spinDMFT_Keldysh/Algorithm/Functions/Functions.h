@@ -34,6 +34,7 @@ struct SelfConsistentField
 {
     MeanFieldTrajectory mean_time{};
     ComplexDynamicMatrix covariance{};
+    CovarianceSource covariance_source{};
     RealType covariance_symmetry_error{};
     RealType branch_identity_error{};
 };
@@ -59,7 +60,8 @@ CorrelationSet connected_contour_primitive(
 SelfConsistentField self_consistent_equations(
     const ps::ParameterSpace& pspace,
     const CorrelationSet& correlations,
-    const ComplexMagnetizationTrajectory& magnetization_time );
+    const ComplexMagnetizationTrajectory& magnetization_time,
+    bool materialize_covariance=true );
 
 // Analytic mixed primitive of one thermal oscillator
 // X=g(a+a^dagger), coupled to bathComponent.  Its endpoints are K lesser at
@@ -69,7 +71,7 @@ CorrelationSet harmonic_bath_primitive( const ps::ParameterSpace& pspace );
 // Fixed zero-mean field distribution obtained from the analytic harmonic-bath
 // contour correlation.  It bypasses spinDMFT first- and second-moment feedback.
 SelfConsistentField prescribed_harmonic_bath_field(
-    const ps::ParameterSpace& pspace );
+    const ps::ParameterSpace& pspace, bool materialize_covariance=true );
 
 struct ContourTrajectory
 {
@@ -82,6 +84,23 @@ struct ContourTrajectory
     std::vector<Operator> forward_steps{};
     std::vector<Operator> backward_steps{};
 };
+
+struct TrajectoryWorkspace
+{
+    std::vector<ComplexFieldVector> imaginary_fields,forward_fields,backward_fields;
+    std::vector<Operator> imaginary_steps,prefix,suffix;
+};
+
+// An imaginary-only preparation is sufficient for partition-function pCN
+// acceptance. Completion reuses those Matsubara maps after acceptance.
+void build_contour_trajectory( const ps::ParameterSpace& pspace,
+    const JointComplexGaussianSampler::ContourFieldSample& field,
+    const MeanFieldTrajectory& mean, ContourTrajectory& result,
+    TrajectoryWorkspace& workspace, bool imaginary_only=false );
+void complete_contour_trajectory( const ps::ParameterSpace& pspace,
+    const JointComplexGaussianSampler::ContourFieldSample& field,
+    const MeanFieldTrajectory& mean, ContourTrajectory& result,
+    TrajectoryWorkspace& workspace );
 
 Operator general_matrix_exponential( const Operator& matrix );
 
@@ -101,6 +120,24 @@ ContourTrajectory compute_contour_trajectory(
     const DenseComplexGaussianSampler::FieldVector& joint_field,
     const MeanFieldTrajectory& mean_field_time );
 
+ContourTrajectory compute_contour_trajectory(
+    const ps::ParameterSpace& pspace,
+    const JointComplexGaussianSampler::ContourFieldSample& field_sample,
+    const MeanFieldTrajectory& mean_field_time );
+
+using SpinHalfOperator = blaze::StaticMatrix<ComplexType,2UL,2UL,blaze::rowMajor>;
+struct MeasurementWorkspace
+{
+    std::vector<SpinHalfOperator> spin_half_left;
+    std::vector<Operator> general_left;
+    std::array<std::vector<std::array<ComplexType,4>>,3> spin_half_insertions;
+};
+
+void measure_contour_observables( const rtd::RunTimeData& layout,
+    const ContourTrajectory& trajectory, rtd::MeasuredSample& sample,
+    MeasurementWorkspace& workspace,
+    const std::string& insertion_strategy="closed-contour" );
+
 // Correlations and magnetization use either the closed-contour insertion
 // B_-(T,0) U_+(t,T) S U_+(t,0), or the prefix insertion
 // U_+(0,t) S B_-(t,0), selected by insertion_strategy.
@@ -108,16 +145,6 @@ void compute_contour_correlations( rtd::RunTimeData& rtdata,
                                    const ContourTrajectory& trajectory,
                                    RealType observable_normalization=RealType{1.},
                                    const std::string& insertion_strategy="closed-contour" );
-
-// Treat two sign-related trajectories as one Markov observation. Their raw
-// numerators are added before the shared normalization and before sample
-// squares/block statistics are finalized.
-void compute_contour_pair_correlations(
-    rtd::RunTimeData& rtdata,
-    const ContourTrajectory& positive_trajectory,
-    const ContourTrajectory& negative_trajectory,
-    RealType observable_normalization,
-    const std::string& insertion_strategy="closed-contour" );
 
 // Pure correlations are boundary views of the contour tensor, not independent traces:
 // G_imag^{ab}(tau)=C^{ba}(0,tau), G_real^{ab}(t)=C^{ab}(t,beta).

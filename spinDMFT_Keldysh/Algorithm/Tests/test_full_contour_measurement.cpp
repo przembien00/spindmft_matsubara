@@ -119,6 +119,128 @@ int check_measurement( const ps::ParameterSpace& p,
 }
 }
 
+int check_streamed_covariance(ps::ParameterSpace p)
+{
+    int failures{};
+    p.spin_model.coupling_matrix=FieldMatrix{{1.,0.2,0.1},{0.2,0.8,-0.3},{0.1,-0.3,1.2}};
+    p.JQ=RealType{1.3};
+    contour::CorrelationSet values('D',p.num_TimePoints,p.num_RealTimePoints);
+    func::ComplexMagnetizationTrajectory mag(p.num_RealTimePoints,func::ComplexFieldVector{});
+    for(size_t t=0;t<p.num_RealTimePoints;++t)
+    {
+        for(size_t c=0;c<3;++c)mag[t][c]={0.01*(c+1)*(t+1),0.002*(c+1)};
+        for(size_t c=0;c<9;++c)for(size_t tau=0;tau<p.num_TimePoints;++tau)
+        {
+            values.Re[t][c][tau]=0.1*std::cos(0.3*(1+t+c+tau));
+            values.Im[t][c][tau]=0.03*std::sin(0.2*(1+2*t+c+tau));
+        }
+    }
+    const auto connected=func::connected_contour_primitive(values,mag);
+    const contour::ContourLayout layout{p.num_TimePoints,p.num_RealTimePoints};
+    const auto dense=func::self_consistent_equations(p,values,mag);
+    const auto streamed=func::self_consistent_equations(p,values,mag,false);
+    func::ComplexDynamicMatrix raw(layout.dimension(),layout.dimension());
+    RealType residual{},scale{},max_error{};
+    for(size_t i=0;i<raw.rows();++i)for(size_t j=0;j<raw.columns();++j)
+    {
+        const auto a=layout.decode(i),b=layout.decode(j);ComplexType sum{};
+        for(size_t c=0;c<3;++c)for(size_t d=0;d<3;++d)
+            sum+=p.spin_model.coupling_matrix(a.component,c)*p.spin_model.coupling_matrix(b.component,d)
+                *contour::branch_correlation(connected,layout,{a.branch,a.point,c},{b.branch,b.point,d});
+        raw(i,j)=p.JQ*p.JQ*sum+ComplexType{p.noise.m_variance_in(a.component,b.component),0.};
+    }
+    for(size_t i=0;i<raw.rows();++i)for(size_t j=0;j<raw.columns();++j)
+    {
+        residual+=std::norm(raw(i,j)-raw(j,i));scale+=std::norm(raw(i,j));
+        const auto canonical=i<=j?raw(i,j):raw(j,i);
+        max_error=std::max({max_error,std::abs(canonical-dense.covariance(i,j)),
+                          std::abs(canonical-streamed.covariance_source(i,j))});
+    }
+    failures+=require(streamed.covariance.rows()==0,"FFT field setup omits the physical dense covariance");
+    failures+=require(max_error<RealType{1e-13},"streamed rotated covariance agrees with original full kernel");
+    failures+=require(std::abs(streamed.branch_identity_error-std::sqrt(residual/scale))<RealType{1e-13},
+                      "streaming preserves raw transpose-residual diagnostics");
+    func::FFTDenseComplexGaussianSampler a(dense.covariance,p.num_TimeSteps,p.num_RealTimePoints,p.delta_real_t,3.);
+    func::FFTDenseComplexGaussianSampler b(streamed.covariance_source,p.num_TimeSteps,p.num_RealTimePoints,p.delta_real_t,3.);
+    std::mt19937 engine{893};const auto latent=a.draw_latent(engine);
+    const auto x=a.contour_field_from_latent(latent,true),y=b.contour_field_from_latent(latent,true);
+    RealType field_error{};
+    for(size_t i=0;i<x.edge_field.size();++i)field_error=std::max(field_error,std::abs(x.edge_field[i]-y.edge_field[i]));
+    for(size_t node=0;node<2;++node)for(size_t i=0;i<x.real_gauss_fields[node].size();++i)
+        field_error=std::max(field_error,std::abs(x.real_gauss_fields[node][i]-y.real_gauss_fields[node][i]));
+    failures+=require(field_error<RealType{1e-12},"streamed and materialized FFT fields and Gauss nodes agree");
+    return failures;
+}
+
+int check_pcn_cache(ps::ParameterSpace p,int rank)
+{
+    int failures{};
+    p.sampling_strategy="pcn";p.num_SamplesPerCore=96;p.num_blocks=16;
+    p.beta=RealType{2.};p.delta_t=p.beta/p.num_TimeSteps;
+    const contour::ContourLayout layout{p.num_TimePoints,p.num_RealTimePoints};
+    func::ComplexDynamicMatrix covariance(layout.dimension(),layout.dimension(),ComplexType{});
+    for(size_t i=0;i<layout.dimension();++i)
+        covariance(i,i)=layout.decode(i).branch==contour::Branch::Matsubara?RealType{1.4}:RealType{0.03};
+    const func::MeanFieldTrajectory mean(p.num_RealTimePoints,FieldVector{});
+    for(const std::string normalization:{"partition-function","closed-contour"})
+    {
+        p.correlation_normalization=normalization;
+        func::DenseComplexGaussianSampler sampler(covariance),reference_sampler(covariance);
+        std::mt19937 engine{924},reference_engine{924};
+        const RealType step=RealType{0.95},retention=std::sqrt(RealType{1.}-step*step);
+        func::PCNChain chain(p,sampler,mean,step,engine);
+        const auto weight=[&](const func::ContourTrajectory& tr)
+        {return normalization=="closed-contour"?tr.final_closed_contour_trace:tr.partition_function;};
+        const auto positive=[](ComplexType z){return std::isfinite(std::real(z))&&std::isfinite(std::imag(z))&&std::real(z)>0.;};
+        func::JointComplexGaussianSampler::LatentVector latent;
+        func::ContourTrajectory reference;
+        for(size_t attempt=0;attempt<128;++attempt)
+        {
+            latent=reference_sampler.draw_latent(reference_engine);
+            reference=func::compute_contour_trajectory(p,reference_sampler.contour_field_from_latent(latent,p.cf4_propagator),mean);
+            if(positive(weight(reference)))break;
+        }
+        std::uniform_real_distribution<RealType> uniform(0.,1.);
+        rtd::RunTimeData cached(p,rank),eager(p,rank);
+        rtd::MeasuredSample measured;
+        func::MeasurementWorkspace workspace;
+        size_t rejections{};bool valid=false;
+        for(size_t i=0;i<p.num_SamplesPerCore;++i)
+        {
+            const auto innovation=reference_sampler.draw_latent(reference_engine);
+            auto proposal=latent;
+            for(size_t j=0;j<proposal.size();++j)proposal[j]=retention*latent[j]+step*innovation[j];
+            const auto proposed=func::compute_contour_trajectory(p,reference_sampler.contour_field_from_latent(proposal,p.cf4_propagator),mean);
+            bool accepted=false;
+            if(positive(weight(proposed)))
+            {
+                const RealType log_alpha=std::log(std::real(weight(proposed)))-std::log(std::real(weight(reference)));
+                accepted=std::log(uniform(reference_engine))<std::min(RealType{},log_alpha);
+            }
+            if(accepted){latent=proposal;reference=proposed;}
+            else ++rejections;
+            failures+=require(chain.step()==accepted,"Matsubara-first pCN preserves eager acceptance decisions");
+            failures+=require(std::abs(chain.real_sampling_weight()-std::real(weight(reference)))<RealType{1e-12},
+                              "pCN likelihood matches eager full-contour reference");
+            if(accepted||!valid)
+            {
+                func::measure_contour_observables(cached,chain.trajectory(),measured,workspace,p.spin_insertion_strategy);
+                valid=true;
+            }
+            cached.accumulate_sample(measured,RealType{1.}/chain.real_sampling_weight());
+            func::compute_contour_correlations(eager,reference,RealType{1.}/std::real(weight(reference)),p.spin_insertion_strategy);
+        }
+        failures+=require(rejections>0,"cache regression exercises rejected proposals");
+        failures+=require(engine==reference_engine,"delayed propagation preserves pCN RNG consumption");
+        contour::CorrelationSet cached_mean,cached_error,eager_mean,eager_error;
+        cached.mpi_reduce_and_finalize(cached_mean,cached_error);eager.mpi_reduce_and_finalize(eager_mean,eager_error);
+        failures+=require(func::max_contour_difference(cached_mean,eager_mean)<RealType{1e-12},"cached rejected states preserve complex-ratio means");
+        failures+=require(func::max_contour_difference(cached_error,eager_error)<RealType{1e-12},"cached rejected states preserve pCN block errors");
+        failures+=require(func::max_contour_difference(cached.contour_tau_int,eager.contour_tau_int)<RealType{1e-10},"cached rejected states preserve autocorrelation statistics");
+    }
+    return failures;
+}
+
 int main( int argc, char** argv )
 {
     MPI_Init(&argc,&argv);
@@ -134,17 +256,9 @@ int main( int argc, char** argv )
     p.num_RealTimeSteps=4; p.num_RealTimePoints=5;
     p.Tmax=RealType{0.6}; p.delta_real_t=p.Tmax/p.num_RealTimeSteps;
     int failures{};
-    {
-        p.antithetic_pairs=true;
-        p.num_SamplesPerCore=12; p.num_blocks=4;
-        rtd::RunTimeData pair_blocks(p,rank);
-        failures+=require(pair_blocks.num_blocks()==3
-                          &&pair_blocks.samples_per_block()==4,
-            "antithetic jackknife blocks are adjusted to contain complete pairs");
-        p.antithetic_pairs=false;
-        p.num_SamplesPerCore=2; p.num_blocks=2;
-    }
     func::initialize_matrices(p);
+    failures+=check_streamed_covariance(p);
+    failures+=check_pcn_cache(p,rank);
     const contour::ContourLayout layout{p.num_TimePoints,p.num_RealTimePoints};
     func::DenseComplexGaussianSampler::FieldVector fields(layout.dimension(),ComplexType{});
     const func::MeanFieldTrajectory mean(p.num_RealTimePoints,FieldVector{});
@@ -214,6 +328,8 @@ int main( int argc, char** argv )
     }
 
     // Degenerate trajectory: no real-time steps, only the t=0 insertion.
+    // The remaining tests intentionally use grids too short for cubic CF4.
+    p.cf4_propagator=false;
     auto zero=distinct;
     zero.forward_steps.resize(1); zero.backward_steps.resize(1);
     p.num_RealTimeSteps=0; p.num_RealTimePoints=1;
@@ -255,6 +371,35 @@ int main( int argc, char** argv )
     p.correlation_normalization="partition-function";
     p.sampling_strategy="independent";
 
+    // A pCN importance estimator must retain the correspondingly reweighted
+    // complex denominator. Otherwise the finite-chain arithmetic mean of
+    // N/Re Z violates the exact spin-half identity N=Z/4 whenever Z has a
+    // fluctuating phase.
+    p.sampling_strategy="pcn";
+    p.num_SamplesPerCore=2; p.num_blocks=2;
+    rtd::RunTimeData pcn_ratio(p,rank);
+    for( const ComplexType Z : std::array<ComplexType,2>{
+             ComplexType{1.,0.4},ComplexType{2.,-0.7}} )
+    {
+        const RealType inverse_likelihood=RealType{1.}/std::real(Z);
+        pcn_ratio.begin_sample(Z,inverse_likelihood);
+        pcn_ratio.accumulate_edge_correlation(
+            0,0,0,RealType{0.25}*Z);
+        pcn_ratio.end_sample();
+    }
+    contour::CorrelationSet pcn_ratio_mean,pcn_ratio_error;
+    pcn_ratio.mpi_reduce_and_finalize(pcn_ratio_mean,pcn_ratio_error);
+    failures+=require(
+        std::abs(ComplexType{pcn_ratio_mean.Re[0][0][0],
+                             pcn_ratio_mean.Im[0][0][0]}-RealType{0.25})
+            <RealType{1e-13},
+        "pCN retains its reweighted denominator for exact spin identities");
+    failures+=require(
+        pcn_ratio_error.Re[0][0][0]<RealType{1e-13}
+            &&pcn_ratio_error.Im[0][0][0]<RealType{1e-13},
+        "pCN ratio blocking reports zero error for an exact spin identity");
+    p.sampling_strategy="independent";
+
     p.self_consistency=true;
     p.Iteration_Limit=20;
     p.iteration_error_sigma_threshold=RealType{5.};
@@ -284,7 +429,6 @@ int main( int argc, char** argv )
     // pCN proposal must therefore be accepted, including the zero-dimensional
     // latent-state edge case.
     p.sampling_strategy="pcn";
-    p.antithetic_pairs=false;
     p.num_RealTimeSteps=1; p.num_RealTimePoints=2;
     const contour::ContourLayout pcn_layout{p.num_TimePoints,p.num_RealTimePoints};
     func::ComplexDynamicMatrix zero_covariance(
@@ -299,51 +443,9 @@ int main( int argc, char** argv )
     failures+=require(constant_chain.real_sampling_weight()>RealType{},
         "pCN current state has a positive real sampling weight");
 
-    // Antithetic pCN keeps both signs in one state and uses their summed real
-    // partition function as the Metropolis likelihood.  For the zero-rank
-    // Gaussian both signs coincide, so the paired estimator must reduce
-    // exactly to the ordinary pCN estimator while still counting one state.
-    p.antithetic_pairs=true;
-    std::mt19937 paired_engine{54321};
-    func::PCNChain paired_chain(
-        p,zero_sampler,zero_mean,RealType{0.4},paired_engine);
-    for( size_t step=0;step<6;++step ) paired_chain.step();
-    const RealType paired_partition=
-        std::real(paired_chain.trajectory().partition_function)
-       +std::real(paired_chain.antithetic_trajectory().partition_function);
-    failures+=require(paired_chain.uses_antithetic_pairs()
-                      &&std::abs(paired_chain.real_sampling_weight()-paired_partition)
-                         <RealType{1e-13},
-        "antithetic pCN likelihood is the sum over both latent signs");
-    failures+=require(paired_chain.proposed()==6&&paired_chain.accepted()==6,
-        "constant sign-symmetrized likelihood accepts every pCN proposal");
-
-    rtd::RunTimeData paired_runtime(p,rank);
-    for( size_t sample=0;sample<p.num_SamplesPerCore;++sample )
-        func::compute_contour_pair_correlations(
-            paired_runtime,paired_chain.trajectory(),
-            paired_chain.antithetic_trajectory(),
-            RealType{1.}/paired_chain.real_sampling_weight());
-    contour::CorrelationSet paired_mean,paired_error;
-    paired_runtime.mpi_reduce_and_finalize(paired_mean,paired_error);
-
-    p.antithetic_pairs=false;
-    rtd::RunTimeData ordinary_runtime(p,rank);
-    for( size_t sample=0;sample<p.num_SamplesPerCore;++sample )
-        func::compute_contour_correlations(
-            ordinary_runtime,constant_chain.trajectory(),
-            RealType{1.}/constant_chain.real_sampling_weight());
-    contour::CorrelationSet ordinary_mean,ordinary_error;
-    ordinary_runtime.mpi_reduce_and_finalize(ordinary_mean,ordinary_error);
-    failures+=require(
-        func::max_contour_difference(paired_mean,ordinary_mean)
-            <RealType{1e-13},
-        "sign-symmetrized pair measurement is accumulated as one pCN state");
-
     // With fixed closed-contour normalization, the pCN likelihood is Re D(T),
     // not Re Z_M. A single fluctuating forward-branch mode makes the two
     // quantities distinct while retaining a positive likelihood.
-    p.antithetic_pairs=false;
     p.correlation_normalization="closed-contour";
     func::ComplexDynamicMatrix forward_covariance(
         pcn_layout.dimension(),pcn_layout.dimension(),ComplexType{});
@@ -365,18 +467,6 @@ int main( int argc, char** argv )
                  -closed_contour_chain.trajectory().partition_function)
             >RealType{1e-8},
         "closed-contour pCN test distinguishes D(T) from Z_M");
-    p.antithetic_pairs=true;
-    std::mt19937 closed_pair_engine{13579};
-    func::PCNChain closed_pair_chain(
-        p,forward_sampler,zero_mean,RealType{0.4},closed_pair_engine);
-    const ComplexType paired_closed_weight=
-        closed_pair_chain.trajectory().final_closed_contour_trace
-       +closed_pair_chain.antithetic_trajectory().final_closed_contour_trace;
-    failures+=require(
-        std::abs(closed_pair_chain.real_sampling_weight()
-                 -std::real(paired_closed_weight))<RealType{1e-13},
-        "antithetic closed-contour pCN uses Re[D(r)+D(-r)]");
-    p.antithetic_pairs=false;
     p.correlation_normalization="partition-function";
 
     // Deliberately correlated block means: merging adjacent equal blocks must
@@ -403,6 +493,22 @@ int main( int argc, char** argv )
         "pCN batch merging detects autocorrelation variance inflation");
     failures+=require(correlated.contour_tau_int.Re[0][0][0]>RealType{0.5},
         "pCN statistics report an autocorrelation time above the iid value");
+    // Exercise the retained general-matrix measurement path independently
+    // of the specialized spin-1/2 representation.
+    p.sampling_strategy="independent";p.correlation_normalization="partition-function";
+    p.spin_float=RealType{1.};p.num_HilbertSpaceDimension=3;
+    p.num_TimeSteps=4;p.num_TimePoints=5;p.delta_t=p.beta/4;
+    p.num_RealTimeSteps=4;p.num_RealTimePoints=5;p.delta_real_t=RealType{0.1};
+    p.num_SamplesPerCore=2;p.num_blocks=2;
+    func::initialize_matrices(p);
+    const contour::ContourLayout spin_one_layout{5,5};
+    func::JointComplexGaussianSampler::FieldVector spin_one_fields(spin_one_layout.dimension());
+    for(size_t i=0;i<spin_one_fields.size();++i)
+        spin_one_fields[i]={0.1*std::sin(RealType(i)),0.02*std::cos(RealType(i))};
+    const auto spin_one=func::compute_contour_trajectory(p,spin_one_fields,
+        func::MeanFieldTrajectory(5,FieldVector{}));
+    failures+=check_measurement(p,spin_one,rank,"closed-contour");
+    failures+=check_measurement(p,spin_one,rank,"prefix");
     MPI_Finalize();
     return failures==0?0:1;
 }

@@ -115,6 +115,10 @@ void HDF5_Storage::create_file( const ps::ParameterSpace& pspace )
     {
         filename += "__corrnorm=D";
     }
+    if( pspace.cf4_propagator )
+    {
+        filename += "__prop=cf4";
+    }
     if( pspace.filename_extension != "" )
     {
         filename += "_" + pspace.filename_extension;
@@ -235,24 +239,8 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
         :pspace.correlation_normalization=="closed-contour"
          ?"Re D(T), where D(T)=Tr[U_+(T,0) rho_M B_-(T,0)]"
          :"Re Z_M" );
-    hdf5r::store_string( ps_group_id, "antithetic_pairs",
-                         hdf5r::bool_to_string(pspace.antithetic_pairs) );
-    hdf5r::store_string( ps_group_id, "antithetic_pair_definition",
-        !pspace.antithetic_pairs
-        ?"disabled"
-        :pspace.sampling_strategy=="pcn"
-         ?pspace.correlation_normalization=="closed-contour"
-          ?"Sign-symmetrized pCN: each Markov state evaluates r and -r, targets p0(r) Re[D_r(T)+D_-r(T)], and reweights the summed observables by that real likelihood. num_Samples counts pair states."
-          :"Sign-symmetrized pCN: each Markov state evaluates r and -r, targets p0(r) Re[Z_M(r)+Z_M(-r)], and reweights the summed observables by that real likelihood. num_Samples counts pair states."
-         :"Each independent real Gaussian latent draw r is evaluated as two trajectories with fluctuations Lr and -Lr. num_Samples counts both trajectories; numerator and Z_M remain accumulated into the global complex ratio." );
-    if( pspace.antithetic_pairs )
-        hdf5r::store_scalar( ps_group_id, "num_antithetic_pairs",
-            pspace.sampling_strategy=="pcn"
-            ?pspace.num_Samples:pspace.num_Samples/2 );
     hdf5r::store_string( ps_group_id, "sampling_count_unit",
-        pspace.sampling_strategy=="pcn"&&pspace.antithetic_pairs
-        ?"sign-symmetrized pCN pair states"
-        :pspace.sampling_strategy=="pcn"
+        pspace.sampling_strategy=="pcn"
          ?"pCN Markov states"
          :"contour trajectories" );
     hdf5r::store_scalar( ps_group_id, "mh_step_size",
@@ -263,10 +251,26 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
                          pspace.partition_imaginary_tolerance );
     hdf5r::store_string( ps_group_id, "gaussian_factorization",
                          pspace.gaussian_factorization );
+    hdf5r::store_string( ps_group_id, "gaussian_execution",
+        "exact-zero covariance blocks; identical block factors reused with independent latents; original global rank cutoff; sample-major independent batches of up to 32" );
+    hdf5r::store_string( ps_group_id, "observable_execution",
+        "reusable contiguous numerators; spin-1/2 fixed-size contractions; pCN cached rejected states retain full statistical accounting" );
+    hdf5r::store_string( ps_group_id, "covariance_construction",
+        pspace.gaussian_factorization=="fft"
+        ?"streamed canonical covariance; raw transpose diagnostic; no dense physical covariance"
+        :"canonical triangle with streamed raw transpose diagnostic" );
     hdf5r::store_scalar( ps_group_id, "fft_cross_frequency_cutoff",
                          pspace.fft_cross_frequency_cutoff );
+    hdf5r::store_string( ps_group_id, "propagator",
+        pspace.cf4_propagator?"gauss-cf4":"endpoint-cfet4" );
+    hdf5r::store_string( ps_group_id, "propagator_definition",
+        pspace.cf4_propagator
+        ?pspace.gaussian_factorization=="fft"
+         ?"two Gauss--Legendre internal nodes from the sampled FFT realization on each real-time interval, cubic edge interpolation on the Matsubara branch, and a two-exponential fourth-order commutator-free Magnus step"
+         :"four-point cubic interpolation of the sampled dense edge field at two Gauss--Legendre internal nodes on every contour interval, and a two-exponential fourth-order commutator-free Magnus step; assumes a smooth field between edges"
+        :"three-exponential endpoint CFET composition; globally second order for a general time-dependent Hamiltonian" );
     hdf5r::store_string( ps_group_id, "gaussian_factorization_options",
-        "dense: physical-grid real-lift Autonne--Takagi; svd: physical-grid canonical complex-SVD Takagi; fft: doubled-real FFT with one Matsubara plus low-real-frequency block, discarded high-frequency Matsubara-real covariance, independently sampled high {omega,-omega} Takagi blocks without a global dense factor, inverse FFT, and physical-grid restriction" );
+        "dense: exact-block physical-grid real-lift Autonne--Takagi; svd: exact-block physical-grid canonical complex-SVD Takagi; fft: doubled-real FFT with one Matsubara plus low-real-frequency block, discarded high-frequency Matsubara-real covariance, independently sampled high {omega,-omega} Takagi blocks without a global dense factor, inverse FFT, and physical-grid restriction" );
     hdf5r::store_string( ps_group_id, "correlation_normalization",
                          pspace.correlation_normalization );
     hdf5r::store_string( ps_group_id, "magnetization_normalization",
@@ -274,26 +278,18 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
     hdf5r::store_string( ps_group_id, "normalization_strategy",
         pspace.correlation_normalization=="closed-contour"
         ?pspace.sampling_strategy=="pcn"
-         ?pspace.antithetic_pairs
-          ?"pCN target pi_pair(r) proportional to p0(r) Re[D_r(T)+D_-r(T)]; fixed-final-contour ratio sum[(A(r)+A(-r))/Re(D_r(T)+D_-r(T))]/sum[(D_r(T)+D_-r(T))/Re(D_r(T)+D_-r(T))] for correlations and magnetization at every time"
-          :"pCN target pi(r) proportional to p0(r) Re D_r(T); fixed-final-contour ratio sum[A/Re D(T)]/sum[D(T)/Re D(T)] for correlations and magnetization at every time"
+         ?"pCN target pi(r) proportional to p0(r) Re D_r(T); fixed-final-contour ratio sum[A/Re D(T)]/sum[D(T)/Re D(T)] for correlations and magnetization at every time"
          :"bare-prior fixed-final-contour ratio: (sum numerator)/(sum D(T)) for correlations and magnetization at every time"
         :pspace.sampling_strategy=="pcn"
-        ?pspace.antithetic_pairs
-         ?"sign-symmetrized pCN target pi_pair(r) proportional to p0(r) Re[Z_M(r)+Z_M(-r)]; arithmetic mean of [N(r)+N(-r)]/Re[Z_M(r)+Z_M(-r)]"
-         :"pCN target pi(r) proportional to p0(r) Re Z_M(r), Re Z_M>0; arithmetic mean of numerator/Re Z_M"
-        :"bare-prior exact complex ratio: (sum numerator)/(sum Z_M)" );
+         ?"pCN target pi(r) proportional to p0(r) Re Z_M(r), Re Z_M>0; self-normalized complex ratio sum[N/Re Z_M]/sum[Z_M/Re Z_M]"
+         :"bare-prior exact complex ratio: (sum numerator)/(sum Z_M)" );
     hdf5r::store_string( ps_group_id, "spin_insertion_strategy",
         pspace.spin_insertion_strategy=="prefix"
         ?"prefix: U_+(0,t) S B_-(t,0) for correlations and magnetization"
         :"closed contour: B_-(T,0) U_+(t,T) S U_+(t,0) for correlations and magnetization; U_+(t,T) is the forward continuation t -> T, not an inverse" );
     hdf5r::store_string( ps_group_id, "closed_contour_diagnostic_definition",
         pspace.sampling_strategy=="pcn"
-        ?pspace.antithetic_pairs
-         ?pspace.correlation_normalization=="closed-contour"
-          ?"prefix diagnostic D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]; stored value is the sign-symmetrized pCN mean of [D_r(t)+D_-r(t)]/Re[D_r(T)+D_-r(T)]"
-          :"prefix diagnostic D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]; stored value is the sign-symmetrized pCN mean of [D_r(t)+D_-r(t)]/Re[Z_M(r)+Z_M(-r)]"
-         :pspace.correlation_normalization=="closed-contour"
+        ?pspace.correlation_normalization=="closed-contour"
           ?"prefix diagnostic D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]; stored value is the pCN mean of D(t)/Re D(T)"
           :"prefix diagnostic D(t)=Tr[U_+(t,0) rho_M B_-(t,0)]; stored value is the pCN mean of D(t)/Re Z_M"
         :pspace.correlation_normalization=="closed-contour"
@@ -414,12 +410,8 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
         hdf5r::store_scalar( rtd_group_id, "samples_per_ratio_jackknife_block", rtdata.samples_per_block() );
     }
     const std::string contour_err_remark = pspace.sampling_strategy=="pcn"
-        ?pspace.antithetic_pairs
-         ?" Standard error from contiguous sign-symmetrized pCN pair-state batch means, taking the largest resolved value along the power-of-two blocking curve; blocks are pooled over independent MPI chains."
-         :" Standard error from contiguous pCN batch means, taking the largest resolved value along the power-of-two blocking curve; blocks are pooled over independent MPI chains."
-        :pspace.antithetic_pairs
-         ?" Delete-one-block jackknife standard error of the complex ratio (sum N)/(sum Z_M), pooling equal-sized blocks of complete r,-r antithetic pairs over MPI ranks."
-         :" Delete-one-block jackknife standard error of the paired complex ratio (sum N)/(sum Z_M), pooling equal-sized independent-sample blocks over MPI ranks.";
+        ?" Standard error from contiguous pCN batch means, taking the largest resolved value along the power-of-two blocking curve; blocks are pooled over independent MPI chains."
+        :" Delete-one-block jackknife standard error of the paired complex ratio (sum N)/(sum Z_M), pooling equal-sized independent-sample blocks over MPI ranks.";
     hdf5r::store_list( rtd_group_id, "closed_contour_residual_Re_sample_stds",
         rtdata.closed_contour_residual_Re_sample_stds );
     hdf5r::store_list( rtd_group_id, "closed_contour_residual_Im_sample_stds",
@@ -436,14 +428,10 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
     {
         store_correlation( rtdata.contour_tau_int.Re, rtd_group_id,
             "Re_correlation_tau_int",
-            pspace.antithetic_pairs
-            ?"Integrated autocorrelation time in sign-symmetrized pCN pair steps inferred from batch-mean variance inflation; axes t,direction_pair,tau_edge."
-            :"Integrated autocorrelation time in pCN steps inferred from batch-mean variance inflation; axes t,direction_pair,tau_edge." );
+            "Integrated autocorrelation time in pCN steps inferred from batch-mean variance inflation; axes t,direction_pair,tau_edge." );
         store_correlation( rtdata.contour_tau_int.Im, rtd_group_id,
             "Im_correlation_tau_int",
-            pspace.antithetic_pairs
-            ?"Integrated autocorrelation time in sign-symmetrized pCN pair steps inferred from batch-mean variance inflation; axes t,direction_pair,tau_edge."
-            :"Integrated autocorrelation time in pCN steps inferred from batch-mean variance inflation; axes t,direction_pair,tau_edge." );
+            "Integrated autocorrelation time in pCN steps inferred from batch-mean variance inflation; axes t,direction_pair,tau_edge." );
     }
 
     // Components forbidden by the symmetry are exact zeros.

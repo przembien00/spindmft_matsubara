@@ -24,6 +24,14 @@ using MagVec = mag::MagnetizationVector;
 using IndexPair = ten::IndexPair;
 using CorrelationSet = spinDMFT::Contour::CorrelationSet;
 
+// Unnormalized observables in contiguous [t,component,tau] / [t,component]
+// order. Cached pCN states are accumulated once for every Markov step.
+struct MeasuredSample
+{
+    ComplexType partition{};
+    std::vector<ComplexType> correlations,magnetization,closure;
+};
+
 class RunTimeData
 {
  public:
@@ -77,6 +85,7 @@ class RunTimeData
     void accumulate_edge_correlation( size_t real_time, size_t component,
                                       size_t imaginary_edge, ComplexType numerator );
     void end_sample();
+    void accumulate_sample( const MeasuredSample& sample, RealType normalization=RealType{1.} );
 
     size_t num_magnetization_components() const { return m_mag_directions.size(); }
     size_t magnetization_direction( size_t c ) const { return m_mag_directions[c]; }
@@ -134,7 +143,6 @@ class RunTimeData
     bool m_self_consistency{};
     bool m_harmonic_bath{};
     bool m_pcn{};
-    bool m_antithetic_pairs{};
     bool m_closed_contour_observable_normalization{};
     RealType m_iteration_error_sigma_threshold{};
     size_t m_iteration_limit{};

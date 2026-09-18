@@ -76,13 +76,13 @@ class ParameterSpace
 
   // ...concerning Monte-Carlo sampling and correlated-chain statistics
   std::string sampling_strategy{"pcn"};
-  bool antithetic_pairs{false};
   RealType mh_step_size{RealType{0.3}};
   size_t mh_burn_in{size_t{100}};
   RealType partition_imaginary_tolerance{RealType{1e-8}};
   size_t num_blocks{};
   std::string gaussian_factorization{"dense"};
   RealType fft_cross_frequency_cutoff{RealType{3.}};
+  bool cf4_propagator{false};
   std::string spin_insertion_strategy{"closed-contour"};
   std::string correlation_normalization{"partition-function"};
 

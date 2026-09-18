@@ -44,6 +44,67 @@ Operator evolved_density( const func::ContourTrajectory& trajectory,
         result=trajectory.forward_steps[t]*result*trajectory.backward_steps[t];
     return result;
 }
+
+func::ComplexFieldVector smooth_noncommuting_field( const RealType time )
+{
+    return {
+        ComplexType{RealType{0.35}*std::cos(RealType{0.7}*time),0.},
+        ComplexType{RealType{0.22}*std::sin(RealType{0.4}*time),0.},
+        ComplexType{RealType{-0.18}*std::cos(RealType{1.1}*time),0.}};
+}
+
+Operator noncommuting_cf4_propagator( const ps::ParameterSpace& source,
+                                      const size_t real_steps,
+                                      const bool supply_internal_nodes=true )
+{
+    ps::ParameterSpace p=source;
+    p.cf4_propagator=true;
+    p.num_RealTimeSteps=real_steps;
+    p.num_RealTimePoints=real_steps+1;
+    p.delta_real_t=p.Tmax/static_cast<RealType>(real_steps);
+    const contour::ContourLayout layout{p.num_TimePoints,p.num_RealTimePoints};
+    func::JointComplexGaussianSampler::ContourFieldSample sample{};
+    sample.edge_field.resize(layout.dimension(),false);
+    reset(sample.edge_field);
+    for( size_t point=0;point<p.num_RealTimePoints;++point )
+    {
+        const auto field=smooth_noncommuting_field(
+            static_cast<RealType>(point)*p.delta_real_t);
+        for( size_t c=0;c<3;++c )
+        {
+            sample.edge_field[layout.flat(
+                contour::Branch::Forward,point,c)]=field[c];
+            sample.edge_field[layout.flat(
+                contour::Branch::Backward,point,c)]=field[c];
+        }
+    }
+    if( supply_internal_nodes )
+    {
+        for( auto& shifted:sample.real_gauss_fields )
+        {
+            shifted.resize(6*real_steps,false);
+            reset(shifted);
+        }
+        const RealType offset=std::sqrt(RealType{3.})/RealType{6.};
+        const std::array<RealType,2> fractions{
+            RealType{0.5}-offset,RealType{0.5}+offset};
+        for( size_t interval=0;interval<real_steps;++interval )
+            for( size_t node=0;node<2;++node )
+            {
+                const RealType time=(static_cast<RealType>(interval)+fractions[node])
+                                   *p.delta_real_t;
+                const auto field=smooth_noncommuting_field(time);
+                for( size_t c=0;c<3;++c )
+                {
+                    sample.real_gauss_fields[node][6*interval+c]=field[c];
+                    sample.real_gauss_fields[node][6*interval+3+c]=field[c];
+                }
+            }
+    }
+    const func::MeanFieldTrajectory mean_time(p.num_RealTimePoints,FieldVector{});
+    const auto trajectory=func::compute_contour_trajectory(p,sample,mean_time);
+    return cumulative_branch_propagators(trajectory,real_steps).first;
+}
 }
 
 int main()
@@ -160,6 +221,57 @@ int main()
         *RealType{0.5}*(H_new+H_old));
     failures+=require(frobenius(expected_cfet4-cfet2_step)>RealType{1e-8},
                       "time-dependent noncommuting CFET4 step differs from CFET2");
+
+    const Operator cf4_reference=noncommuting_cf4_propagator(p,4096);
+    const RealType cf4_error_8=frobenius(
+        noncommuting_cf4_propagator(p,8)-cf4_reference);
+    const RealType cf4_error_16=frobenius(
+        noncommuting_cf4_propagator(p,16)-cf4_reference);
+    failures+=require(cf4_error_8/cf4_error_16>RealType{12.},
+                      "Gauss-node CF4 has fourth-order refinement");
+
+    const RealType dense_cf4_error_16=frobenius(
+        noncommuting_cf4_propagator(p,16,false)-cf4_reference);
+    const RealType dense_cf4_error_32=frobenius(
+        noncommuting_cf4_propagator(p,32,false)-cf4_reference);
+    failures+=require(dense_cf4_error_16/dense_cf4_error_32>RealType{12.},
+                      "dense interpolated-node CF4 has fourth-order refinement");
+
+    ps::ParameterSpace cf4_closure_pspace=p;
+    cf4_closure_pspace.cf4_propagator=true;
+    func::JointComplexGaussianSampler::ContourFieldSample cf4_closure_field{};
+    cf4_closure_field.edge_field=zero_field;
+    for( auto& shifted:cf4_closure_field.real_gauss_fields )
+    {
+        shifted.resize(6*p.num_RealTimeSteps,false);
+        reset(shifted);
+    }
+    const auto cf4_closure_trajectory=func::compute_contour_trajectory(
+        cf4_closure_pspace,cf4_closure_field,varying_mean_time);
+    failures+=require(frobenius(evolved_density(
+        cf4_closure_trajectory,IDENTITY,p.num_RealTimeSteps)-IDENTITY)
+        <RealType{1e-11},"Gauss-node CF4 preserves equal-field contour closure");
+
+    auto cf4_imaginary_field=cf4_closure_field;
+    for( size_t k=0;k<p.num_TimePoints;++k )
+    {
+        const RealType tau=static_cast<RealType>(k)*p.delta_t;
+        const RealType value=RealType{0.1}+RealType{0.2}*tau
+            -RealType{0.3}*tau*tau+RealType{0.4}*tau*tau*tau;
+        cf4_imaginary_field.edge_field[
+            layout.flat(contour::Branch::Matsubara,k,2)]=value;
+    }
+    const auto cf4_imaginary_trajectory=func::compute_contour_trajectory(
+        cf4_closure_pspace,cf4_imaginary_field,mean_time);
+    const RealType integrated_field=RealType{0.1}*p.beta
+        +RealType{0.1}*p.beta*p.beta
+        -RealType{0.1}*p.beta*p.beta*p.beta
+        +RealType{0.1}*p.beta*p.beta*p.beta*p.beta;
+    const RealType expected_cf4_Z=RealType{2.}*std::cosh(
+        (p.beta*hz+integrated_field)/RealType{2.});
+    failures+=require(std::abs(cf4_imaginary_trajectory.partition_function
+                              -expected_cf4_Z)<RealType{2e-12},
+                      "Matsubara CF4 integrates a cubic commuting field exactly");
 
     const size_t t_index=3;
     const auto [forward_t,backward_t]=cumulative_branch_propagators(
