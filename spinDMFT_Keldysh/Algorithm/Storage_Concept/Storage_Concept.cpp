@@ -166,7 +166,8 @@ void HDF5_Storage::create_file( const ps::ParameterSpace& pspace )
 void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
                               const rtd::RunTimeData& rtdata,
                               const CorrelationSet& correlations,
-                              const CorrelationSet& standard_errors )
+                              const MagTen& magnetization_Re,
+                              const MagTen& magnetization_Im )
 {
     if( !m_storing_permission ){ return; } // permission request
 
@@ -298,7 +299,7 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
          :"four-point cubic interpolation of the sampled dense edge field at two Gauss--Legendre internal nodes on each real-time propagation subinterval and each Matsubara interval, and a two-exponential fourth-order commutator-free Magnus step; assumes a smooth field between edges"
         :"three-exponential endpoint CFET composition; globally second order for a general time-dependent Hamiltonian" );
     hdf5r::store_string( ps_group_id, "gaussian_factorization_options",
-        "dense: exact-block physical-grid real-lift Autonne--Takagi; weighted-dense: full-contour weighted Takagi in (M,eta,kappa), inverse transformed to physical fields; svd: exact-block physical-grid canonical complex-SVD Takagi; fft: doubled-real FFT, joint frequency Takagi blocks, inverse FFT, and physical-grid restriction; optional nonnegative cutoff discards high-frequency Matsubara-real covariance and samples high {omega,-omega} blocks independently" );
+        "dense: exact-block physical-grid real-lift Autonne--Takagi; weighted-dense: full-contour weighted Takagi in (M,eta,kappa), inverse transformed to physical fields; fft: doubled-real FFT, joint frequency Takagi blocks, inverse FFT, and physical-grid restriction; optional nonnegative cutoff discards high-frequency Matsubara-real covariance and samples high {omega,-omega} blocks independently" );
     hdf5r::store_string( ps_group_id, "correlation_normalization",
                          pspace.correlation_normalization );
     hdf5r::store_string( ps_group_id, "magnetization_normalization",
@@ -446,10 +447,10 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
         rtdata.closed_contour_residual_Im_sample_stds );
     hdf5r::store_list( rtd_group_id, "closed_contour_residual_abs_sample_stds",
         rtdata.closed_contour_residual_abs_sample_stds );
-    store_correlation( standard_errors.Re, rtd_group_id,
+    store_correlation( rtdata.contour_sample_stds.Re, rtd_group_id,
         "Re_correlation_sample_stds",
         "Standard errors of edge-grid Re X; axes t,direction_pair,tau_edge." + contour_err_remark );
-    store_correlation( standard_errors.Im, rtd_group_id,
+    store_correlation( rtdata.contour_sample_stds.Im, rtd_group_id,
         "Im_correlation_sample_stds",
         "Standard errors of edge-grid Im X; axes t,direction_pair,tau_edge." + contour_err_remark );
     if( pspace.sampling_strategy=="pcn" )
@@ -464,10 +465,10 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
 
     // Components forbidden by the symmetry are exact zeros.
     hdf5r::store_2D_tensor<RealType>( rtd_group_id, "Re_magnetization_sample_stds",
-        H5_REAL_TYPE, rtdata.magnetization_time_Re_stds,
+        H5_REAL_TYPE, rtdata.magnetization_time_Re_stds.expand(),
         "Axes are real_time, spin_component(x,y,z)." );
     hdf5r::store_2D_tensor<RealType>( rtd_group_id, "Im_magnetization_sample_stds",
-        H5_REAL_TYPE, rtdata.magnetization_time_Im_stds,
+        H5_REAL_TYPE, rtdata.magnetization_time_Im_stds.expand(),
         "Axes are real_time, spin_component(x,y,z)." );
 
 
@@ -505,10 +506,10 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
         "Im_correlation",
         "Im X^{ab}(t,tau_edge); axes t,direction_pair(a,b),tau_edge." );
     hdf5r::store_2D_tensor<RealType>( results_group_id, "Re_magnetization",
-        H5_REAL_TYPE, rtdata.magnetization_time_Re,
+        H5_REAL_TYPE, magnetization_Re.expand(),
         "Re m_a(t); axes are real_time, spin_component(x,y,z)." );
     hdf5r::store_2D_tensor<RealType>( results_group_id, "Im_magnetization",
-        H5_REAL_TYPE, rtdata.magnetization_time_Im,
+        H5_REAL_TYPE, magnetization_Im.expand(),
         "Im m_a(t); axes are real_time, spin_component(x,y,z)." );
     H5Gclose( results_group_id );
 }

@@ -319,51 +319,6 @@ int main()
                              "zero pseudo-variance does not set sampled nu to zero" );
     }
     {
-        const auto covariance=make_structured_keldysh_covariance();
-        func::SVDComplexGaussianSampler sampler(covariance);
-        failures+=require(sampler.size()==9,"SVD sampler size");
-        failures+=require(sampler.reconstruction_error()<RealType{1e-12},
-                          "SVD exact structured reconstruction");
-        failures+=require(sampler.latent_dimension()==9,
-                          "SVD sampler latent dimension");
-        std::mt19937 engine{7712};
-        const auto empirical=empirical_pseudo_covariance(sampler,engine,100000);
-        failures+=require(relative_residual(empirical,covariance)<RealType{0.025},
-                          "SVD empirical pseudo-covariance");
-
-        auto dense=func::make_complex_gaussian_sampler("dense",covariance,1,1);
-        auto svd=func::make_complex_gaussian_sampler("svd",covariance,1,1);
-        failures+=require(dense->size()==svd->size(),"sampler factory alternatives");
-
-        const auto dense_factor=func::autonne_takagi(covariance);
-        const auto svd_factor=func::svd_takagi(covariance);
-        failures+=require(relative_residual(
-            hermitian_covariance(svd_factor),hermitian_covariance(dense_factor))
-            <RealType{1e-11},"SVD and dense Hermitian covariance equivalence");
-    }
-    {
-        // Rank-zero input must not create null-space noise.
-        func::ComplexDynamicMatrix zero(9,9,ComplexType{});
-        func::SVDComplexGaussianSampler sampler(zero);
-        std::mt19937 engine{9012};
-        const auto field=sampler.draw(engine);
-        RealType norm{};
-        for( const auto value:field ) norm+=std::norm(value);
-        failures+=require(norm==RealType{0.},
-                          "zero SVD covariance produces zero field");
-    }
-    {
-        // Exercises exact singular-value degeneracies and a larger covariance.
-        const auto covariance=make_doubled_frequency_covariance();
-        const auto dense_factor=func::autonne_takagi(covariance);
-        const auto svd_factor=func::svd_takagi(covariance);
-        failures+=require(svd_factor.reconstruction_error<RealType{1e-11},
-                          "degenerate SVD Takagi reconstruction");
-        failures+=require(relative_residual(
-            hermitian_covariance(svd_factor),hermitian_covariance(dense_factor))
-            <RealType{1e-11},"degenerate SVD Hermitian covariance equivalence");
-    }
-    {
         const std::array<size_t,5> expected{4,3,2,1,0};
         for( size_t point=0;point<expected.size();++point )
             failures+=require(func::one_sided_edge_reflection_index(
@@ -468,7 +423,7 @@ int main()
         for(size_t c=0;c<3;++c)for(size_t i=0;i<3;++i)for(size_t j=0;j<3;++j)
             covariance(3*i+c,3*j+c)=block(i,j);
         const auto reference=func::autonne_takagi(covariance);
-        for(const std::string algorithm:{"dense","svd"})
+        const std::string algorithm{"dense"};
         {
             auto sampler=func::make_complex_gaussian_sampler(algorithm,covariance,0,0);
             failures+=require(sampler->largest_factorization_dimension()==3,

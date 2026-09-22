@@ -26,8 +26,8 @@ using Corr = contour::Corr;
 using CorrTen = contour::CorrTen;
 using CorrelationSet = contour::CorrelationSet;
 using MagVec = mag::MagnetizationVector;
+using MagTen = mag::MagnetizationTensor<MagVec>;
 using OperatorTrajectories = std::array<std::vector<Operator>,3>;
-using ComplexMagnetizationTrajectory = std::vector<ComplexFieldVector>;
 using MeanFieldTrajectory = std::vector<FieldVector>;
 
 struct SelfConsistentField
@@ -41,8 +41,11 @@ struct SelfConsistentField
 
 void initialize_matrices( const ps::ParameterSpace& pspace );
 
+std::pair<MagTen,MagTen> generate_initial_magnetization(
+    const ps::ParameterSpace& pspace );
+
 CorrelationSet generate_initial_correlations( const ps::ParameterSpace& pspace,
-                                              const FieldVector& spin_expectation );
+                                              const MagTen& magnetization_Re );
 
 // The stored mixed primitive is X^{ab}(t,tau)=<S_b(-i tau) S_a(t)>.
 // Its connected counterpart therefore subtracts the unconjugated product
@@ -50,7 +53,8 @@ CorrelationSet generate_initial_correlations( const ps::ParameterSpace& pspace,
 // its equilibrium value at the contour origin.
 CorrelationSet connected_contour_primitive(
     const CorrelationSet& correlations,
-    const ComplexMagnetizationTrajectory& magnetization_time );
+    const MagTen& magnetization_Re,
+    const MagTen& magnetization_Im );
 
 // Build E[V V^T] for [V_M(tau_k),V_+(t_n),V_-(t_n)], k=0,...,N_tau,
 // retaining distinct 0+ and beta- Matsubara variables.
@@ -60,7 +64,8 @@ CorrelationSet connected_contour_primitive(
 SelfConsistentField self_consistent_equations(
     const ps::ParameterSpace& pspace,
     const CorrelationSet& correlations,
-    const ComplexMagnetizationTrajectory& magnetization_time,
+    const MagTen& magnetization_Re,
+    const MagTen& magnetization_Im,
     bool materialize_covariance=true );
 
 // Analytic mixed primitive of one thermal oscillator
@@ -158,17 +163,11 @@ CorrelationSet mix_correlations( const CorrelationSet& old_correlations,
                                  const CorrelationSet& raw_correlations,
                                  RealType alpha );
 
-ComplexMagnetizationTrajectory mix_magnetization_trajectory(
-    const ComplexMagnetizationTrajectory& old_values,
-    const ComplexMagnetizationTrajectory& raw_values,
-    RealType alpha );
+MagTen mix_magnetization_tensor( const MagTen& old_values,
+                                 const MagTen& raw_values,
+                                 RealType alpha );
 
-ComplexMagnetizationTrajectory project_constant_magnetization(
-    const ComplexMagnetizationTrajectory& values );
-
-RealType max_magnetization_difference(
-    const ComplexMagnetizationTrajectory& old_values,
-    const ComplexMagnetizationTrajectory& raw_values );
+MagTen project_constant_magnetization( const MagTen& values );
 
 struct IterationResidual
 {
@@ -180,9 +179,11 @@ IterationResidual iteration_residual(
     const CorrelationSet& old_correlations,
     const CorrelationSet& raw_correlations,
     const CorrelationSet& standard_errors,
-    const ComplexMagnetizationTrajectory& old_magnetization,
-    const ComplexMagnetizationTrajectory& raw_magnetization,
-    const std::vector<FieldVector>& magnetization_Re_errors,
-    const std::vector<FieldVector>& magnetization_Im_errors );
+    const MagTen& old_magnetization_Re,
+    const MagTen& old_magnetization_Im,
+    const MagTen& raw_magnetization_Re,
+    const MagTen& raw_magnetization_Im,
+    const MagTen& magnetization_Re_errors,
+    const MagTen& magnetization_Im_errors );
 
 }

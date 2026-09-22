@@ -58,8 +58,10 @@ int check_measurement( const ps::ParameterSpace& p,
     for( size_t sample=0;sample<p.num_SamplesPerCore;++sample )
         func::compute_contour_correlations(
             runtime,trajectory,RealType{1.},insertion_strategy);
-    contour::CorrelationSet correlations,errors;
-    runtime.mpi_reduce_and_finalize(correlations,errors);
+    contour::CorrelationSet correlations;
+    rtd::MagTen magnetization_Re,magnetization_Im;
+    runtime.mpi_reduce_and_finalize(
+        correlations,magnetization_Re,magnetization_Im);
     const std::array<const Observable*,3> spins{&S_X,&S_Y,&S_Z};
     RealType correlation_error{},magnetization_error{},closure_error{};
     Operator final_density=trajectory.imaginary_density_operator;
@@ -87,8 +89,8 @@ int check_measurement( const ps::ParameterSpace& p,
                 :full_numerator(trajectory,
                     trajectory.imaginary_density_operator,*spins[a],t))
                 /observable_denominator;
-            const ComplexType actual{runtime.magnetization_time_Re[t][a],
-                                     runtime.magnetization_time_Im[t][a]};
+            const ComplexType actual{magnetization_Re[t][c],
+                                     magnetization_Im[t][c]};
             magnetization_error=std::max(magnetization_error,std::abs(actual-expected));
         }
         for( size_t pair=0;pair<runtime.num_correlation_components();++pair )
@@ -125,20 +127,26 @@ int check_streamed_covariance(ps::ParameterSpace p)
     p.spin_model.coupling_matrix=FieldMatrix{{1.,0.2,0.1},{0.2,0.8,-0.3},{0.1,-0.3,1.2}};
     p.JQ=RealType{1.3};
     contour::CorrelationSet values('D',p.num_TimePoints,p.num_RealTimePoints);
-    func::ComplexMagnetizationTrajectory mag(p.num_RealTimePoints,func::ComplexFieldVector{});
+    func::MagTen mag_Re{'D',p.num_RealTimePoints};
+    func::MagTen mag_Im{'D',p.num_RealTimePoints};
     for(size_t t=0;t<p.num_RealTimePoints;++t)
     {
-        for(size_t c=0;c<3;++c)mag[t][c]={0.01*(c+1)*(t+1),0.002*(c+1)};
+        for(size_t c=0;c<3;++c)
+        {
+            mag_Re[t][c]=0.01*(c+1)*(t+1);
+            mag_Im[t][c]=0.002*(c+1);
+        }
         for(size_t c=0;c<9;++c)for(size_t tau=0;tau<p.num_TimePoints;++tau)
         {
             values.Re[t][c][tau]=0.1*std::cos(0.3*(1+t+c+tau));
             values.Im[t][c][tau]=0.03*std::sin(0.2*(1+2*t+c+tau));
         }
     }
-    const auto connected=func::connected_contour_primitive(values,mag);
+    const auto connected=func::connected_contour_primitive(values,mag_Re,mag_Im);
     const contour::ContourLayout layout{p.num_TimePoints,p.num_RealTimePoints};
-    const auto dense=func::self_consistent_equations(p,values,mag);
-    const auto streamed=func::self_consistent_equations(p,values,mag,false);
+    const auto dense=func::self_consistent_equations(p,values,mag_Re,mag_Im);
+    const auto streamed=func::self_consistent_equations(
+        p,values,mag_Re,mag_Im,false);
     func::ComplexDynamicMatrix raw(layout.dimension(),layout.dimension());
     RealType residual{},scale{},max_error{};
     for(size_t i=0;i<raw.rows();++i)for(size_t j=0;j<raw.columns();++j)
@@ -232,10 +240,14 @@ int check_pcn_cache(ps::ParameterSpace p,int rank)
         }
         failures+=require(rejections>0,"cache regression exercises rejected proposals");
         failures+=require(engine==reference_engine,"delayed propagation preserves pCN RNG consumption");
-        contour::CorrelationSet cached_mean,cached_error,eager_mean,eager_error;
-        cached.mpi_reduce_and_finalize(cached_mean,cached_error);eager.mpi_reduce_and_finalize(eager_mean,eager_error);
+        contour::CorrelationSet cached_mean,eager_mean;
+        rtd::MagTen cached_mag_Re,cached_mag_Im,eager_mag_Re,eager_mag_Im;
+        cached.mpi_reduce_and_finalize(
+            cached_mean,cached_mag_Re,cached_mag_Im);
+        eager.mpi_reduce_and_finalize(
+            eager_mean,eager_mag_Re,eager_mag_Im);
         failures+=require(func::max_contour_difference(cached_mean,eager_mean)<RealType{1e-12},"cached rejected states preserve complex-ratio means");
-        failures+=require(func::max_contour_difference(cached_error,eager_error)<RealType{1e-12},"cached rejected states preserve pCN block errors");
+        failures+=require(func::max_contour_difference(cached.contour_sample_stds,eager.contour_sample_stds)<RealType{1e-12},"cached rejected states preserve pCN block errors");
         failures+=require(func::max_contour_difference(cached.contour_tau_int,eager.contour_tau_int)<RealType{1e-10},"cached rejected states preserve autocorrelation statistics");
     }
     return failures;
@@ -374,15 +386,16 @@ int main( int argc, char** argv )
                 0,0,ComplexType{sample[1],0.});
             normalized.end_sample();
         }
-        contour::CorrelationSet normalized_mean,normalized_error;
-        normalized.mpi_reduce_and_finalize(normalized_mean,normalized_error);
+        contour::CorrelationSet normalized_mean;
+        rtd::MagTen normalized_mag_Re,normalized_mag_Im;
+        normalized.mpi_reduce_and_finalize(
+            normalized_mean,normalized_mag_Re,normalized_mag_Im);
         failures+=require(
             std::abs(normalized_mean.Re[0][0][0]-RealType{3.5})
                 <RealType{1e-13},
             "closed-contour correlation normalization uses sum N over sum D(T)");
         failures+=require(
-            std::abs(normalized.magnetization_time_Re[0]
-                    [normalized.magnetization_direction(0)]-RealType{3.5})
+            std::abs(normalized_mag_Re[0][0]-RealType{3.5})
                 <RealType{1e-13},
             "closed-contour magnetization normalization uses sum M over sum D(T)");
     }
@@ -405,16 +418,18 @@ int main( int argc, char** argv )
             0,0,0,RealType{0.25}*Z);
         pcn_ratio.end_sample();
     }
-    contour::CorrelationSet pcn_ratio_mean,pcn_ratio_error;
-    pcn_ratio.mpi_reduce_and_finalize(pcn_ratio_mean,pcn_ratio_error);
+    contour::CorrelationSet pcn_ratio_mean;
+    rtd::MagTen pcn_ratio_mag_Re,pcn_ratio_mag_Im;
+    pcn_ratio.mpi_reduce_and_finalize(
+        pcn_ratio_mean,pcn_ratio_mag_Re,pcn_ratio_mag_Im);
     failures+=require(
         std::abs(ComplexType{pcn_ratio_mean.Re[0][0][0],
                              pcn_ratio_mean.Im[0][0][0]}-RealType{0.25})
             <RealType{1e-13},
         "pCN retains its reweighted denominator for exact spin identities");
     failures+=require(
-        pcn_ratio_error.Re[0][0][0]<RealType{1e-13}
-            &&pcn_ratio_error.Im[0][0][0]<RealType{1e-13},
+        pcn_ratio.contour_sample_stds.Re[0][0][0]<RealType{1e-13}
+            &&pcn_ratio.contour_sample_stds.Im[0][0][0]<RealType{1e-13},
         "pCN ratio blocking reports zero error for an exact spin identity");
     p.sampling_strategy="independent";
 
@@ -428,19 +443,19 @@ int main( int argc, char** argv )
         runtime.gaussian_factor_reconstruction_errors.push_back(RealType{});
         runtime.average_phase_magnitudes.push_back(RealType{1.});
         runtime.denominator_constancy_residuals.push_back(RealType{});
-        runtime.magnetization_time_Im.assign(1,FieldVector{});
-        runtime.magnetization_time_Im_stds.assign(1,FieldVector{});
+        runtime.magnetization_time_Im_stds=rtd::MagTen{'D',1};
         runtime.num_Iterations=1;
     };
+    const rtd::MagTen zero_magnetization{'D',1};
     rtd::RunTimeData accepted(p,rank);
     prime_diagnostics(accepted);
     accepted.record_iteration_error(RealType{0.2},RealType{4.99});
-    failures+=require(accepted.terminate(),
+    failures+=require(accepted.terminate(zero_magnetization),
         "standardized residual below q passes the fixed-point stopping rule");
     rtd::RunTimeData rejected(p,rank);
     prime_diagnostics(rejected);
     rejected.record_iteration_error(RealType{1e-8},RealType{5.});
-    failures+=require(!rejected.terminate(),
+    failures+=require(!rejected.terminate(zero_magnetization),
         "standardized residual equal to q does not pass the strict stopping rule");
 
     // A zero-rank Gaussian has constant field and partition function.  Every
@@ -502,8 +517,10 @@ int main( int argc, char** argv )
         correlated.accumulate_edge_correlation(0,0,0,ComplexType{value,0.});
         correlated.end_sample();
     }
-    contour::CorrelationSet correlated_mean,correlated_error;
-    correlated.mpi_reduce_and_finalize(correlated_mean,correlated_error);
+    contour::CorrelationSet correlated_mean;
+    rtd::MagTen correlated_mag_Re,correlated_mag_Im;
+    correlated.mpi_reduce_and_finalize(
+        correlated_mean,correlated_mag_Re,correlated_mag_Im);
     failures+=require(correlated.blocking_curve_mean_errors.size()>=3,
         "pCN statistics expose a multi-scale blocking curve");
     failures+=require(correlated.blocking_curve_max_errors[1]

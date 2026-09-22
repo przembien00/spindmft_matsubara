@@ -104,7 +104,6 @@ class ParameterSpace
   RealType imaginary_magnetization_sigma{RealType{5.}};
   
   // ...concerning the initial correlations
-  FieldVector initial_spin_expval{};
   ph::DiagonalSpinCorrelation init_diag_corr{};
   ph::NonDiagonalSpinCorrelation init_nondiag_corr{};
   bool load_initial_spin_correlations{ false };
@@ -115,6 +114,7 @@ class ParameterSpace
   std::string initial_correlations_src_directory{};
   std::vector<RealType> initial_correlations_linearized{};
   std::vector<RealType> initial_correlations_imag_linearized{};
+  std::vector<RealType> initial_magnetization_linearized{};
 
   // ========== storing and naming ==========
   std::string information_text{};

@@ -397,19 +397,27 @@ int main()
                       "distinct backward field is not replaced by the forward inverse");
 
     contour::CorrelationSet full{'D',4,3};
-    func::ComplexMagnetizationTrajectory magnetization(3,func::ComplexFieldVector{});
-    magnetization[0]={ComplexType{0.2,0.1},ComplexType{-0.1,0.05},
-                      ComplexType{0.3,-0.04}};
-    magnetization[1]={ComplexType{0.25,-0.03},ComplexType{-0.08,0.02},
-                      ComplexType{0.24,0.07}};
-    magnetization[2]={ComplexType{0.15,0.06},ComplexType{-0.04,-0.01},
-                      ComplexType{0.18,0.09}};
+    func::MagTen magnetization_Re{'D',3},magnetization_Im{'D',3};
+    const std::array<FieldVector,3> magnetization_Re_full{
+        FieldVector{0.2,-0.1,0.3},FieldVector{0.25,-0.08,0.24},
+        FieldVector{0.15,-0.04,0.18}};
+    const std::array<FieldVector,3> magnetization_Im_full{
+        FieldVector{0.1,0.05,-0.04},FieldVector{-0.03,0.02,0.07},
+        FieldVector{0.06,-0.01,0.09}};
+    for( size_t t=0;t<3;++t )
+    {
+        magnetization_Re[t]=func::MagVec{'D',magnetization_Re_full[t]};
+        magnetization_Im[t]=func::MagVec{'D',magnetization_Im_full[t]};
+    }
     for( size_t ti=0;ti<full.Re.size();++ti )
         for( size_t pair=0;pair<full.Re[ti].size();++pair )
         {
             const auto ab=full.Re[ti].get_direction_pair(pair);
-            const ComplexType disconnected=magnetization[ti][ab[0]]
-                                          *magnetization[0][ab[1]];
+            const ComplexType disconnected=
+                ComplexType{magnetization_Re_full[ti][ab[0]],
+                            magnetization_Im_full[ti][ab[0]]}
+               *ComplexType{magnetization_Re_full[0][ab[1]],
+                            magnetization_Im_full[0][ab[1]]};
             for( size_t tau=0;tau<full.Re[ti][pair].size();++tau )
             {
                 const ComplexType target{
@@ -420,7 +428,8 @@ int main()
                 full.Im[ti][pair][tau]=std::imag(value);
             }
         }
-    const auto connected=func::connected_contour_primitive(full,magnetization);
+    const auto connected=func::connected_contour_primitive(
+        full,magnetization_Re,magnetization_Im);
     for( size_t ti=0;ti<connected.Re.size();++ti )
         for( size_t pair=0;pair<connected.Re[ti].size();++pair )
             for( size_t tau=0;tau<connected.Re[ti][pair].size();++tau )
@@ -434,20 +443,27 @@ int main()
                     "connected primitive subtracts unconjugated m_a(t)m_b(0)");
             }
 
-    const auto stationary=func::project_constant_magnetization(magnetization);
-    failures+=require(stationary.size()==magnetization.size(),
+    const auto stationary_Re=func::project_constant_magnetization(magnetization_Re);
+    const auto stationary_Im=func::project_constant_magnetization(magnetization_Im);
+    failures+=require(stationary_Re.size()==magnetization_Re.size(),
                       "constant magnetization projection preserves the time grid");
-    for( const auto& value:stationary )
-        for( size_t c=0;c<3;++c )
-            failures+=require(std::abs(value[c]-stationary.front()[c])<RealType{1e-13},
+    for( size_t t=0;t<stationary_Re.size();++t )
+        for( size_t c=0;c<stationary_Re.num_components();++c )
+            failures+=require(
+                std::abs(stationary_Re[t][c]-stationary_Re.front()[c])<RealType{1e-13}
+                &&std::abs(stationary_Im[t][c]-stationary_Im.front()[c])<RealType{1e-13},
                 "constant magnetization projection uses m(0) at every time");
-    const auto stationary_connected=func::connected_contour_primitive(full,stationary);
+    const auto stationary_connected=func::connected_contour_primitive(
+        full,stationary_Re,stationary_Im);
     for( size_t pair=0;pair<stationary_connected.Re[0].size();++pair )
     {
         const auto ab=stationary_connected.Re[0].get_direction_pair(pair);
         const ComplexType original{full.Re[0][pair][0],full.Im[0][pair][0]};
-        const ComplexType expected=original-stationary.front()[ab[0]]
-                                           *stationary.front()[ab[1]];
+        const ComplexType stationary_a{stationary_Re.front()[ab[0]],
+                                       stationary_Im.front()[ab[0]]};
+        const ComplexType stationary_b{stationary_Re.front()[ab[1]],
+                                       stationary_Im.front()[ab[1]]};
+        const ComplexType expected=original-stationary_a*stationary_b;
         const ComplexType actual{stationary_connected.Re[0][pair][0],
                                  stationary_connected.Im[0][pair][0]};
         failures+=require(std::abs(actual-expected)<RealType{1e-13},
@@ -462,18 +478,18 @@ int main()
     mean_pspace.JQ=RealType{0.};
     mean_pspace.JL=RealType{-2.};
     const auto self_consistent=func::self_consistent_equations(
-        mean_pspace,full,magnetization);
-    for( size_t ti=0;ti<magnetization.size();++ti )
+        mean_pspace,full,magnetization_Re,magnetization_Im);
+    for( size_t ti=0;ti<magnetization_Re.size();++ti )
         for( size_t c=0;c<3;++c )
             failures+=require(std::abs(self_consistent.mean_time[ti][c]
-                -mean_pspace.JL*std::real(magnetization[ti][c]))<RealType{1e-13},
+                -mean_pspace.JL*magnetization_Re[ti][c])<RealType{1e-13},
                 "first-moment closure uses JL D Re m(t)");
 
     ps::ParameterSpace covariance_pspace=mean_pspace;
     covariance_pspace.JQ=RealType{1.};
     covariance_pspace.JL=RealType{0.};
     const auto endpoint_covariance=func::self_consistent_equations(
-        covariance_pspace,full,magnetization);
+        covariance_pspace,full,magnetization_Re,magnetization_Im);
     const contour::ContourLayout endpoint_layout{
         covariance_pspace.num_TimePoints,covariance_pspace.num_RealTimePoints};
     const size_t zero_row=endpoint_layout.flat(contour::Branch::Matsubara,0,0);
@@ -561,13 +577,52 @@ int main()
     iteration_errors.Re[0][0][0]=RealType{0.1};
     raw_iteration.Im[0][0][1]=RealType{-0.3};
     iteration_errors.Im[0][0][1]=RealType{0.1};
-    func::ComplexMagnetizationTrajectory old_mag(1),raw_mag(1);
-    std::vector<FieldVector> mag_Re_errors(1),mag_Im_errors(1);
-    raw_mag[0][0]=ComplexType{RealType{0.3},RealType{0.4}};
+    func::MagTen old_mag_Re{'D',1},old_mag_Im{'D',1};
+    func::MagTen raw_mag_Re{'D',1},raw_mag_Im{'D',1};
+    Observables::Magnetization::MagnetizationTensor<func::MagVec>
+        mag_Re_errors{'D',1},mag_Im_errors{'D',1};
+    raw_mag_Re[0][0]=RealType{0.3};
+    raw_mag_Im[0][0]=RealType{0.4};
     mag_Re_errors[0][0]=RealType{0.06};
     mag_Im_errors[0][0]=RealType{0.2};
+    auto scaled_mag_errors=RealType{2.}*mag_Re_errors;
+    scaled_mag_errors+=mag_Re_errors;
+    failures+=require(
+        scaled_mag_errors.size()==1
+        &&scaled_mag_errors.num_components()==3
+        &&std::abs(scaled_mag_errors[0][0]-RealType{0.18})<RealType{1e-14},
+        "magnetization tensor supports scalar multiplication and addition");
+    Observables::Magnetization::MagnetizationTensor<func::MagVec> axial_mag{'C',2};
+    axial_mag[1][0]=RealType{0.25};
+    const auto full_axial_mag=axial_mag.expand();
+    failures+=require(
+        axial_mag[0].get_direction(0)==2
+        &&full_axial_mag.size()==2
+        &&full_axial_mag[1][0]==RealType{}
+        &&full_axial_mag[1][1]==RealType{}
+        &&full_axial_mag[1][2]==RealType{0.25},
+        "magnetization tensor preserves symmetry-reduced MagVec storage");
+    ps::ParameterSpace initial_mag_pspace;
+    initial_mag_pspace.correlation_symmetry_type='C';
+    initial_mag_pspace.num_RealTimePoints=2;
+    initial_mag_pspace.initial_magnetization_linearized={1.,2.,3.};
+    auto [zero_mag_Re,zero_mag_Im]
+        =func::generate_initial_magnetization(initial_mag_pspace);
+    failures+=require(
+        zero_mag_Re.size()==2&&zero_mag_Re.num_components()==1
+        &&zero_mag_Re[0][0]==RealType{}&&zero_mag_Im[1][0]==RealType{},
+        "fresh magnetization initialization is zero");
+    initial_mag_pspace.load_initial_spin_correlations=true;
+    auto [imported_mag_Re,imported_mag_Im]
+        =func::generate_initial_magnetization(initial_mag_pspace);
+    failures+=require(
+        imported_mag_Re[0][0]==RealType{3.}
+        &&imported_mag_Re[1][0]==RealType{3.}
+        &&imported_mag_Im[0][0]==RealType{},
+        "loaded magnetization initializes every real-time point from imported m(0)");
     const auto residual=func::iteration_residual(
-        old_iteration,raw_iteration,iteration_errors,old_mag,raw_mag,
+        old_iteration,raw_iteration,iteration_errors,
+        old_mag_Re,old_mag_Im,raw_mag_Re,raw_mag_Im,
         mag_Re_errors,mag_Im_errors);
     failures+=require(std::abs(residual.absolute-RealType{0.5})<RealType{1e-14},
         "iteration residual retains the largest absolute complex difference");
@@ -575,7 +630,8 @@ int main()
         "iteration residual standardizes real and imaginary magnetization separately");
     iteration_errors.Re[0][0][0]=RealType{};
     const auto unresolved=func::iteration_residual(
-        old_iteration,raw_iteration,iteration_errors,old_mag,raw_mag,
+        old_iteration,raw_iteration,iteration_errors,
+        old_mag_Re,old_mag_Im,raw_mag_Re,raw_mag_Im,
         mag_Re_errors,mag_Im_errors);
     failures+=require(std::isinf(unresolved.standardized),
         "a nonzero residual with zero statistical error cannot converge");
@@ -589,19 +645,22 @@ int main()
     exact_raw.Re[0][0][1]=std::nextafter(
         RealType{0.25},RealType{});
     const auto endpoint_roundoff=func::iteration_residual(
-        exact_old,exact_raw,exact_errors,old_mag,old_mag,
+        exact_old,exact_raw,exact_errors,
+        old_mag_Re,old_mag_Im,old_mag_Re,old_mag_Im,
         mag_Re_errors,mag_Im_errors);
     failures+=require(endpoint_roundoff.standardized==RealType{},
         "roundoff at zero-variance t=0 tau endpoints is resolved");
     exact_raw.Re[0][0][1]=RealType{0.24};
     const auto endpoint_mismatch=func::iteration_residual(
-        exact_old,exact_raw,exact_errors,old_mag,old_mag,
+        exact_old,exact_raw,exact_errors,
+        old_mag_Re,old_mag_Im,old_mag_Re,old_mag_Im,
         mag_Re_errors,mag_Im_errors);
     failures+=require(std::isinf(endpoint_mismatch.standardized),
         "a physical zero-variance t=0 tau endpoint mismatch remains unresolved");
     iteration_errors.Re[0][0][0]=std::numeric_limits<RealType>::quiet_NaN();
     const auto nonfinite=func::iteration_residual(
-        old_iteration,raw_iteration,iteration_errors,old_mag,raw_mag,
+        old_iteration,raw_iteration,iteration_errors,
+        old_mag_Re,old_mag_Im,raw_mag_Re,raw_mag_Im,
         mag_Re_errors,mag_Im_errors);
     failures+=require(std::isinf(nonfinite.absolute)
                       &&std::isinf(nonfinite.standardized),

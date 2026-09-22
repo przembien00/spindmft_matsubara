@@ -43,8 +43,8 @@ bool finite( ComplexType value )
 RunTimeData::ComplexBlockSums::ComplexBlockSums(
     char symmetry, size_t num_imaginary_edge_points, size_t num_real_points )
     : correlations(symmetry,num_imaginary_edge_points,num_real_points),
-      mag_Re(num_real_points,MagVec{symmetry}),
-      mag_Im(num_real_points,MagVec{symmetry}),
+      mag_Re(symmetry,num_real_points),
+      mag_Im(symmetry,num_real_points),
       closure(num_real_points,ComplexType{}),
       closure_abs(num_real_points,RealType{})
 {}
@@ -271,7 +271,8 @@ void RunTimeData::record_pcn_diagnostics(
 }
 
 void RunTimeData::mpi_reduce_and_finalize(
-    CorrelationSet& correlations,CorrelationSet& standard_errors )
+    CorrelationSet& correlations,MagTen& magnetization_Re,
+    MagTen& magnetization_Im )
 {
     if( m_samples_seen!=m_num_samples_per_core )
         throw std::runtime_error("the production sweep did not accumulate the requested samples");
@@ -400,18 +401,17 @@ void RunTimeData::mpi_reduce_and_finalize(
             }
         }
 
-    magnetization_time_Re.assign(m_num_real_points,FieldVector{});
-    magnetization_time_Im.assign(m_num_real_points,FieldVector{});
-    magnetization_time_Re_stds.assign(m_num_real_points,FieldVector{});
-    magnetization_time_Im_stds.assign(m_num_real_points,FieldVector{});
+    magnetization_Re=MagTen{m_symmetry,m_num_real_points};
+    magnetization_Im=MagTen{m_symmetry,m_num_real_points};
+    magnetization_time_Re_stds=MagTen{m_symmetry,m_num_real_points};
+    magnetization_time_Im_stds=MagTen{m_symmetry,m_num_real_points};
     for( size_t t=0;t<m_num_real_points;++t )
         for( size_t c=0;c<m_mag_directions.size();++c )
         {
             const ComplexType numerator{m_total.mag_Re[t][c],m_total.mag_Im[t][c]};
             const auto ratio=observable_estimate(numerator);
-            const size_t direction=m_mag_directions[c];
-            magnetization_time_Re[t][direction]=std::real(ratio);
-            magnetization_time_Im[t][direction]=std::imag(ratio);
+            magnetization_Re[t][c]=std::real(ratio);
+            magnetization_Im[t][c]=std::imag(ratio);
         }
     closed_contour_ratio_Re.resize(m_num_real_points);
     closed_contour_ratio_Im.resize(m_num_real_points);
@@ -425,7 +425,9 @@ void RunTimeData::mpi_reduce_and_finalize(
     }
     denominator_constancy_residuals.push_back(closure_residual);
 
-    standard_errors=CorrelationSet{m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
+    contour_sample_stds=CorrelationSet{
+        m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
+    auto& standard_errors=contour_sample_stds;
     closed_contour_residual_Re_sample_stds.assign(m_num_real_points,RealType{});
     closed_contour_residual_Im_sample_stds.assign(m_num_real_points,RealType{});
     closed_contour_residual_abs_sample_stds.assign(m_num_real_points,RealType{});
@@ -444,7 +446,6 @@ void RunTimeData::mpi_reduce_and_finalize(
                 std::numeric_limits<RealType>::infinity());
             effective_sample_sizes.back()=global_sample_count;
         }
-        contour_sample_stds=standard_errors;
         return;
     }
 
@@ -648,11 +649,10 @@ void RunTimeData::mpi_reduce_and_finalize(
                     {
                         const auto value=errors(
                             mag_base+t*m_mag_directions.size()+c);
-                        const size_t direction=m_mag_directions[c];
-                        magnetization_time_Re_stds[t][direction]=std::max(
-                            magnetization_time_Re_stds[t][direction],value[0]);
-                        magnetization_time_Im_stds[t][direction]=std::max(
-                            magnetization_time_Im_stds[t][direction],value[1]);
+                        magnetization_time_Re_stds[t][c]=std::max(
+                            magnetization_time_Re_stds[t][c],value[0]);
+                        magnetization_time_Im_stds[t][c]=std::max(
+                            magnetization_time_Im_stds[t][c],value[1]);
                     }
                 for( size_t t=0;t<m_num_real_points;++t )
                 {
@@ -712,7 +712,6 @@ void RunTimeData::mpi_reduce_and_finalize(
         block_length_to_tau_ratios.push_back(largest_tau>RealType{}
             ?static_cast<RealType>(m_samples_per_block)/largest_tau
             :std::numeric_limits<RealType>::infinity());
-        contour_sample_stds=standard_errors;
         return;
     }
 
@@ -831,11 +830,10 @@ void RunTimeData::mpi_reduce_and_finalize(
     for( size_t t=0;t<m_num_real_points;++t )
         for( size_t c=0;c<m_mag_directions.size();++c )
         {
-            const size_t direction=m_mag_directions[c];
             const size_t flat_mag=t*m_mag_directions.size()+c;
             const auto mag_errors=errors(mag_base+flat_mag);
-            magnetization_time_Re_stds[t][direction]=mag_errors[0];
-            magnetization_time_Im_stds[t][direction]=mag_errors[1];
+            magnetization_time_Re_stds[t][c]=mag_errors[0];
+            magnetization_time_Im_stds[t][c]=mag_errors[1];
         }
     for( size_t t=0;t<m_num_real_points;++t )
     {
@@ -844,7 +842,6 @@ void RunTimeData::mpi_reduce_and_finalize(
         closed_contour_residual_Im_sample_stds[t]=value[1];
         closed_contour_residual_abs_sample_stds[t]=value[2];
     }
-    contour_sample_stds=standard_errors;
 }
 
 void RunTimeData::record_iteration_error(
@@ -854,7 +851,7 @@ void RunTimeData::record_iteration_error(
     standardized_iteration_errors.push_back(standardized_error);
 }
 
-bool RunTimeData::diagnostics_pass() const
+bool RunTimeData::diagnostics_pass( const MagTen& magnetization_Im ) const
 {
     if( covariance_symmetry_errors.empty()||branch_identity_errors.empty()
         ||gaussian_factor_reconstruction_errors.empty()||average_phase_magnitudes.empty() ) return false;
@@ -865,10 +862,10 @@ bool RunTimeData::diagnostics_pass() const
     // if( m_pcn&&(maximum_relative_imaginary_sampling_weights.empty()
     //     ||maximum_relative_imaginary_sampling_weights.back()
     //       >m_partition_imaginary_tolerance) ) return false;
-    for( const size_t direction:m_mag_directions )
-        if( std::abs(magnetization_time_Im.front()[direction])>
+    for( size_t c=0;c<m_mag_directions.size();++c )
+        if( std::abs(magnetization_Im.front()[c])>
             m_imaginary_magnetization_sigma*
-            magnetization_time_Im_stds.front()[direction] ) return false;
+            magnetization_time_Im_stds.front()[c] ) return false;
     return true;
 }
 
@@ -914,7 +911,7 @@ void RunTimeData::finalize_iteration_step()
     ++num_Iterations;
 }
 
-bool RunTimeData::terminate()
+bool RunTimeData::terminate( const MagTen& magnetization_Im )
 {
     if( !m_self_consistency )
     {
@@ -923,7 +920,7 @@ bool RunTimeData::terminate()
         return true;
     }
     if( standardized_iteration_errors.back()<m_iteration_error_sigma_threshold
-        &&diagnostics_pass() )
+        &&diagnostics_pass(magnetization_Im) )
     {
         print::print_R0(m_my_rank,"\033[1;32mTerminating: fixed point and contour diagnostics converged.\033[0m\n");
         termination="by convergence"; return true;

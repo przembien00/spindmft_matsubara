@@ -46,11 +46,13 @@ struct GaussianBlockFactors
     RealType error{};
 };
 
+static TakagiFactor canonical_takagi( const ComplexDynamicMatrix& Gamma );
+
 namespace
 {
 
 std::shared_ptr<GaussianBlockFactors> symmetry_factors(
-    const ComplexDynamicMatrix& covariance,bool use_svd);
+    const ComplexDynamicMatrix& covariance,bool canonical);
 
 // Pack a complex-by-real product as one real BLAS product. Adjacent rows
 // hold Re L and Im L; columns are the original independent real latent modes.
@@ -554,13 +556,15 @@ TakagiFactor autonne_takagi( const ComplexDynamicMatrix& Gamma_input )
     return result;
 }
 
-TakagiFactor svd_takagi( const ComplexDynamicMatrix& Gamma_input )
+// Canonical factor used by the FFT frequency blocks. This is internal
+// machinery, not a separately selectable physical-grid sampler.
+static TakagiFactor canonical_takagi( const ComplexDynamicMatrix& Gamma_input )
 {
     if( Gamma_input.rows()!=Gamma_input.columns() )
-        throw std::invalid_argument("SVD Takagi factorization requires a square matrix");
+        throw std::invalid_argument("Canonical Takagi factorization requires a square matrix");
     const size_t n=Gamma_input.rows();
     if( transpose_symmetry_error(Gamma_input)>symmetry_tolerance(n) )
-        throw std::invalid_argument("SVD Takagi input is not complex symmetric");
+        throw std::invalid_argument("Canonical Takagi input is not complex symmetric");
 
     TakagiFactor result{};
     if( n==0 ) return result;
@@ -595,7 +599,7 @@ TakagiFactor svd_takagi( const ComplexDynamicMatrix& Gamma_input )
             ComplexType phase{};
             for( size_t k=0;k<n;++k ) phase+=V(begin,k)*std::conj(U(k,begin));
             if( std::abs(phase)<=rank_tolerance )
-                throw std::runtime_error("SVD Takagi phase correction is singular");
+                throw std::runtime_error("Canonical Takagi phase correction is singular");
             correction(0,0)=std::sqrt(phase/std::abs(phase));
         }
         else
@@ -608,7 +612,7 @@ TakagiFactor svd_takagi( const ComplexDynamicMatrix& Gamma_input )
             phase_block=RealType{0.5}*(phase_block+blaze::trans(phase_block));
             const TakagiFactor phase_factor=autonne_takagi(phase_block);
             if( phase_factor.numerical_rank!=block_size )
-                throw std::runtime_error("SVD Takagi degenerate phase block lost rank");
+                throw std::runtime_error("Canonical Takagi degenerate phase block lost rank");
             correction=phase_factor.L;
         }
 
@@ -660,7 +664,7 @@ JointComplexGaussianSampler::draw_contour_field(
 namespace
 {
 std::shared_ptr<GaussianBlockFactors> symmetry_factors(
-    const ComplexDynamicMatrix& covariance,const bool use_svd )
+    const ComplexDynamicMatrix& covariance,const bool canonical )
 {
     const size_t n=covariance.rows();
     if( n!=covariance.columns()||transpose_symmetry_error(covariance)>symmetry_tolerance(n) )
@@ -696,7 +700,8 @@ std::shared_ptr<GaussianBlockFactors> symmetry_factors(
         if(identical<unique_factors.size())factor=unique_factors[identical];
         else
         {
-            factor=std::make_shared<TakagiFactor>(use_svd?svd_takagi(block):autonne_takagi(block));
+            factor=std::make_shared<TakagiFactor>(
+                canonical?canonical_takagi(block):autonne_takagi(block));
             for(const auto sigma:factor->singular_values)sigma_max=std::max(sigma_max,sigma);
             unique_covariances.push_back(std::move(block));unique_factors.push_back(factor);
         }
@@ -706,7 +711,7 @@ std::shared_ptr<GaussianBlockFactors> symmetry_factors(
     // Local factorizations retain a superset of the whole-matrix numerical
     // rank. Apply its original global threshold to all blocks consistently.
     const RealType tolerance=std::numeric_limits<RealType>::epsilon()*RealType{100.}
-        *static_cast<RealType>((use_svd?1:2)*n)*std::max(RealType{1.},sigma_max);
+        *static_cast<RealType>((canonical?1:2)*n)*std::max(RealType{1.},sigma_max);
     for(size_t k=0;k<unique_factors.size();++k)
     {
         auto& factor=*unique_factors[k];
@@ -853,26 +858,6 @@ DenseComplexGaussianSampler::FieldVector DenseComplexGaussianSampler::draw(std::
 { return field_from_latent(draw_latent(engine)); }
 std::vector<JointComplexGaussianSampler::ContourFieldSample>
 DenseComplexGaussianSampler::draw_contour_batch(std::mt19937& engine,size_t count,bool)
-{ return block_batch(*this,*m_factors,engine,count); }
-
-SVDComplexGaussianSampler::SVDComplexGaussianSampler( const ComplexDynamicMatrix& covariance )
-    : m_factors(symmetry_factors(covariance,true)) {}
-RealType SVDComplexGaussianSampler::reconstruction_error() const { return m_factors->error; }
-size_t SVDComplexGaussianSampler::latent_dimension() const { return m_factors->rank; }
-size_t SVDComplexGaussianSampler::size() const { return m_factors->size; }
-size_t SVDComplexGaussianSampler::largest_factorization_dimension() const { return m_factors->largest; }
-SVDComplexGaussianSampler::LatentVector SVDComplexGaussianSampler::draw_latent(std::mt19937& engine)
-{
-    LatentVector latent(latent_dimension());
-    for(auto& value:latent)value=m_standard_normal(engine);
-    return latent;
-}
-SVDComplexGaussianSampler::FieldVector SVDComplexGaussianSampler::field_from_latent(const LatentVector& latent)
-{ return block_field(*m_factors,latent); }
-SVDComplexGaussianSampler::FieldVector SVDComplexGaussianSampler::draw(std::mt19937& engine)
-{ return field_from_latent(draw_latent(engine)); }
-std::vector<JointComplexGaussianSampler::ContourFieldSample>
-SVDComplexGaussianSampler::draw_contour_batch(std::mt19937& engine,size_t count,bool)
 { return block_batch(*this,*m_factors,engine,count); }
 
 namespace
@@ -1275,12 +1260,8 @@ std::unique_ptr<JointComplexGaussianSampler> make_complex_gaussian_sampler(
     const RealType delta_real_time,const RealType cross_frequency_cutoff,
     const std::array<RealType,3>& weights,const size_t real_time_substeps )
 {
-    if(real_time_substeps>1&&algorithm=="svd")
-        throw std::invalid_argument("real-time substeps require dense, weighted-dense, or FFT sampling");
     if( algorithm=="dense" )
         return std::make_unique<DenseComplexGaussianSampler>(covariance);
-    if( algorithm=="svd" )
-        return std::make_unique<SVDComplexGaussianSampler>(covariance);
     if( algorithm=="weighted-dense" )
         return std::make_unique<WeightedDenseComplexGaussianSampler>(
             covariance,num_matsubara_intervals,num_real_points,weights);
@@ -1289,7 +1270,7 @@ std::unique_ptr<JointComplexGaussianSampler> make_complex_gaussian_sampler(
             covariance,num_matsubara_intervals,num_real_points,
             delta_real_time,cross_frequency_cutoff,real_time_substeps);
     throw std::invalid_argument(
-        "Unknown Gaussian factorization '"+algorithm+"'; use dense, svd, fft, or weighted-dense");
+        "Unknown Gaussian factorization '"+algorithm+"'; use dense, fft, or weighted-dense");
 }
 
 }

@@ -19,9 +19,11 @@ namespace spinDMFT::Storage_Concept
 namespace tmm = Time_Measure;
 namespace ps = spinDMFT::Parameter_Space;
 namespace rtd = spinDMFT::Run_Time_Data;
+namespace mag = Observables::Magnetization;
 
 using CorrelationSet = spinDMFT::Contour::CorrelationSet;
 using ContourCorrelation = spinDMFT::Contour::ContourCorrelation;
+using MagTen = mag::MagnetizationTensor<mag::MagnetizationVector>;
 
 // =================================================================
 // ================= HEADER FOR HDF5 STORAGE CLASS =================
@@ -32,7 +34,8 @@ class HDF5_Storage
     HDF5_Storage( const int my_rank, const ps::ParameterSpace& pspace, const std::string& termination );
     void store_main( const ps::ParameterSpace& pspace, const rtd::RunTimeData& rtdata,
                      const CorrelationSet& correlations,
-                     const CorrelationSet& standard_errors );
+                     const MagTen& magnetization_Re,
+                     const MagTen& magnetization_Im );
     void store_time( const tmm::DerivedTimeMeasure& tmeasure );
     void finalize();
 

@@ -41,12 +41,10 @@ With `eta=(V_+ + V_-)/2` and `nu=V_+ - V_-`, the branch algebra gives a
 symmetrized `eta-eta` block, a causal `eta-nu` response block, and a zero
 `nu-nu` pseudo-covariance. A zero `E[nu nu]` does not make sampled `nu` vanish.
 
-Four sampling algorithms are available:
+Three sampling algorithms are available:
 
 - `--gaussianFactorization=dense` applies Autonne--Takagi
   factorizations to exactly disconnected blocks of the joint-contour covariance;
-- `--gaussianFactorization=svd` constructs the same canonical Takagi ensemble
-  from a full complex SVD of the joint covariance;
 - `--gaussianFactorization=weighted-dense` optimizes a weighted noise power
   in the full `(V_M,eta,kappa)` basis, with `kappa=(V_+-V_-)/2`, then returns
   physical branch fields with the original unconjugated covariance. It
@@ -58,7 +56,7 @@ Four sampling algorithms are available:
   three-component boundary block. It retains all Matsubara modes and the
   boundary block together with all real modes by default. When a nonnegative
   cutoff is explicitly supplied, it retains real modes satisfying
-  `|omega| <= fftCrossFrequencyCutoff` in one dense complex-SVD Takagi block.
+  `|omega| <= fftCrossFrequencyCutoff` in one dense Takagi block.
   Matsubara coupling to higher real frequencies is set to zero and each
   remaining high-frequency `{omega,-omega}` real block is factorized
   independently. Covariance construction writes directly into these retained
@@ -72,16 +70,7 @@ Four sampling algorithms are available:
   real-time interval is retained. The default cutoff is `-1` (disabled).
   Supply, for example, `--fftCrossFrequencyCutoff=3` to enable truncation.
 
-For `Gamma=U Sigma V^dagger`, the SVD algorithm corrects the singular-vector
-phases (and any degenerate singular-value subspaces) to obtain `L` with
-
-```text
-L L^T      = Gamma,
-L L^dagger = U Sigma U^dagger = sqrt(Gamma Gamma^dagger).
-```
-
-Consequently `dense` and `svd` have identical pseudo-covariance, Hermitian
-covariance, and complete real Gaussian distribution. Both draw independent real latent coordinates for every block. Exactly identical
+The dense sampler draws independent real latent coordinates for every block. Exactly identical
 blocks reuse their factorization while retaining independent random coordinates.
 The rank cutoff is evaluated at the original whole-matrix dimension and spectral
 scale. No nonzero coupling is discarded to create a block. The
@@ -198,9 +187,9 @@ CF4 is the default propagator. `--realTimeSubsteps=q` selects the method:
 - `q>1`: `q` CF4 substeps per measurement interval, with dense, weighted-dense,
   or FFT sampling.
 
-CF4 needs at least three imaginary- and real-time intervals. For shorter grids
-or `--gaussianFactorization=svd`, use `--realTimeSubsteps=0`. Dense and
-weighted-dense sampling support arbitrary nonnegative `q`; their CF4 nodes use local
+CF4 needs at least three imaginary- and real-time intervals. For shorter grids,
+use `--realTimeSubsteps=0`. Dense and weighted-dense sampling support arbitrary
+nonnegative `q`; their CF4 nodes use local
 four-point cubic interpolation of the sampled fields. There is no separate
 CF4 option.
 
@@ -335,7 +324,7 @@ No rank gathers or replicates the block-resolved correlation tensors.
 ## Execution and statistical accounting
 
 Independent sampling processes up to 32 trajectories per batch, including a
-short final batch when needed. Dense, SVD, weighted-dense, and FFT samplers use
+short final batch when needed. Dense, weighted-dense, and FFT samplers use
 BLAS matrix-matrix products for independent block-factor draws. FFT factors
 store alternating real and imaginary rows of the same complex Takagi factor:
 GEMM applies them to independent batches, and GEMV applies them to single pCN
@@ -499,11 +488,10 @@ mpirun -n 1 ./executable_DOUBLE.out \
 ```
 
 FFT sampling is the default, with no frequency truncation. Use
-`--gaussianFactorization=dense`, `svd`, or `weighted-dense` to choose another
+`--gaussianFactorization=dense` or `weighted-dense` to choose another
 factorization. The selected factorization and cutoff are recorded in HDF5;
 existing files are protected by the filename collision handling. The dense
-factorization scales cubically in the complete field dimension; `svd` uses a
-complex matrix of the physical dimension instead of the `2N x 2N` real lift.
+factorization scales cubically in the complete field dimension.
 With an explicit nonnegative FFT cutoff, only the low-frequency joint block
 is dense and high real-frequency pair blocks are factorized independently.
 Without truncation, the joint frequency blocks can be substantially larger.
@@ -544,8 +532,7 @@ old paired-jackknife error of either difference.
 
 CTest covers:
 
-- complex and rank-deficient dense Autonne--Takagi reconstruction, canonical
-  SVD reconstruction, dense/SVD Hermitian-covariance equivalence, and empirical
+- complex and rank-deficient dense Autonne--Takagi reconstruction and empirical
   `E[V V^T]`, including a nonzero sampled response field with `E[nu nu]=0`;
 - full and frequency-truncated blockwise FFT sampling, physical-grid
   round-trip pseudo-covariance, reduced dense-block dimension, and zero-rank
