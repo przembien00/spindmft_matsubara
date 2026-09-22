@@ -58,7 +58,7 @@ Operator noncommuting_cf4_propagator( const ps::ParameterSpace& source,
                                       const bool supply_internal_nodes=true )
 {
     ps::ParameterSpace p=source;
-    p.cf4_propagator=true;
+    p.real_time_substeps=1;
     p.num_RealTimeSteps=real_steps;
     p.num_RealTimePoints=real_steps+1;
     p.delta_real_t=p.Tmax/static_cast<RealType>(real_steps);
@@ -107,10 +107,83 @@ Operator noncommuting_cf4_propagator( const ps::ParameterSpace& source,
 }
 }
 
+// Integrate actual trajectories over three Gaussian latent coordinates using
+// deterministic Gauss--Hermite quadrature. For commuting z fields the exact
+// ensemble density follows from E exp(q.V)=exp(q.Gamma.q/2). This checks the
+// nonlinear thermal + real-time propagation without Monte-Carlo tolerances.
+int check_weighted_gaussian_propagation(ps::ParameterSpace p)
+{
+    int failures{};
+    constexpr size_t order=10;
+    using RealMatrix=blaze::DynamicMatrix<RealType,blaze::rowMajor>;
+    blaze::SymmetricMatrix<RealMatrix> jacobi(order);
+    for(size_t i=1;i<order;++i)jacobi(i-1,i)=std::sqrt(static_cast<RealType>(i));
+    blaze::DynamicVector<RealType> nodes(order);
+    RealMatrix vectors(order,order);
+    blaze::eigen(jacobi,nodes,vectors);
+    std::array<RealType,order> weights{};
+    for(size_t i=0;i<order;++i)weights[i]=vectors(i,0)*vectors(i,0);
+
+    // A synthetic rank-three joint complex covariance, including unequal
+    // mixed blocks. No bath approximation enters the analytic reference.
+    func::ComplexDynamicMatrix K{{{0.20,0.03},{0.03,0.02},{0.02,-0.01}},
+                                  {{0.03,0.02},{0.14,0.05},{0.08,0.04}},
+                                  {{0.02,-0.01},{0.08,0.04},{0.10,-0.02}}};
+    const contour::ContourLayout layout{p.num_TimePoints,p.num_RealTimePoints};
+    func::ComplexDynamicMatrix gamma(layout.dimension(),layout.dimension(),ComplexType{});
+    for(size_t i=0;i<layout.dimension();++i)for(size_t j=0;j<layout.dimension();++j)
+    {
+        const auto a=layout.decode(i),b=layout.decode(j);
+        if(a.component==2&&b.component==2)
+            gamma(i,j)=K(static_cast<size_t>(a.branch),static_cast<size_t>(b.branch));
+    }
+    const func::MeanFieldTrajectory mean(p.num_RealTimePoints,FieldVector{});
+    for(bool cf4:{false,true})for(const std::array<RealType,3> noise_weights:
+        {std::array<RealType,3>{1.,2.,2.},std::array<RealType,3>{1.,2.,8.},std::array<RealType,3>{1.,8.,2.}})
+    {
+        p.real_time_substeps=cf4?1:0;
+        func::WeightedDenseComplexGaussianSampler sampler(
+            gamma,p.num_TimeSteps,p.num_RealTimePoints,noise_weights);
+        failures+=require(sampler.latent_dimension()==3,"commuting Gaussian reference has three latent modes");
+        if(sampler.latent_dimension()!=3)continue;
+        std::vector<Operator> average(p.num_RealTimePoints,Operator(2,2,ComplexType{}));
+        for(size_t i=0;i<order;++i)for(size_t j=0;j<order;++j)for(size_t k=0;k<order;++k)
+        {
+            func::JointComplexGaussianSampler::LatentVector r{nodes[i],nodes[j],nodes[k]};
+            const auto tr=func::compute_contour_trajectory(p,sampler.contour_field_from_latent(r,cf4),mean);
+            Operator density=tr.imaginary_density_operator;
+            const RealType weight=weights[i]*weights[j]*weights[k];
+            for(size_t t=0;t<p.num_RealTimePoints;++t)
+            {
+                if(t>0)density=tr.forward_steps[t]*density*tr.backward_steps[t];
+                average[t]+=weight*density;
+            }
+        }
+        for(size_t t=0;t<p.num_RealTimePoints;++t)
+        {
+            const RealType time=t*p.delta_real_t;
+            Operator exact(2,2,ComplexType{});
+            for(size_t diagonal=0;diagonal<2;++diagonal)
+            {
+                const RealType spin=std::real(ComplexType(S_Z(diagonal,diagonal)));
+                const std::array<ComplexType,3> q{
+                    ComplexType{-p.beta*spin,0.},ComplexType{0.,-time*spin},ComplexType{0.,time*spin}};
+                ComplexType exponent=-p.beta*spin*p.B.m_h[2];
+                for(size_t a=0;a<3;++a)for(size_t b=0;b<3;++b)exponent+=RealType{0.5}*q[a]*K(a,b)*q[b];
+                exact(diagonal,diagonal)=std::exp(exponent);
+            }
+            failures+=require(frobenius(average[t]-exact)<RealType{2e-11},
+                "weighted thermal and real-time propagation agrees with analytic Gaussian average");
+        }
+    }
+    return failures;
+}
+
 int main()
 {
     int failures{};
     ps::ParameterSpace p;
+    p.real_time_substeps=0;
     p.spin_float=RealType{0.5}; p.num_HilbertSpaceDimension=2;
     p.spin_model=Physics::SpinModel{"ISO"};
     p.B=Physics::MagneticField{"z",RealType{0.7},RealType{0.},RealType{0.}};
@@ -121,6 +194,7 @@ int main()
     p.num_RealTimeSteps=4; p.num_RealTimePoints=5; p.Tmax=RealType{0.6};
     p.delta_real_t=p.Tmax/static_cast<RealType>(p.num_RealTimeSteps);
     func::initialize_matrices(p);
+    failures+=check_weighted_gaussian_propagation(p);
 
     Operator diagonal(2,2,ComplexType{});
     diagonal(0,0)=ComplexType{1.,0.3}; diagonal(1,1)=ComplexType{-0.2,-0.4};
@@ -238,7 +312,7 @@ int main()
                       "dense interpolated-node CF4 has fourth-order refinement");
 
     ps::ParameterSpace cf4_closure_pspace=p;
-    cf4_closure_pspace.cf4_propagator=true;
+    cf4_closure_pspace.real_time_substeps=1;
     func::JointComplexGaussianSampler::ContourFieldSample cf4_closure_field{};
     cf4_closure_field.edge_field=zero_field;
     for( auto& shifted:cf4_closure_field.real_gauss_fields )

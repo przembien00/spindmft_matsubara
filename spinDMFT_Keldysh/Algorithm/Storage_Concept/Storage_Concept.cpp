@@ -1,5 +1,8 @@
 #include"Storage_Concept.h"
 #include<fstream>
+#include<iomanip>
+#include<limits>
+#include<sstream>
 #include<sys/stat.h>
 
 #include<Standard_Algorithms/Print_Routines.h>
@@ -115,9 +118,14 @@ void HDF5_Storage::create_file( const ps::ParameterSpace& pspace )
     {
         filename += "__corrnorm=D";
     }
-    if( pspace.cf4_propagator )
+    if( pspace.gaussian_factorization=="weighted-dense" )
     {
-        filename += "__prop=cf4";
+        std::ostringstream weights;
+        weights << std::setprecision(std::numeric_limits<RealType>::max_digits10);
+        weights << "__noiseW=" << pspace.gaussian_noise_weights[0]
+                << ',' << pspace.gaussian_noise_weights[1]
+                << ',' << pspace.gaussian_noise_weights[2];
+        filename += weights.str();
     }
     if( pspace.filename_extension != "" )
     {
@@ -251,6 +259,18 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
                          pspace.partition_imaginary_tolerance );
     hdf5r::store_string( ps_group_id, "gaussian_factorization",
                          pspace.gaussian_factorization );
+    if( pspace.gaussian_factorization=="weighted-dense" )
+    {
+        hdf5r::store_scalar(ps_group_id,"gaussian_weight_M",pspace.gaussian_noise_weights[0]);
+        hdf5r::store_scalar(ps_group_id,"gaussian_weight_eta",pspace.gaussian_noise_weights[1]);
+        hdf5r::store_scalar(ps_group_id,"gaussian_weight_kappa",pspace.gaussian_noise_weights[2]);
+        hdf5r::store_string(ps_group_id,"gaussian_weight_basis",
+            "V_M, eta=(V_++V_-)/2, kappa=(V_+-V_-)/2; native point-major xyz grids with distinct Matsubara endpoints");
+        hdf5r::store_string(ps_group_id,"gaussian_weight_objective",
+            "minimize tr(W E[z z^dagger]) at fixed full E[z z^T]; weights are per native grid entry, not quadrature weights; common scale normalized to max weight 2");
+        hdf5r::store_string(ps_group_id,"gaussian_reconstruction_basis",
+            "original physical V_M,V_+,V_- covariance after inverse weighting and branch transformation");
+    }
     hdf5r::store_string( ps_group_id, "gaussian_execution",
         "exact-zero covariance blocks; identical block factors reused with independent latents; original global rank cutoff; sample-major independent batches of up to 32" );
     hdf5r::store_string( ps_group_id, "observable_execution",
@@ -261,16 +281,24 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
         :"canonical triangle with streamed raw transpose diagnostic" );
     hdf5r::store_scalar( ps_group_id, "fft_cross_frequency_cutoff",
                          pspace.fft_cross_frequency_cutoff );
+    hdf5r::store_scalar(ps_group_id,"real_time_substeps",pspace.real_time_substeps);
+    hdf5r::store_scalar(ps_group_id,"delta_real_propagation_t",
+        pspace.delta_real_t/static_cast<RealType>(pspace.real_time_steps_per_interval()));
+    hdf5r::store_string(ps_group_id,"real_time_field_interpolation",
+        !pspace.uses_cf4()?"native endpoints"
+        :pspace.gaussian_factorization=="fft"
+        ?"signed-frequency phase-shifted inverse FFT; positive Nyquist mode; fixed native covariance grid"
+        :"four-point cubic interpolation");
     hdf5r::store_string( ps_group_id, "propagator",
-        pspace.cf4_propagator?"gauss-cf4":"endpoint-cfet4" );
+        pspace.uses_cf4()?"gauss-cf4":"endpoint-cfet4" );
     hdf5r::store_string( ps_group_id, "propagator_definition",
-        pspace.cf4_propagator
+        pspace.uses_cf4()
         ?pspace.gaussian_factorization=="fft"
-         ?"two Gauss--Legendre internal nodes from the sampled FFT realization on each real-time interval, cubic edge interpolation on the Matsubara branch, and a two-exponential fourth-order commutator-free Magnus step"
-         :"four-point cubic interpolation of the sampled dense edge field at two Gauss--Legendre internal nodes on every contour interval, and a two-exponential fourth-order commutator-free Magnus step; assumes a smooth field between edges"
+         ?"two Gauss--Legendre internal nodes from the sampled FFT realization on each real-time propagation subinterval, cubic edge interpolation on the Matsubara branch, and a two-exponential fourth-order commutator-free Magnus step"
+         :"four-point cubic interpolation of the sampled dense edge field at two Gauss--Legendre internal nodes on each real-time propagation subinterval and each Matsubara interval, and a two-exponential fourth-order commutator-free Magnus step; assumes a smooth field between edges"
         :"three-exponential endpoint CFET composition; globally second order for a general time-dependent Hamiltonian" );
     hdf5r::store_string( ps_group_id, "gaussian_factorization_options",
-        "dense: exact-block physical-grid real-lift Autonne--Takagi; svd: exact-block physical-grid canonical complex-SVD Takagi; fft: doubled-real FFT with one Matsubara plus low-real-frequency block, discarded high-frequency Matsubara-real covariance, independently sampled high {omega,-omega} Takagi blocks without a global dense factor, inverse FFT, and physical-grid restriction" );
+        "dense: exact-block physical-grid real-lift Autonne--Takagi; weighted-dense: full-contour weighted Takagi in (M,eta,kappa), inverse transformed to physical fields; svd: exact-block physical-grid canonical complex-SVD Takagi; fft: doubled-real FFT, joint frequency Takagi blocks, inverse FFT, and physical-grid restriction; optional nonnegative cutoff discards high-frequency Matsubara-real covariance and samples high {omega,-omega} blocks independently" );
     hdf5r::store_string( ps_group_id, "correlation_normalization",
                          pspace.correlation_normalization );
     hdf5r::store_string( ps_group_id, "magnetization_normalization",

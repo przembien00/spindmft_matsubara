@@ -18,6 +18,9 @@ PCNChain::PCNChain( const ps::ParameterSpace& pspace,
       m_retention(std::sqrt(std::max(
           RealType{},RealType{1.}-step_size*step_size)))
 {
+    if(dynamic_cast<WeightedDenseComplexGaussianSampler*>(&sampler))
+        throw std::invalid_argument(
+            "weighted-dense requires independent sampling; pCN weight positivity is not established for this ensemble");
     if( step_size<=RealType{}||step_size>RealType{1.} )
         throw std::invalid_argument("pCN step size must lie in (0,1]");
     constexpr size_t maximum_initialization_attempts=128;
@@ -47,7 +50,7 @@ bool PCNChain::evaluate( const LatentVector& latent,
                          ContourTrajectory& trajectory,
                          RealType& sampling_weight_real )
 {
-    m_proposed_field=m_sampler.contour_field_from_latent(latent,m_pspace.cf4_propagator);
+    m_proposed_field=m_sampler.contour_field_from_latent(latent,m_pspace.uses_cf4());
     build_contour_trajectory(m_pspace,m_proposed_field,m_mean_field_time,
         trajectory,m_workspace,m_pspace.correlation_normalization!="closed-contour");
     return finite_positive_sampling_weight(sampling_weight(trajectory),sampling_weight_real);

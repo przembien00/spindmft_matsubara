@@ -1,6 +1,7 @@
 #include"Parameter_Space.h"
 
 #include<iomanip>
+#include<limits>
 #include<memory>
 #include<sstream>
 #include<fstream>
@@ -137,6 +138,9 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "dt", bpo::value<RealType>()->default_value(RealType{0.1}),
     "set the step width for the equidistant time discretization (time in units of hbar/JQ)"
     )(
+    "realTimeSubsteps", bpo::value<std::string>()->default_value("1"),
+    "CF4 substeps per measurement interval (default 1); 0 selects native-grid endpoint propagation; dense/weighted-dense use cubic field interpolation, FFT uses spectral nodes"
+  )(
     "numRealTimeSteps", bpo::value<size_t>()->default_value(size_t{10}),
     "set the number of real-time steps on [0,Tmax]"
     )(
@@ -153,7 +157,7 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "seed", bpo::value<std::string>()->default_value("random"),
     "set the seed for the random generator (random : seed is determined by clock)"
     )(
-    "samplingStrategy", bpo::value<std::string>()->default_value("pcn"),
+    "samplingStrategy", bpo::value<std::string>()->default_value("independent"),
     "Monte-Carlo strategy: pcn targets the real part of the selected correlation denominator (Z_M or final D(T)); independent retains the bare-Gaussian complex-ratio estimator"
     )(
     "mhStepSize", bpo::value<RealType>()->default_value(RealType{0.3}),
@@ -168,14 +172,20 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "numBlocks", bpo::value<size_t>()->default_value(size_t{32}),
     "number of contiguous blocks per core; pCN errors use a multi-scale batch-means plateau"
     )(
-    "gaussianFactorization", bpo::value<std::string>()->default_value("dense"),
-    "complex pseudo-covariance factorization: dense, svd, or fft"
+    "gaussianFactorization", bpo::value<std::string>()->default_value("fft"),
+    "complex pseudo-covariance factorization: dense, svd, fft, or weighted-dense (independent sampling only)"
     )(
-    "fftCrossFrequencyCutoff", bpo::value<RealType>()->default_value(RealType{3.}),
+    "gaussianWeightM", bpo::value<RealType>()->default_value(RealType{1.}),
+    "positive Matsubara noise weight for weighted-dense"
+    )(
+    "gaussianWeightEta", bpo::value<RealType>()->default_value(RealType{2.}),
+    "positive eta=(V_++V_-)/2 noise weight for weighted-dense"
+    )(
+    "gaussianWeightKappa", bpo::value<RealType>()->default_value(RealType{8.}),
+    "positive kappa=(V_+-V_-)/2 noise weight for weighted-dense; (M,eta,kappa)=(1,2,2) recovers canonical dense"
+    )(
+    "fftCrossFrequencyCutoff", bpo::value<RealType>()->default_value(RealType{-1.}),
     "for gaussianFactorization=fft, retain dense Matsubara-real coupling for |omega| up to this cutoff; a negative value disables truncation"
-    )(
-    "cf4Propagator",
-    "use the two-Gauss-node, two-exponential fourth-order commutator-free propagator; dense uses cubic edge interpolation and fft uses spectral shifted grids"
     )(
     "spinInsertionStrategy", bpo::value<std::string>()->default_value("prefix"),
     "real-time spin insertion: closed-contour uses B_-(T,0) U_+(t,T) S U_+(t,0); prefix uses U_+(0,t) S B_-(t,0)"
@@ -328,6 +338,20 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     delta_t        = beta / static_cast<RealType>(num_TimeSteps);
     num_RealTimeSteps  = vm["numRealTimeSteps"].as<size_t>();
     if( num_RealTimeSteps == 0 ) throw std::invalid_argument("numRealTimeSteps must be positive");
+    const auto substeps_text=vm["realTimeSubsteps"].as<std::string>();
+    if(substeps_text.empty()||substeps_text.find_first_not_of("0123456789")!=std::string::npos)
+        throw std::invalid_argument("realTimeSubsteps must be a nonnegative integer");
+    real_time_substeps=0;
+    for(const char digit:substeps_text)
+    {
+        const size_t value=static_cast<size_t>(digit-'0');
+        if(real_time_substeps>(std::numeric_limits<size_t>::max()-value)/10)
+            throw std::invalid_argument("realTimeSubsteps overflows size_t");
+        real_time_substeps=10*real_time_substeps+value;
+    }
+    if(num_RealTimeSteps>=std::numeric_limits<size_t>::max()/6
+        ||real_time_substeps>(std::numeric_limits<size_t>::max()/6-1)/num_RealTimeSteps)
+        throw std::invalid_argument("realTimeSubsteps field grid must fit size_t");
     num_RealTimePoints = num_RealTimeSteps + 1;
     Tmax                = vm["Tmax"].as<RealType>();
     if( Tmax < RealType{0.} ) throw std::invalid_argument("Tmax must be non-negative");
@@ -352,17 +376,31 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
         throw std::invalid_argument("partitionImagTolerance must be non-negative");
     gaussian_factorization  = vm["gaussianFactorization"].as<std::string>();
     if( gaussian_factorization!="dense" && gaussian_factorization!="svd"
-        && gaussian_factorization!="fft" )
+        && gaussian_factorization!="fft" && gaussian_factorization!="weighted-dense" )
         throw std::invalid_argument(
-            "gaussianFactorization must be dense, svd, or fft" );
+            "gaussianFactorization must be dense, svd, fft, or weighted-dense" );
+    const std::array<const char*,3> weight_options{
+        "gaussianWeightM","gaussianWeightEta","gaussianWeightKappa"};
+    for(size_t i=0;i<weight_options.size();++i)
+    {
+        gaussian_noise_weights[i]=vm[weight_options[i]].as<RealType>();
+        if(!std::isfinite(gaussian_noise_weights[i])||gaussian_noise_weights[i]<=RealType{})
+            throw std::invalid_argument("Gaussian noise weights must be finite and strictly positive");
+        if(gaussian_factorization!="weighted-dense"&&!vm[weight_options[i]].defaulted())
+            throw std::invalid_argument("gaussianWeight options require gaussianFactorization=weighted-dense");
+    }
+    if(gaussian_factorization=="weighted-dense"&&sampling_strategy!="independent")
+        throw std::invalid_argument(
+            "weighted-dense requires samplingStrategy=independent; pCN weight positivity is not established for this ensemble");
     fft_cross_frequency_cutoff=vm["fftCrossFrequencyCutoff"].as<RealType>();
-    cf4_propagator=vm.count("cf4Propagator")>0;
-    if( cf4_propagator&&gaussian_factorization=="svd" )
+    if(!std::isfinite(fft_cross_frequency_cutoff))
+        throw std::invalid_argument("fftCrossFrequencyCutoff must be finite; use -1 to disable truncation");
+    if( uses_cf4()&&gaussian_factorization=="svd" )
         throw std::invalid_argument(
-            "cf4Propagator currently supports gaussianFactorization=dense or fft" );
-    if( cf4_propagator&&(num_TimePoints<4||num_RealTimePoints<4) )
+            "CF4 (realTimeSubsteps >= 1) supports gaussianFactorization=dense, weighted-dense, or fft; use realTimeSubsteps=0 for svd" );
+    if( uses_cf4()&&(num_TimePoints<4||num_RealTimePoints<4) )
         throw std::invalid_argument(
-            "cf4Propagator requires at least three imaginary- and real-time steps" );
+            "CF4 (realTimeSubsteps >= 1) requires at least three imaginary- and real-time steps; use realTimeSubsteps=0 for shorter grids" );
     spin_insertion_strategy=vm["spinInsertionStrategy"].as<std::string>();
     if( spin_insertion_strategy!="closed-contour"
         && spin_insertion_strategy!="prefix" )
@@ -547,20 +585,26 @@ std::string ParameterSpace::create_essentials_string() const
     << print::quantity_to_output_line( pre_colon_space, "num_ImagTimeSteps", std::to_string(num_TimeSteps) )
     << print::quantity_to_output_line( pre_colon_space, "delta_t"       , print::remove_zeros(print::round_value_to_string(delta_t,num_PrintDigits)) ) 
     << print::quantity_to_output_line( pre_colon_space, "num_RealTimeSteps", std::to_string(num_RealTimeSteps) )
+    << print::quantity_to_output_line(pre_colon_space,"real_time_substeps",std::to_string(real_time_substeps))
+    << print::quantity_to_output_line(pre_colon_space,"delta_real_propagation_t",std::to_string(delta_real_t/static_cast<RealType>(real_time_steps_per_interval())))
     << print::quantity_to_output_line( pre_colon_space, "Tmax", print::remove_zeros(print::round_value_to_string(Tmax,num_PrintDigits)) )
     << print::quantity_to_output_line( pre_colon_space, "delta_real_t", print::remove_zeros(print::round_value_to_string(delta_real_t,num_PrintDigits)) )
-    << print::quantity_to_output_line( pre_colon_space, "equal_time_prescription", "symmetric_theta_half" )
     << print::quantity_to_output_line( pre_colon_space, "num_Samples"   , std::to_string(num_Samples) )
     << print::quantity_to_output_line( pre_colon_space, "sampling_strategy", sampling_strategy )
-    << print::quantity_to_output_line( pre_colon_space, "mh_step_size", print::remove_zeros(print::round_value_to_string(mh_step_size,num_PrintDigits)) )
-    << print::quantity_to_output_line( pre_colon_space, "mh_burn_in", std::to_string(mh_burn_in) )
-    << print::quantity_to_output_line( pre_colon_space, "gaussian_factorization", gaussian_factorization )
-    << print::quantity_to_output_line( pre_colon_space, "fft_cross_frequency_cutoff", std::to_string(fft_cross_frequency_cutoff) )
-    << print::quantity_to_output_line( pre_colon_space, "propagator", cf4_propagator?"gauss-cf4":"endpoint-cfet4" )
-    << print::quantity_to_output_line( pre_colon_space, "correlation_normalization", correlation_normalization )
+    << print::quantity_to_output_line( pre_colon_space, "gaussian_factorization", gaussian_factorization );
+    if( sampling_strategy=="pcn" )
+        ss << print::quantity_to_output_line( pre_colon_space, "mh_step_size", print::remove_zeros(print::round_value_to_string(mh_step_size,num_PrintDigits)) )
+           << print::quantity_to_output_line( pre_colon_space, "mh_burn_in", std::to_string(mh_burn_in) );
+    if( gaussian_factorization=="fft" )
+        ss << print::quantity_to_output_line( pre_colon_space, "fft_cross_frequency_cutoff", std::to_string(fft_cross_frequency_cutoff) );
+    ss
+    << print::quantity_to_output_line( pre_colon_space, "propagator", uses_cf4()?"gauss-cf4":"endpoint-cfet4" )
     << print::quantity_to_output_line( pre_colon_space, "iteration_error_sigma_threshold", print::remove_zeros(print::round_value_to_string(iteration_error_sigma_threshold,num_PrintDigits)) )
-    << print::quantity_to_output_line( pre_colon_space, "constant_magnetization_time", print::bool_to_string(constant_magnetization_time) )
     << print::quantity_to_output_line( pre_colon_space, "information_text" , information_text );
+    if(gaussian_factorization=="weighted-dense")
+        ss << print::quantity_to_output_line(pre_colon_space,"Gaussian weights (M,eta,kappa)",
+            std::to_string(gaussian_noise_weights[0])+", "+std::to_string(gaussian_noise_weights[1])
+            +", "+std::to_string(gaussian_noise_weights[2]));
     return ss.str();
 }
 

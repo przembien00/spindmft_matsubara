@@ -41,18 +41,23 @@ With `eta=(V_+ + V_-)/2` and `nu=V_+ - V_-`, the branch algebra gives a
 symmetrized `eta-eta` block, a causal `eta-nu` response block, and a zero
 `nu-nu` pseudo-covariance. A zero `E[nu nu]` does not make sampled `nu` vanish.
 
-Three sampling algorithms are available:
+Four sampling algorithms are available:
 
-- `--gaussianFactorization=dense` (default) applies Autonne--Takagi
+- `--gaussianFactorization=dense` applies Autonne--Takagi
   factorizations to exactly disconnected blocks of the joint-contour covariance;
 - `--gaussianFactorization=svd` constructs the same canonical Takagi ensemble
   from a full complex SVD of the joint covariance;
-- `--gaussianFactorization=fft` is the frequency-truncated sampler. It
+- `--gaussianFactorization=weighted-dense` optimizes a weighted noise power
+  in the full `(V_M,eta,kappa)` basis, with `kappa=(V_+-V_-)/2`, then returns
+  physical branch fields with the original unconjugated covariance. It
+  requires `--samplingStrategy=independent`; see the weight options below;
+- `--gaussianFactorization=fft` (default) is the frequency-space sampler with optional truncation. It
   mirrors the real-time covariance into a doubled block-circulant grid,
   Fourier-transforms the first `N_tau` Matsubara values and the doubled-real
   axis with FFTW while retaining the distinct `beta-` field as an untransformed
   three-component boundary block. It retains all Matsubara modes and the
-  boundary block together with real modes satisfying
+  boundary block together with all real modes by default. When a nonnegative
+  cutoff is explicitly supplied, it retains real modes satisfying
   `|omega| <= fftCrossFrequencyCutoff` in one dense complex-SVD Takagi block.
   Matsubara coupling to higher real frequencies is set to zero and each
   remaining high-frequency `{omega,-omega}` real block is factorized
@@ -60,12 +65,12 @@ Three sampling algorithms are available:
   blocks directly from a read-only contour-covariance source: the real-real blocks come from one FFT of the `6x6` circulant lag
   kernel, and omitted mixed-frequency blocks are never allocated. Each block
   is also sampled independently into persistent FFT buffers. Exact spin-component
-  blocks are split within each retained frequency block. Neither a physical-grid
-  dense covariance, a global doubled covariance, nor a global dense factor is
-  assembled in the FFT production path.
+  blocks are split within each retained frequency block. No physical-grid dense
+  covariance is assembled. Disabling the cutoff keeps the full joint frequency
+  covariance within each connected component block.
   The complete frequency field is inverse-transformed and the physical
-  real-time interval is retained. The default cutoff is `3`; a
-  negative cutoff restores the untruncated full-frequency dense test.
+  real-time interval is retained. The default cutoff is `-1` (disabled).
+  Supply, for example, `--fftCrossFrequencyCutoff=3` to enable truncation.
 
 For `Gamma=U Sigma V^dagger`, the SVD algorithm corrects the singular-vector
 phases (and any degenerate singular-value subspaces) to obtain `L` with
@@ -81,12 +86,86 @@ blocks reuse their factorization while retaining independent random coordinates.
 The rank cutoff is evaluated at the original whole-matrix dimension and spectral
 scale. No nonzero coupling is discarded to create a block. The
 `fft` path preserves the Matsubara--Matsubara and real--real
-pseudo-covariances, but deliberately removes the high-frequency tail of the
-Matsubara--real pseudo-covariance. The discarded relative Frobenius norm and
+pseudo-covariances. Only when a nonnegative cutoff is supplied does it remove
+the high-frequency tail of the Matsubara--real pseudo-covariance. The discarded relative Frobenius norm and
 largest dense block dimension are printed and stored each iteration. Its
 doubled-grid canonical Hermitian covariance need not equal the canonical
 Hermitian covariance of a direct physical-grid factorization, so it remains a
 separately selectable comparison algorithm.
+
+## Weighted dense noise optimization
+
+For example, append the following options to a run:
+
+```sh
+--gaussianFactorization=weighted-dense --samplingStrategy=independent \
+--gaussianWeightM=1 --gaussianWeightEta=2 --gaussianWeightKappa=8
+```
+
+These are the default weights for `weighted-dense`; the default factorization
+is `fft`. All weights must be finite and strictly positive. Explicit
+weight options on another factorization are rejected. The weights apply per
+native grid point and spin component, not as time-integration weights.
+
+With `z=T V=(V_M,eta,kappa)`, the sampler factors
+`P=A (T Gamma T^T) A^T=L L^T` and draws `V=T^-1 A^-1 L r` for real standard
+normal `r`. Here `A=sqrt(W)` and a harmless common scale sets the largest
+weight to 2. Exactly disconnected covariance blocks and batched draws use
+the existing dense machinery. Every Matsubara, mixed and real-time block is
+retained. Reconstruction errors are measured after transforming back to the
+original physical covariance. Excessive weight contrast that causes loss of
+physical covariance through numerical rank truncation raises an error.
+
+Weights `(1,2,2)` reproduce the canonical dense Gaussian distribution, though
+individual trajectories need not match for the same seed. Weights `(1,2,8)`
+match the relative real-time penalties in Schmitz--Stockburger, since their
+`nu=2*kappa`. A smaller weighted noise power does not establish smaller
+observable errors. See [the derivation](Notes/optimized_gaussian_sampling.tex)
+and [the existing frozen-bath analysis](Analysis/noise_covariance/README.md).
+
+The [native-grid sampling audit](Analysis/weighted_sampling_audit/README.md)
+finds that `(1,2,8)` worsens late-time magnetization errors at `beta=2.5`,
+`h_z=0`, `Tmax=15`: on the same symmetric bath, 64 independent repetitions
+give about 51% larger reported endpoint errors than `(1,2,2)`. The physical
+covariance and weighted objective pass independent checks. Treat these weights
+as experimental; validate the variance of the observable of interest before
+using them for production. Final-iteration error bars also do not include all
+uncertainty propagated through preceding self-consistency iterations.
+
+A subsequent [observable-variance weight scan](Analysis/weighted_sampling_audit/weight_selection.md)
+finds `(1,2,1)` gives about 3% lower combined late-time magnetization variance
+than `(1,2,2)` on two frozen zero-field baths at these same parameters. The
+endpoint standard-error improvement is only about 1–2%, and closure variance
+increases. This is a modest experimental alternative, not a validated change
+to the default or a solution to systematic drift.
+
+The new mode supports endpoint propagation (`q=0`) and CF4 (`q>=1`) using
+cubic interpolation of the sampled edge fields, and either existing insertion
+and normalization choice. It currently rejects pCN: positivity of its selected
+real sampling weight has not been established for the changed Gaussian
+ensemble. Propagation and ensemble-ratio normalization are unchanged.
+
+Output names receive `__noiseW=M,eta,kappa`. HDF5 records the attributes
+`gaussian_weight_M`, `gaussian_weight_eta`, `gaussian_weight_kappa` on `parameters`,
+the weight basis/objective, and the physical reconstruction basis. The existing
+per-iteration reconstruction-error and numerical-rank attributes remain in use.
+
+Validation from the repository root:
+
+```sh
+cmake --build spinDMFT_Keldysh/Algorithm/build -j 4
+ctest --test-dir spinDMFT_Keldysh/Algorithm/build --output-on-failure
+/Users/przembien/Projects/python_venv/bin/python \
+  spinDMFT_Keldysh/Algorithm/Tests/test_weighted_solver.py \
+  spinDMFT_Keldysh/executable_DOUBLE.out
+```
+
+The executable/HDF5 test requires NumPy, h5py and working MPI; it isolates all
+outputs in temporary directories. C++ tests independently check the weighted
+nuclear-norm optimum, full covariance, canonical-weight distribution, batching,
+and nonlinear propagation against analytic Gaussian averages using deterministic
+quadrature. These checks establish implementation correctness, not a measured
+long-time variance improvement.
 
 ## Propagation and estimators
 
@@ -109,37 +188,59 @@ real contour algebraically.
 Both branch propagators support general complex non-Hermitian matrices. `B_-` is not
 formed from `U_+^{-1}` or `U_+^dagger`.
 
-Pass
+CF4 is the default propagator. `--realTimeSubsteps=q` selects the method:
+
+- `q=0`: the original endpoint propagator, one full step per measurement
+  interval, with no internal field nodes. This also selects the original
+  endpoint treatment on the imaginary branch.
+- `q=1` (default): one fourth-order CF4 step per measurement interval, using
+  two Gauss--Legendre nodes and two exponentials.
+- `q>1`: `q` CF4 substeps per measurement interval, with dense, weighted-dense,
+  or FFT sampling.
+
+CF4 needs at least three imaginary- and real-time intervals. For shorter grids
+or `--gaussianFactorization=svd`, use `--realTimeSubsteps=0`. Dense and
+weighted-dense sampling support arbitrary nonnegative `q`; their CF4 nodes use local
+four-point cubic interpolation of the sampled fields. There is no separate
+CF4 option.
+
+For example:
 
 ```text
---gaussianFactorization=fft --cf4Propagator
+--numRealTimeSteps=40 --Tmax=2 --realTimeSubsteps=4
 ```
 
-to select the genuine fourth-order commutator-free Magnus propagator. It uses
-the two Gauss--Legendre nodes in every interval and two exponentials per step.
-For FFT factorization, both shifted real-time grids are evaluated from the same
-sampled frequency realization by applying the appropriate Fourier phases before
-the inverse transforms; no extra Gaussian variables or enlarged covariance are
-introduced.
+This measures at 41 points spaced by `0.05` and propagates with steps of
+`0.0125`. Each realization samples its frequency amplitudes once. Phase-shifted
+inverse FFTs evaluate that same realization at both Gauss nodes per substep.
+The signed-frequency convention assigns the Nyquist mode to the positive
+frequency. No new random variables or larger covariance factorization are
+introduced; this refines propagation of the finite Fourier field and does not
+restore frequencies absent from the measurement grid. The deterministic mean
+field and one-sided Matsubara field use the original four-point cubic stencil
+for CF4. Increasing a positive `q` leaves imaginary-time preparation unchanged.
 
-The same propagator can be selected for dense factorization with
+To use dense sampling with the same substeps, add `--gaussianFactorization=dense`
+to the example above. Each substep evaluates the same four-point cubic
+interpolant of the sampled native edge fields at its two Gauss nodes. The
+covariance matrix, factorization, random draws, and measurement grid stay fixed
+as `q` increases. This refines propagation of the interpolated field; it does
+not improve the underlying field discretization. Weighted-dense uses the same
+interpolation and continues to require independent sampling.
 
-```text
---gaussianFactorization=dense --cf4Propagator
-```
+The backward CF4 step exchanges the early and late Gauss nodes and changes the
+contour-step sign. Forward microsteps compose from the left and backward
+microsteps from the right. Only their full measurement-interval products are
+stored, so correlations, magnetization, and self-consistency retain their
+original grids. Equal forward/backward fields continue to close algebraically.
+Both independent sampling and pCN use the selected trajectories, including the
+final trace when closed-contour normalization is selected.
 
-Here the field is assumed to vary smoothly between sampled edges, and both
-internal Gauss nodes are obtained by local four-point cubic interpolation. This
-does not enlarge or repeat the dense covariance factorization. For both
-factorizations the deterministic mean field and the one-sided Matsubara edge
-field, including its distinct beta endpoint, are interpolated in the same way.
-
-The backward branch exchanges the early and late Gauss nodes and changes the
-contour-step sign. Thus the noncommuting exponential product is reversed and
-equal forward/backward fields continue to close algebraically. The option
-currently rejects `svd` factorization. New CF4 files receive the
-`__prop=cf4` suffix and store `parameters/propagator=gauss-cf4`; the default
-endpoint behavior and filenames are unchanged.
+HDF5 records `real_time_substeps`, `delta_real_propagation_t`, and
+`real_time_field_interpolation`; `delta_real_t` continues to mean the measurement
+spacing. For `q=0`, the propagation spacing equals the measurement spacing and
+`propagator=endpoint-cfet4`. Positive `q` uses `propagator=gauss-cf4` and the
+`__prop=cf4` filename suffix. For `q>1`, filenames also include `__substeps=q`.
 
 For spin `1/2`, each CFET exponential is evaluated directly from its weighted
 complex field with the Pauli identity
@@ -234,9 +335,16 @@ No rank gathers or replicates the block-resolved correlation tensors.
 ## Execution and statistical accounting
 
 Independent sampling processes up to 32 trajectories per batch, including a
-short final batch when needed. Dense and SVD samplers use matrix-matrix products
-for the block factors. Random coordinates are generated in sample-major order,
-so batch boundaries do not change the random sequence. Exactly
+short final batch when needed. Dense, SVD, weighted-dense, and FFT samplers use
+BLAS matrix-matrix products for independent block-factor draws. FFT factors
+store alternating real and imaginary rows of the same complex Takagi factor:
+GEMM applies them to independent batches, and GEMV applies them to single pCN
+proposals. Identical factors share this packed storage, while their latent
+coordinates remain independent. The original complex factor storage is released
+after packing. FFTs then evaluate each sample on its native and Gauss-node grids.
+Random coordinates are generated in sample-major order, so batch boundaries do
+not change the random sequence. Multiplication order can change floating-point
+roundoff; covariance, cutoff, and latent rank are unchanged. Exactly
 `numSamplesPerCore` observations are accumulated on every iteration. There is
 no adaptive sample-count or convergence change.
 
@@ -390,14 +498,15 @@ mpirun -n 1 ./executable_DOUBLE.out \
   --numSamplesPerCore=1000 --numBlocks=20
 ```
 
-Add `--gaussianFactorization=svd` or `--gaussianFactorization=fft` to select an
-alternative. Their files receive the corresponding `__factor=svd` or
-`__factor=fft_wcut=<omega>` suffix, while the default dense filenames are unchanged, so
-identical runs can be compared without overwriting one another. The dense
+FFT sampling is the default, with no frequency truncation. Use
+`--gaussianFactorization=dense`, `svd`, or `weighted-dense` to choose another
+factorization. The selected factorization and cutoff are recorded in HDF5;
+existing files are protected by the filename collision handling. The dense
 factorization scales cubically in the complete field dimension; `svd` uses a
 complex matrix of the physical dimension instead of the `2N x 2N` real lift.
-For `fft`, only the low-frequency joint block is dense; high real-frequency
-pair blocks are factorized and sampled independently.
+With an explicit nonnegative FFT cutoff, only the low-frequency joint block
+is dense and high real-frequency pair blocks are factorized independently.
+Without truncation, the joint frequency blocks can be substantially larger.
 
 ## HDF5 output
 
@@ -448,3 +557,27 @@ CTest covers:
   closure for equal fields, and the analytic `JQ=0` finite-field spin result:
   `Z=2 cosh(beta h_z/2)`, `m_z=-tanh(beta h_z/2)/2`, `G_zz=1/4`, and the complex
   transverse greater correlation.
+
+The `real_time_substeps` CTest checks signed-frequency interpolation (including
+Nyquist), unchanged native fields and latent rank, both branch multiplication
+orders, equal-field closure, and propagation convergence for FFT nodes and dense
+cubic interpolation. To check CLI defaults,
+invalid inputs, pCN/independent execution, and HDF5 grids and metadata, run:
+
+```bash
+python3 Algorithm/Tests/test_substeps_solver.py ./executable_DOUBLE.out
+```
+
+FFT BLAS regression coverage includes single/batched field equivalence, zero-rank
+blocks, empty and partial batches, alternating batch sizes, RNG order, and
+Gauss nodes for `q=0,1,3`, with and without frequency truncation. A saved solver
+executable can also be compared against the current one using:
+
+```bash
+python3 Algorithm/Tests/test_fft_blas_solver.py ./executable_DOUBLE.out /path/to/reference.out
+```
+
+This comparison fixes the input covariance by using one self-consistency
+iteration. In later iterations, roundoff differences can rotate degenerate
+factorization bases and therefore change individual same-seed trajectories;
+bitwise equality across self-consistency iterations is not an invariant.

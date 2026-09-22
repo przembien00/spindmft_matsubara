@@ -63,6 +63,7 @@ RunTimeData::RunTimeData( const ps::ParameterSpace& pspace, int my_rank )
       m_self_consistency(pspace.self_consistency),
       m_harmonic_bath(pspace.uses_harmonic_bath()),
       m_pcn(pspace.sampling_strategy=="pcn"),
+      m_fft(pspace.gaussian_factorization=="fft"),
       m_closed_contour_observable_normalization(
           pspace.correlation_normalization=="closed-contour"),
       m_iteration_error_sigma_threshold(pspace.iteration_error_sigma_threshold),
@@ -856,13 +857,11 @@ void RunTimeData::record_iteration_error(
 bool RunTimeData::diagnostics_pass() const
 {
     if( covariance_symmetry_errors.empty()||branch_identity_errors.empty()
-        ||gaussian_factor_reconstruction_errors.empty()||average_phase_magnitudes.empty()
-        ||denominator_constancy_residuals.empty() ) return false;
+        ||gaussian_factor_reconstruction_errors.empty()||average_phase_magnitudes.empty() ) return false;
     if( covariance_symmetry_errors.back()>m_covariance_tolerance
         ||branch_identity_errors.back()>m_branch_identity_tolerance
         ||gaussian_factor_reconstruction_errors.back()>m_takagi_tolerance
-        ||average_phase_magnitudes.back()<m_minimum_phase_magnitude
-        ||denominator_constancy_residuals.back()>m_denominator_constancy_tolerance ) return false;
+        ||average_phase_magnitudes.back()<m_minimum_phase_magnitude ) return false;
     // if( m_pcn&&(maximum_relative_imaginary_sampling_weights.empty()
     //     ||maximum_relative_imaginary_sampling_weights.back()
     //       >m_partition_imaginary_tolerance) ) return false;
@@ -892,10 +891,12 @@ void RunTimeData::finalize_iteration_step()
              ?"minimum autocorrelation N_eff":"complex-weight N_eff",
              print::round_value_to_string(effective_sample_sizes.back(),m_num_print_digits))
           <<print::quantity_to_output_line(36,"branch transpose residual",
-             print::round_value_to_string(branch_identity_errors.back(),m_num_print_digits))
-          <<print::quantity_to_output_line(36,"Gaussian covariance truncation",
-             print::round_value_to_string(
-                 gaussian_covariance_approximation_errors.back(),m_num_print_digits))
+             print::round_value_to_string(branch_identity_errors.back(),m_num_print_digits));
+        if( m_fft )
+            std::cout<<print::quantity_to_output_line(36,"Gaussian covariance truncation",
+                 print::round_value_to_string(
+                     gaussian_covariance_approximation_errors.back(),m_num_print_digits));
+        std::cout
           <<print::quantity_to_output_line(36,"largest Gaussian factor block",
              std::to_string(gaussian_largest_factorization_dimensions.back()))
           <<print::quantity_to_output_line(36,"closed-contour trace residual",

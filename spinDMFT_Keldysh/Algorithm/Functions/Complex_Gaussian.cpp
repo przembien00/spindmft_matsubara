@@ -6,6 +6,7 @@
 #include<numeric>
 #include<stdexcept>
 #include<vector>
+#include<unordered_map>
 
 #include<fftw3.h>
 
@@ -13,6 +14,12 @@
 // existing LAPACK wrappers. This needs no additional CBLAS headers/library.
 #if !defined(INTEL_MKL_VERSION)
 extern "C" {
+void sgemv_(char*,blaze::blas_int_t*,blaze::blas_int_t*,float*,float*,
+    blaze::blas_int_t*,float*,blaze::blas_int_t*,float*,float*,blaze::blas_int_t*,
+    blaze::fortran_charlen_t);
+void dgemv_(char*,blaze::blas_int_t*,blaze::blas_int_t*,double*,double*,
+    blaze::blas_int_t*,double*,blaze::blas_int_t*,double*,double*,blaze::blas_int_t*,
+    blaze::fortran_charlen_t);
 void sgemm_(char*,char*,blaze::blas_int_t*,blaze::blas_int_t*,blaze::blas_int_t*,
     float*,float*,blaze::blas_int_t*,float*,blaze::blas_int_t*,float*,float*,
     blaze::blas_int_t*,blaze::fortran_charlen_t,blaze::fortran_charlen_t);
@@ -44,6 +51,66 @@ namespace
 
 std::shared_ptr<GaussianBlockFactors> symmetry_factors(
     const ComplexDynamicMatrix& covariance,bool use_svd);
+
+// Pack a complex-by-real product as one real BLAS product. Adjacent rows
+// hold Re L and Im L; columns are the original independent real latent modes.
+using RealFactorMatrix=GaussianBlockFactors::BatchMatrix;
+
+blaze::blas_int_t blas_integer(const size_t value)
+{
+    if(value>static_cast<size_t>(std::numeric_limits<blaze::blas_int_t>::max()))
+        throw std::overflow_error("FFT Gaussian product exceeds BLAS integer range");
+    return static_cast<blaze::blas_int_t>(value);
+}
+
+void multiply_real_factor(RealFactorMatrix& factor,const RealType* latent,
+    const size_t count,const size_t latent_stride,RealFactorMatrix& values)
+{
+    values.resize(factor.rows(),count,false);
+    // GEMV/GEMM quick returns need not overwrite the output for an empty
+    // inner dimension. Clear it explicitly, including reused batch buffers.
+    if(factor.columns()==0||count==0)
+    {
+        reset(values);
+        return;
+    }
+    auto m=blas_integer(factor.rows()),k=blas_integer(factor.columns());
+    auto lda=blas_integer(factor.spacing());
+    RealType one{1.},zero{};
+    char no_transpose='N';
+    // The legacy Fortran signatures are mutable; BLAS does not modify x/B.
+    auto* input=const_cast<RealType*>(latent);
+    if(count==1)
+    {
+        blaze::blas_int_t increment=1;
+#ifdef USE_FLOAT
+        sgemv_(&no_transpose,&m,&k,&one,factor.data(),&lda,input,&increment,
+               &zero,values.data(),&increment
+#else
+        dgemv_(&no_transpose,&m,&k,&one,factor.data(),&lda,input,&increment,
+               &zero,values.data(),&increment
+#endif
+#if !defined(INTEL_MKL_VERSION)
+               ,blaze::fortran_charlen_t{1}
+#endif
+        );
+    }
+    else
+    {
+        auto n=blas_integer(count),ldb=blas_integer(latent_stride),ldc=blas_integer(values.spacing());
+#ifdef USE_FLOAT
+        sgemm_(&no_transpose,&no_transpose,&m,&n,&k,&one,factor.data(),&lda,
+               input,&ldb,&zero,values.data(),&ldc
+#else
+        dgemm_(&no_transpose,&no_transpose,&m,&n,&k,&one,factor.data(),&lda,
+               input,&ldb,&zero,values.data(),&ldc
+#endif
+#if !defined(INTEL_MKL_VERSION)
+               ,blaze::fortran_charlen_t{1},blaze::fortran_charlen_t{1}
+#endif
+        );
+    }
+}
 
 RealType frobenius_norm( const ComplexDynamicMatrix& matrix )
 {
@@ -808,26 +875,160 @@ std::vector<JointComplexGaussianSampler::ContourFieldSample>
 SVDComplexGaussianSampler::draw_contour_batch(std::mt19937& engine,size_t count,bool)
 { return block_batch(*this,*m_factors,engine,count); }
 
+namespace
+{
+// Congruence by A*T (or its inverse), without assembling a dense T. Apply
+// the same real transformation on rows and columns: never conjugate Gamma.
+void transform_weighted_covariance(ComplexDynamicMatrix& matrix,
+    const size_t nm,const size_t nr,const std::array<RealType,3>& roots,
+    const bool inverse)
+{
+    const auto transform=[&](ComplexType& m, const size_t sector)
+    { m=inverse?m/roots[sector]:m*roots[sector]; };
+    const auto pair=[&](ComplexType& p,ComplexType& b)
+    {
+        const ComplexType first=p,second=b;
+        if(inverse)
+        {
+            p=first/roots[1]+second/roots[2];
+            b=first/roots[1]-second/roots[2];
+        }
+        else
+        {
+            p=(RealType{0.5}*first+RealType{0.5}*second)*roots[1];
+            b=(RealType{0.5}*first-RealType{0.5}*second)*roots[2];
+        }
+    };
+    for(size_t j=0;j<matrix.columns();++j)
+    {
+        for(size_t i=0;i<nm;++i)transform(matrix(i,j),0);
+        for(size_t i=0;i<nr;++i)pair(matrix(nm+i,j),matrix(nm+nr+i,j));
+    }
+    for(size_t i=0;i<matrix.rows();++i)
+    {
+        for(size_t j=0;j<nm;++j)transform(matrix(i,j),0);
+        for(size_t j=0;j<nr;++j)pair(matrix(i,nm+j),matrix(i,nm+nr+j));
+    }
+}
+}
+
+WeightedDenseComplexGaussianSampler::WeightedDenseComplexGaussianSampler(
+    const ComplexDynamicMatrix& covariance,const size_t num_matsubara_intervals,
+    const size_t num_real_points,const std::array<RealType,3>& weights)
+{
+    const size_t n=covariance.rows(),points=n/3;
+    if(n!=covariance.columns()||n%3!=0||num_matsubara_intervals>=points
+       ||num_real_points==0||(points-num_matsubara_intervals-1)%2!=0
+       ||(points-num_matsubara_intervals-1)/2!=num_real_points)
+        throw std::invalid_argument("weighted-dense covariance does not match the physical contour grid");
+    if(transpose_symmetry_error(covariance)>symmetry_tolerance(n))
+        throw std::invalid_argument("weighted-dense covariance is not complex symmetric");
+    for(size_t i=0;i<n;++i)for(size_t j=0;j<n;++j)
+        if(!std::isfinite(std::real(covariance(i,j)))||!std::isfinite(std::imag(covariance(i,j))))
+            throw std::invalid_argument("weighted-dense covariance must be finite");
+    for(const auto weight:weights)
+        if(!std::isfinite(weight)||weight<=RealType{})
+            throw std::invalid_argument("Gaussian noise weights must be finite and strictly positive");
+    // A common rescaling of W must not change either the ensemble or the
+    // absolute floor in the existing Takagi numerical-rank cutoff. Set the
+    // largest weight to 2, so canonical (1,2,2) is an orthogonal change of
+    // basis and retains the original dense singular-value scale as well.
+    const RealType maximum=*std::max_element(weights.begin(),weights.end());
+    for(size_t i=0;i<3;++i)
+    {
+        m_roots[i]=std::sqrt(weights[i]/maximum)*std::sqrt(RealType{2.});
+        if(m_roots[i]==RealType{})
+            throw std::invalid_argument("Gaussian noise weight ratio underflows working precision");
+    }
+    m_matsubara_size=3*(num_matsubara_intervals+1);
+    m_real_size=3*num_real_points;
+    ComplexDynamicMatrix scaled=covariance;
+    transform_weighted_covariance(scaled,m_matsubara_size,m_real_size,m_roots,false);
+    m_factors=symmetry_factors(scaled,false);
+
+    // Measure rank-truncation and roundoff in the original physical basis.
+    // Reconstruct blockwise, avoiding a second full physical factor in memory.
+    reset(scaled);
+    for(const auto& block:m_factors->blocks)
+    {
+        const auto& L=block.factor->L;
+        const ComplexDynamicMatrix reconstructed=L*blaze::trans(L);
+        for(size_t i=0;i<block.rows.size();++i)for(size_t j=0;j<block.rows.size();++j)
+            scaled(block.rows[i],block.rows[j])=reconstructed(i,j);
+    }
+    transform_weighted_covariance(scaled,m_matsubara_size,m_real_size,m_roots,true);
+    const RealType scale=frobenius_norm(covariance);
+    m_reconstruction_error=scale>RealType{}?frobenius_norm(scaled-covariance)/scale
+                                          :frobenius_norm(scaled);
+    const RealType tolerance=std::max(RealType{1e-10},symmetry_tolerance(n));
+    if(!std::isfinite(m_reconstruction_error)||m_reconstruction_error>tolerance)
+        throw std::runtime_error("weighted-dense physical covariance reconstruction failed; reduce the noise weight contrast");
+}
+
+size_t WeightedDenseComplexGaussianSampler::latent_dimension() const { return m_factors->rank; }
+size_t WeightedDenseComplexGaussianSampler::size() const { return m_factors->size; }
+size_t WeightedDenseComplexGaussianSampler::largest_factorization_dimension() const { return m_factors->largest; }
+WeightedDenseComplexGaussianSampler::LatentVector
+WeightedDenseComplexGaussianSampler::draw_latent(std::mt19937& engine)
+{
+    LatentVector latent(latent_dimension());
+    for(auto& value:latent)value=m_standard_normal(engine);
+    return latent;
+}
+void WeightedDenseComplexGaussianSampler::to_physical_field(FieldVector& field) const
+{
+    for(size_t i=0;i<m_matsubara_size;++i)field[i]/=m_roots[0];
+    for(size_t i=0;i<m_real_size;++i)
+    {
+        const auto eta=field[m_matsubara_size+i]/m_roots[1];
+        const auto kappa=field[m_matsubara_size+m_real_size+i]/m_roots[2];
+        field[m_matsubara_size+i]=eta+kappa;
+        field[m_matsubara_size+m_real_size+i]=eta-kappa;
+    }
+}
+WeightedDenseComplexGaussianSampler::FieldVector
+WeightedDenseComplexGaussianSampler::field_from_latent(const LatentVector& latent)
+{
+    auto field=block_field(*m_factors,latent);
+    to_physical_field(field);
+    return field;
+}
+WeightedDenseComplexGaussianSampler::FieldVector
+WeightedDenseComplexGaussianSampler::draw(std::mt19937& engine)
+{ return field_from_latent(draw_latent(engine)); }
+std::vector<JointComplexGaussianSampler::ContourFieldSample>
+WeightedDenseComplexGaussianSampler::draw_contour_batch(std::mt19937& engine,size_t count,bool)
+{
+    auto fields=block_batch(*this,*m_factors,engine,count);
+    for(auto& field:fields)to_physical_field(field.edge_field);
+    return fields;
+}
+
 struct FFTDenseComplexGaussianSampler::FFTPlans
 {
     FFTPlans( const size_t num_matsubara_intervals,
               const size_t num_matsubara_points,
-              const size_t embedded_real )
+              const size_t embedded_real, const size_t substeps )
         : matsubara(3*num_matsubara_points),real(6*embedded_real)
     {
         const RealType two_pi=RealType{2.}*std::acos(RealType{-1.});
         const RealType offset=std::sqrt(RealType{3.})/RealType{6.};
         const std::array<RealType,2> nodes{RealType{0.5}-offset,RealType{0.5}+offset};
-        for(size_t node=0;node<2;++node)
+        // Preserve the existing signed-frequency convention, including +Nyquist.
+        // Each shifted inverse FFT evaluates the same frequency realization.
+        phases.resize(2*substeps);
+        for(size_t node=0;node<phases.size();++node)
         {
-            gauss_phases[node].resize(embedded_real);
+            const RealType fraction=(static_cast<RealType>(node/2)+nodes[node%2])
+                                    /static_cast<RealType>(substeps);
+            phases[node].resize(embedded_real);
             for(size_t mode=0;mode<embedded_real;++mode)
             {
                 const auto signed_mode=mode<=embedded_real/2?static_cast<std::ptrdiff_t>(mode)
                     :static_cast<std::ptrdiff_t>(mode)-static_cast<std::ptrdiff_t>(embedded_real);
-                const RealType angle=two_pi*static_cast<RealType>(signed_mode)*nodes[node]
+                const RealType angle=two_pi*static_cast<RealType>(signed_mode)*fraction
                     /static_cast<RealType>(embedded_real);
-                gauss_phases[node][mode]=std::exp(ComplexType{RealType{},angle});
+                phases[node][mode]=std::exp(ComplexType{RealType{},angle});
             }
         }
         matsubara_inverse=make_fft_plan(
@@ -851,7 +1052,7 @@ struct FFTDenseComplexGaussianSampler::FFTPlans
 
     std::vector<ComplexType> matsubara{};
     std::vector<ComplexType> real{};
-    std::array<std::vector<ComplexType>,2> gauss_phases;
+    std::vector<std::vector<ComplexType>> phases;
     FFTPlan matsubara_inverse{};
     FFTPlan real_inverse{};
 };
@@ -861,9 +1062,8 @@ struct FFTDenseComplexGaussianSampler::FrequencyFactors
     struct Block
     {
         std::vector<size_t> rows{};
-        std::shared_ptr<TakagiFactor> factor{};
-        LatentVector latent{};
-        FieldVector frequency_field{};
+        std::shared_ptr<RealFactorMatrix> factor{};
+        RealFactorMatrix frequency_fields{};
     };
 
     std::vector<Block> blocks{};
@@ -872,15 +1072,19 @@ struct FFTDenseComplexGaussianSampler::FrequencyFactors
 FFTDenseComplexGaussianSampler::FFTDenseComplexGaussianSampler(
     const CovarianceSource& covariance,const size_t num_matsubara_intervals,
     const size_t num_real_points,const RealType delta_real_time,
-    const RealType cross_frequency_cutoff )
+    const RealType cross_frequency_cutoff, const size_t real_time_substeps )
     : m_num_matsubara_intervals(num_matsubara_intervals),
       m_num_matsubara_points(num_matsubara_intervals+1),
       m_num_real_points(num_real_points),
       m_embedded_real_points(2*num_real_points),
+      m_real_time_substeps(real_time_substeps),
       m_physical_size(3*(m_num_matsubara_points+2*num_real_points))
 {
     if( num_matsubara_intervals==0||num_real_points==0 )
         throw std::invalid_argument("FFT Gaussian sampler needs nonzero contour grids");
+    if(num_real_points>=std::numeric_limits<size_t>::max()/6
+        ||real_time_substeps>(std::numeric_limits<size_t>::max()/6-1)/num_real_points)
+        throw std::invalid_argument("FFT real-time substep grid overflows size_t");
     const RealType marginal_error=physical_marginal_error(
         covariance,num_matsubara_intervals,num_real_points);
     FrequencyBlockFactorization block_factor=factor_frequency_blocks(
@@ -892,17 +1096,29 @@ FFTDenseComplexGaussianSampler::FFTDenseComplexGaussianSampler(
     m_largest_factorization_dimension=block_factor.largest_dimension;
     m_frequency_factors=std::make_unique<FrequencyFactors>();
     m_frequency_factors->blocks.reserve(block_factor.blocks.size());
+    std::unordered_map<const TakagiFactor*,std::shared_ptr<RealFactorMatrix>> packed_factors;
     for( auto& source:block_factor.blocks )
     {
         FrequencyFactors::Block block{};
         block.rows=std::move(source.rows);
-        block.factor=std::move(source.factor);
-        block.latent.resize(block.factor->numerical_rank,false);
-        block.frequency_field.resize(block.rows.size(),false);
+        auto& packed=packed_factors[source.factor.get()];
+        if(!packed)
+        {
+            const auto& L=source.factor->L;
+            packed=std::make_shared<RealFactorMatrix>(2*L.rows(),L.columns());
+            for(size_t j=0;j<L.columns();++j)for(size_t i=0;i<L.rows();++i)
+            {
+                (*packed)(2*i,j)=std::real(L(i,j));
+                (*packed)(2*i+1,j)=std::imag(L(i,j));
+            }
+        }
+        block.factor=packed;
+        // Release the complex factors with block_factor after construction;
+        // packing changes layout, not asymptotic factor storage.
         m_frequency_factors->blocks.push_back(std::move(block));
     }
     m_fft=std::make_unique<FFTPlans>(
-        num_matsubara_intervals,m_num_matsubara_points,m_embedded_real_points);
+        num_matsubara_intervals,m_num_matsubara_points,m_embedded_real_points,real_time_substeps);
 }
 
 FFTDenseComplexGaussianSampler::~FFTDenseComplexGaussianSampler()=default;
@@ -927,20 +1143,56 @@ FFTDenseComplexGaussianSampler::contour_field_from_latent(
 {
     if( latent.size()!=m_latent_dimension )
         throw std::invalid_argument("FFT complex Gaussian latent-state rank mismatch");
-    const size_t matsubara_size=3*m_num_matsubara_points;
+    if(include_real_gauss_fields&&m_real_time_substeps==0)
+        throw std::invalid_argument("q=0 FFT sampling provides native endpoints only");
     size_t latent_offset{};
-    for( auto& block:m_frequency_factors->blocks )
+    for(auto& block:m_frequency_factors->blocks)
     {
-        for( auto& value:block.latent ) value=latent[latent_offset++];
-        if( block.factor->numerical_rank==0 )
-            reset(block.frequency_field);
-        else
-            block.frequency_field=block.factor->L*block.latent;
+        // Avoid pointer arithmetic on an empty latent vector for zero-rank baths.
+        const RealType* input=block.factor->columns()?latent.data()+latent_offset:nullptr;
+        multiply_real_factor(*block.factor,input,1,latent.size(),block.frequency_fields);
+        latent_offset+=block.factor->columns();
     }
-    if( latent_offset!=latent.size() )
+    if(latent_offset!=latent.size())
         throw std::logic_error("FFT complex Gaussian latent layout mismatch");
+    return contour_field_from_frequency(0,include_real_gauss_fields);
+}
 
-    const auto scatter_frequency_fields=[&]( const int gauss_node )
+std::vector<FFTDenseComplexGaussianSampler::ContourFieldSample>
+FFTDenseComplexGaussianSampler::draw_contour_batch(
+    std::mt19937& engine,const size_t count,const bool include_real_gauss_fields)
+{
+    if(include_real_gauss_fields&&m_real_time_substeps==0)
+        throw std::invalid_argument("q=0 FFT sampling provides native endpoints only");
+    if(count==0)return {};
+    RealFactorMatrix latent(m_latent_dimension,count);
+    // Preserve sample-major normal draws, including distribution caching and
+    // partial batches. Independent symmetry blocks still use disjoint rows.
+    for(size_t sample=0;sample<count;++sample)
+        for(size_t i=0;i<m_latent_dimension;++i)
+            latent(i,sample)=m_standard_normal(engine);
+    size_t offset{};
+    for(auto& block:m_frequency_factors->blocks)
+    {
+        const RealType* input=block.factor->columns()?latent.data()+offset:nullptr;
+        multiply_real_factor(*block.factor,input,count,latent.spacing(),block.frequency_fields);
+        offset+=block.factor->columns();
+    }
+    if(offset!=m_latent_dimension)
+        throw std::logic_error("FFT complex Gaussian batch latent layout mismatch");
+    std::vector<ContourFieldSample> fields;
+    fields.reserve(count);
+    for(size_t sample=0;sample<count;++sample)
+        fields.push_back(contour_field_from_frequency(sample,include_real_gauss_fields));
+    return fields;
+}
+
+FFTDenseComplexGaussianSampler::ContourFieldSample
+FFTDenseComplexGaussianSampler::contour_field_from_frequency(
+    const size_t sample,const bool include_real_gauss_fields)
+{
+    const size_t matsubara_size=3*m_num_matsubara_points;
+    const auto scatter_frequency_fields=[&]( const size_t phase_index )
     {
         std::fill(m_fft->matsubara.begin(),m_fft->matsubara.end(),ComplexType{});
         std::fill(m_fft->real.begin(),m_fft->real.end(),ComplexType{});
@@ -948,19 +1200,21 @@ FFTDenseComplexGaussianSampler::contour_field_from_latent(
             for( size_t i=0;i<block.rows.size();++i )
             {
                 const size_t row=block.rows[i];
+                const ComplexType value{block.frequency_fields(2*i,sample),
+                                        block.frequency_fields(2*i+1,sample)};
                 if( row<matsubara_size )
                 {
-                    m_fft->matsubara[row]=block.frequency_field[i];
+                    m_fft->matsubara[row]=value;
                     continue;
                 }
                 const size_t real_row=row-matsubara_size;
                 const size_t mode=real_row/6;
-                m_fft->real[real_row]=gauss_node<0?block.frequency_field[i]
-                    :m_fft->gauss_phases[gauss_node][mode]*block.frequency_field[i];
+                m_fft->real[real_row]=phase_index==m_fft->phases.size()?value
+                    :m_fft->phases[phase_index][mode]*value;
             }
     };
 
-    scatter_frequency_fields(-1);
+    scatter_frequency_fields(m_fft->phases.size());
     execute_fft(m_fft->matsubara_inverse);
     execute_fft(m_fft->real_inverse);
     const RealType matsubara_normalization=RealType{1.}/std::sqrt(
@@ -983,19 +1237,20 @@ FFTDenseComplexGaussianSampler::contour_field_from_latent(
                     matsubara_size+3*(branch*m_num_real_points+t)+component]
                     =real_normalization*m_fft->real[6*t+3*branch+component];
 
+    const size_t q=m_real_time_substeps;
+    const size_t num_real_intervals=m_num_real_points-1;
     if( include_real_gauss_fields )
     {
-        const size_t num_real_intervals=m_num_real_points-1;
-        for( size_t node=0;node<2;++node )
+        for(auto& nodes:result.real_gauss_fields)
+            nodes.resize(6*num_real_intervals*q,false);
+        for(size_t j=0;j<q;++j) for(size_t node=0;node<2;++node)
         {
-            scatter_frequency_fields(static_cast<int>(node));
+            scatter_frequency_fields(2*j+node);
             execute_fft(m_fft->real_inverse);
-            result.real_gauss_fields[node].resize(
-                6*num_real_intervals,false);
-            for( size_t t=0;t<num_real_intervals;++t )
-                for( size_t component=0;component<6;++component )
-                    result.real_gauss_fields[node][6*t+component]
-                        =real_normalization*m_fft->real[6*t+component];
+            for(size_t t=0;t<num_real_intervals;++t)
+                for(size_t c=0;c<6;++c)
+                    result.real_gauss_fields[node][6*(t*q+j)+c]
+                        =real_normalization*m_fft->real[6*t+c];
         }
     }
     return result;
@@ -1009,26 +1264,32 @@ FFTDenseComplexGaussianSampler::draw( std::mt19937& engine )
 
 std::unique_ptr<JointComplexGaussianSampler> make_complex_gaussian_sampler(
     const CovarianceSource& covariance,const size_t nm,const size_t nr,
-    const RealType dt,const RealType cutoff )
+    const RealType dt,const RealType cutoff,const size_t real_time_substeps )
 {
-    return std::make_unique<FFTDenseComplexGaussianSampler>(covariance,nm,nr,dt,cutoff);
+    return std::make_unique<FFTDenseComplexGaussianSampler>(covariance,nm,nr,dt,cutoff,real_time_substeps);
 }
 
 std::unique_ptr<JointComplexGaussianSampler> make_complex_gaussian_sampler(
     const std::string& algorithm,const ComplexDynamicMatrix& covariance,
     const size_t num_matsubara_intervals,const size_t num_real_points,
-    const RealType delta_real_time,const RealType cross_frequency_cutoff )
+    const RealType delta_real_time,const RealType cross_frequency_cutoff,
+    const std::array<RealType,3>& weights,const size_t real_time_substeps )
 {
+    if(real_time_substeps>1&&algorithm=="svd")
+        throw std::invalid_argument("real-time substeps require dense, weighted-dense, or FFT sampling");
     if( algorithm=="dense" )
         return std::make_unique<DenseComplexGaussianSampler>(covariance);
     if( algorithm=="svd" )
         return std::make_unique<SVDComplexGaussianSampler>(covariance);
+    if( algorithm=="weighted-dense" )
+        return std::make_unique<WeightedDenseComplexGaussianSampler>(
+            covariance,num_matsubara_intervals,num_real_points,weights);
     if( algorithm=="fft" )
         return std::make_unique<FFTDenseComplexGaussianSampler>(
             covariance,num_matsubara_intervals,num_real_points,
-            delta_real_time,cross_frequency_cutoff);
+            delta_real_time,cross_frequency_cutoff,real_time_substeps);
     throw std::invalid_argument(
-        "Unknown Gaussian factorization '"+algorithm+"'; use dense, svd, or fft");
+        "Unknown Gaussian factorization '"+algorithm+"'; use dense, svd, fft, or weighted-dense");
 }
 
 }

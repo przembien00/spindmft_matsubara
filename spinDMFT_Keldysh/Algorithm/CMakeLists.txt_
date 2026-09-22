@@ -138,6 +138,11 @@ if(BUILD_TESTING)
     target_link_libraries(test_complex_gaussian ${LINK_LIBS})
     add_test(NAME complex_gaussian COMMAND test_complex_gaussian)
 
+    add_executable(test_weighted_gaussian
+        Tests/test_weighted_gaussian.cpp Functions/Complex_Gaussian.cpp)
+    target_link_libraries(test_weighted_gaussian ${LINK_LIBS})
+    add_test(NAME weighted_gaussian COMMAND test_weighted_gaussian)
+
     add_executable(test_contour_kernel Tests/test_contour_kernel.cpp Contour/Contour_Kernel.cpp)
     target_link_libraries(test_contour_kernel ${LINK_LIBS})
     add_test(NAME contour_kernel COMMAND test_contour_kernel)
@@ -154,6 +159,14 @@ if(BUILD_TESTING)
     target_link_libraries(test_keldysh_propagation ${LINK_LIBS})
     add_test(NAME keldysh_propagation COMMAND test_keldysh_propagation)
 
+    add_executable(test_real_time_substeps
+        Tests/test_real_time_substeps.cpp
+        Functions/Functions.cpp Functions/Complex_Gaussian.cpp
+        Contour/Contour_Kernel.cpp Run_Time_Data/Run_Time_Data.cpp
+        Run_Time_Data/Ratio_Statistics.cpp)
+    target_link_libraries(test_real_time_substeps ${LINK_LIBS})
+    add_test(NAME real_time_substeps COMMAND test_real_time_substeps)
+
     add_executable(test_full_contour_measurement
         Tests/test_full_contour_measurement.cpp
         Functions/Functions.cpp Functions/Complex_Gaussian.cpp Functions/PCN_Chain.cpp
@@ -161,9 +174,13 @@ if(BUILD_TESTING)
         Run_Time_Data/Ratio_Statistics.cpp Parameter_Space/Parameter_Space.cpp)
     target_link_libraries(test_full_contour_measurement ${LINK_LIBS})
     add_test(NAME full_contour_measurement COMMAND test_full_contour_measurement)
+    add_test(NAME full_contour_measurement_weighted_option
+        COMMAND test_full_contour_measurement --gaussianFactorization=weighted-dense
+                --samplingStrategy=independent --gaussianWeightM=0.1
+                --gaussianWeightEta=2 --gaussianWeightKappa=8 --realTimeSubsteps=1)
     add_test(NAME full_contour_measurement_dense_cf4_option
         COMMAND test_full_contour_measurement
-                --gaussianFactorization=dense --cf4Propagator)
+                --gaussianFactorization=dense --realTimeSubsteps=1)
     add_test(NAME full_contour_measurement_independent_option
         COMMAND test_full_contour_measurement
                 --samplingStrategy=independent

@@ -516,5 +516,49 @@ int main()
             for(auto value:field.edge_field)
                 failures+=require(value==ComplexType{},"zero-rank batch produces zero fields");
     }
+    {
+        // FFT GEMM batches and GEMV single draws must represent the same
+        // joint fields, including shifted Gauss grids and RNG tails.
+        const auto covariance=make_doubled_frequency_covariance();
+        const RealType tolerance=RealType{2000.}*std::numeric_limits<RealType>::epsilon();
+        for(const RealType cutoff:{RealType{-1.},RealType{1.}})
+            for(const size_t q:{size_t{0},size_t{1},size_t{3}})
+                for(const bool zero:{false,true})
+        {
+            auto gamma=covariance;
+            if(zero)reset(gamma);
+            func::FFTDenseComplexGaussianSampler single(gamma,1,2,1.,cutoff,q);
+            func::FFTDenseComplexGaussianSampler batched(gamma,1,2,1.,cutoff,q);
+            std::mt19937 single_engine{592},batch_engine{592};
+            const auto compare=[&](const auto& a,const auto& b)
+            {
+                failures+=require(a.size()==b.size(),"FFT batch field dimensions match single draws");
+                if(a.size()!=b.size())return;
+                for(size_t i=0;i<a.size();++i)
+                    failures+=require(std::abs(a[i]-b[i])<=tolerance*(RealType{1.}+std::abs(a[i])),
+                                      "FFT BLAS batch matches single draw");
+            };
+            for(const size_t count:{size_t{0},size_t{1},size_t{7},size_t{32},size_t{3},size_t{1}})
+            {
+                const auto batch=batched.draw_contour_batch(batch_engine,count,q>0);
+                failures+=require(batch.size()==count,"FFT batch retains requested sample count");
+                for(const auto& sample:batch)
+                {
+                    const auto reference=single.draw_contour_field(single_engine,q>0);
+                    compare(reference.edge_field,sample.edge_field);
+                    for(size_t node=0;node<2;++node)
+                        compare(reference.real_gauss_fields[node],sample.real_gauss_fields[node]);
+                    if(zero)for(const auto value:sample.edge_field)
+                        failures+=require(value==ComplexType{},"zero-rank FFT BLAS batch stays zero");
+                }
+                failures+=require(single_engine==batch_engine,"FFT batching preserves RNG sequence");
+                // Switch from batch to single and back on the same sampler.
+                const auto a=single.draw_contour_field(single_engine,q>0);
+                const auto b=batched.draw_contour_field(batch_engine,q>0);
+                compare(a.edge_field,b.edge_field);
+                for(size_t node=0;node<2;++node)compare(a.real_gauss_fields[node],b.real_gauss_fields[node]);
+            }
+        }
+    }
     return failures == 0 ? 0 : 1;
 }

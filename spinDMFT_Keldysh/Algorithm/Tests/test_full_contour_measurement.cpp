@@ -197,7 +197,7 @@ int check_pcn_cache(ps::ParameterSpace p,int rank)
         for(size_t attempt=0;attempt<128;++attempt)
         {
             latent=reference_sampler.draw_latent(reference_engine);
-            reference=func::compute_contour_trajectory(p,reference_sampler.contour_field_from_latent(latent,p.cf4_propagator),mean);
+            reference=func::compute_contour_trajectory(p,reference_sampler.contour_field_from_latent(latent,p.uses_cf4()),mean);
             if(positive(weight(reference)))break;
         }
         std::uniform_real_distribution<RealType> uniform(0.,1.);
@@ -210,7 +210,7 @@ int check_pcn_cache(ps::ParameterSpace p,int rank)
             const auto innovation=reference_sampler.draw_latent(reference_engine);
             auto proposal=latent;
             for(size_t j=0;j<proposal.size();++j)proposal[j]=retention*latent[j]+step*innovation[j];
-            const auto proposed=func::compute_contour_trajectory(p,reference_sampler.contour_field_from_latent(proposal,p.cf4_propagator),mean);
+            const auto proposed=func::compute_contour_trajectory(p,reference_sampler.contour_field_from_latent(proposal,p.uses_cf4()),mean);
             bool accepted=false;
             if(positive(weight(proposed)))
             {
@@ -260,6 +260,24 @@ int main( int argc, char** argv )
     failures+=check_streamed_covariance(p);
     failures+=check_pcn_cache(p,rank);
     const contour::ContourLayout layout{p.num_TimePoints,p.num_RealTimePoints};
+    if(p.gaussian_factorization=="weighted-dense")
+    {
+        func::ComplexDynamicMatrix covariance(layout.dimension(),layout.dimension(),ComplexType{});
+        for(size_t i=0;i<layout.dimension();++i)covariance(i,i)=ComplexType{0.02,0.01};
+        auto sampler=func::make_complex_gaussian_sampler(p.gaussian_factorization,covariance,
+            p.num_TimeSteps,p.num_RealTimePoints,p.delta_real_t,p.fft_cross_frequency_cutoff,
+            p.gaussian_noise_weights);
+        std::mt19937 engine{773};
+        const func::MeanFieldTrajectory mean(p.num_RealTimePoints,FieldVector{});
+        const auto trajectory=func::compute_contour_trajectory(
+            p,sampler->draw_contour_field(engine,p.uses_cf4()),mean);
+        failures+=check_measurement(p,trajectory,rank,"prefix");
+        failures+=check_measurement(p,trajectory,rank,"closed-contour");
+        bool rejected{};
+        try{func::PCNChain chain(p,*sampler,mean,RealType{0.3},engine);}
+        catch(const std::invalid_argument&){rejected=true;}
+        failures+=require(rejected,"weighted sampler cannot enter an unvalidated positive-weight pCN chain");
+    }
     func::DenseComplexGaussianSampler::FieldVector fields(layout.dimension(),ComplexType{});
     const func::MeanFieldTrajectory mean(p.num_RealTimePoints,FieldVector{});
     for( size_t k=0;k<p.num_TimePoints;++k )
@@ -329,7 +347,7 @@ int main( int argc, char** argv )
 
     // Degenerate trajectory: no real-time steps, only the t=0 insertion.
     // The remaining tests intentionally use grids too short for cubic CF4.
-    p.cf4_propagator=false;
+    p.real_time_substeps=0;
     auto zero=distinct;
     zero.forward_steps.resize(1); zero.backward_steps.resize(1);
     p.num_RealTimeSteps=0; p.num_RealTimePoints=1;

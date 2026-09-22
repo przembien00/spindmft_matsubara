@@ -143,6 +143,7 @@ class RunTimeData
     bool m_self_consistency{};
     bool m_harmonic_bath{};
     bool m_pcn{};
+    bool m_fft{};
     bool m_closed_contour_observable_normalization{};
     RealType m_iteration_error_sigma_threshold{};
     size_t m_iteration_limit{};

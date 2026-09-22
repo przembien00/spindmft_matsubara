@@ -1,6 +1,7 @@
 #pragma once
 
 #include<string>
+#include<array>
 #include<vector>
 #include<iostream>
 #include<functional>
@@ -63,6 +64,7 @@ class ParameterSpace
   size_t num_TimePoints{};
   RealType delta_t{};
   size_t num_RealTimeSteps{};
+  size_t real_time_substeps{1};
   size_t num_RealTimePoints{};
   RealType delta_real_t{};
   RealType Tmax{};
@@ -75,14 +77,17 @@ class ParameterSpace
   std::string seed{};
 
   // ...concerning Monte-Carlo sampling and correlated-chain statistics
-  std::string sampling_strategy{"pcn"};
+  std::string sampling_strategy{"independent"};
   RealType mh_step_size{RealType{0.3}};
   size_t mh_burn_in{size_t{100}};
   RealType partition_imaginary_tolerance{RealType{1e-8}};
   size_t num_blocks{};
-  std::string gaussian_factorization{"dense"};
-  RealType fft_cross_frequency_cutoff{RealType{3.}};
-  bool cf4_propagator{false};
+  std::string gaussian_factorization{"fft"};
+  std::array<RealType,3> gaussian_noise_weights{RealType{1.},RealType{2.},RealType{8.}};
+  RealType fft_cross_frequency_cutoff{RealType{-1.}};
+  bool uses_cf4() const { return real_time_substeps>0; }
+  size_t real_time_steps_per_interval() const
+  { return uses_cf4()?real_time_substeps:size_t{1}; }
   std::string spin_insertion_strategy{"closed-contour"};
   std::string correlation_normalization{"partition-function"};
 

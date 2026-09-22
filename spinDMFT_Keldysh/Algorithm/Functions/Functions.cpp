@@ -551,11 +551,23 @@ void build_contour_trajectory( const ps::ParameterSpace& pspace,
         throw std::invalid_argument("joint Keldysh field has the wrong dimension");
     if( mean_field_time.size()!=pspace.num_RealTimePoints )
         throw std::invalid_argument("mean-field trajectory has the wrong real-time grid");
-    if( pspace.cf4_propagator
+    const size_t q=pspace.real_time_substeps;
+    if(pspace.num_RealTimeSteps==0||pspace.num_RealTimeSteps>=std::numeric_limits<size_t>::max()/6
+        ||q>(std::numeric_limits<size_t>::max()/6-1)/pspace.num_RealTimeSteps)
+        throw std::invalid_argument("invalid real-time substep grid");
+    if(q>1)
+    {
+        if(pspace.gaussian_factorization!="fft"&&pspace.gaussian_factorization!="dense"
+            &&pspace.gaussian_factorization!="weighted-dense")
+            throw std::invalid_argument("real-time substeps require dense, weighted-dense, or FFT sampling");
+        if(pspace.gaussian_factorization=="fft"&&!field_sample.has_real_gauss_fields())
+            throw std::invalid_argument("FFT substepping requires sampled Gauss-node fields");
+    }
+    if( pspace.uses_cf4()
         &&(field_sample.real_gauss_fields[0].size()!=0
            ||field_sample.real_gauss_fields[1].size()!=0) )
     {
-        const size_t expected=6*pspace.num_RealTimeSteps;
+        const size_t expected=6*pspace.num_RealTimeSteps*q;
         if( field_sample.real_gauss_fields[0].size()!=expected
             ||field_sample.real_gauss_fields[1].size()!=expected )
             throw std::invalid_argument(
@@ -582,7 +594,7 @@ void build_contour_trajectory( const ps::ParameterSpace& pspace,
     imaginary_steps.resize(pspace.num_TimeSteps);
     for( size_t k=0;k<pspace.num_TimeSteps;++k )
     {
-        if( pspace.cf4_propagator )
+        if( pspace.uses_cf4() )
         {
             const RealType offset=std::sqrt(RealType{3.})/RealType{6.};
             const auto early=cubic_interval_value(
@@ -636,63 +648,75 @@ void complete_contour_trajectory( const ps::ParameterSpace& pspace,
     result.forward_steps.resize(pspace.num_RealTimePoints);
     result.backward_steps.resize(pspace.num_RealTimePoints);
     result.forward_steps.front()=IDENTITY; result.backward_steps.front()=IDENTITY;
+    const size_t q=pspace.real_time_steps_per_interval();
+    const RealType h=pspace.delta_real_t/static_cast<RealType>(q);
     for( size_t t=1;t<pspace.num_RealTimePoints;++t )
     {
-        if( pspace.cf4_propagator )
+        const size_t interval=t-1;
+        for(size_t j=0;j<q;++j)
         {
-            const size_t interval=t-1;
-            const RealType offset=std::sqrt(RealType{3.})/RealType{6.};
-            const FieldVector mean_early=cubic_interval_value(
-                mean_field_time,interval,RealType{0.5}-offset);
-            const FieldVector mean_late=cubic_interval_value(
-                mean_field_time,interval,RealType{0.5}+offset);
-            ComplexFieldVector forward_early{},forward_late{};
-            ComplexFieldVector backward_early{},backward_late{};
-            if( field_sample.has_real_gauss_fields() )
+            const size_t micro=interval*q+j;
+            Operator forward_step,backward_step;
+            if( pspace.uses_cf4() )
             {
-                for( size_t c=0;c<3;++c )
+                const RealType offset=std::sqrt(RealType{3.})/RealType{6.};
+                const RealType early=(static_cast<RealType>(j)+RealType{0.5}-offset)
+                                    /static_cast<RealType>(q);
+                const RealType late=(static_cast<RealType>(j)+RealType{0.5}+offset)
+                                   /static_cast<RealType>(q);
+                const FieldVector mean_early=cubic_interval_value(mean_field_time,interval,early);
+                const FieldVector mean_late=cubic_interval_value(mean_field_time,interval,late);
+                ComplexFieldVector forward_early{},forward_late{};
+                ComplexFieldVector backward_early{},backward_late{};
+                if( field_sample.has_real_gauss_fields() )
                 {
-                    forward_early[c]=field_sample.real_gauss_fields[0][6*interval+c];
-                    forward_late[c]=field_sample.real_gauss_fields[1][6*interval+c];
-                    backward_early[c]=field_sample.real_gauss_fields[0][6*interval+3+c];
-                    backward_late[c]=field_sample.real_gauss_fields[1][6*interval+3+c];
+                    for( size_t c=0;c<3;++c )
+                    {
+                        forward_early[c]=field_sample.real_gauss_fields[0][6*micro+c];
+                        forward_late[c]=field_sample.real_gauss_fields[1][6*micro+c];
+                        backward_early[c]=field_sample.real_gauss_fields[0][6*micro+3+c];
+                        backward_late[c]=field_sample.real_gauss_fields[1][6*micro+3+c];
+                    }
                 }
+                else
+                {
+                    // Evaluate the same native-edge cubic at each substep's nodes;
+                    // refining propagation does not introduce new random fields.
+                    forward_early=cubic_interval_value(forward_fields,interval,early);
+                    forward_late=cubic_interval_value(forward_fields,interval,late);
+                    backward_early=cubic_interval_value(backward_fields,interval,early);
+                    backward_late=cubic_interval_value(backward_fields,interval,late);
+                }
+                forward_step=gauss_cfet4_step(
+                    pspace,forward_early,mean_early,forward_late,mean_late,
+                    ComplexType{RealType{0.},-h});
+                // Reverse both nodes and contour sign on the backward branch.
+                backward_step=gauss_cfet4_step(
+                    pspace,backward_late,mean_late,backward_early,mean_early,
+                    ComplexType{RealType{0.},+h});
             }
             else
             {
-                // Dense factorization samples only the physical edge grid.
-                // Under the smooth-field assumption, four-point interpolation
-                // supplies both internal Gauss nodes with fourth-order
-                // accuracy without enlarging the covariance factorization.
-                forward_early=cubic_interval_value(
-                    forward_fields,interval,RealType{0.5}-offset);
-                forward_late=cubic_interval_value(
-                    forward_fields,interval,RealType{0.5}+offset);
-                backward_early=cubic_interval_value(
-                    backward_fields,interval,RealType{0.5}-offset);
-                backward_late=cubic_interval_value(
-                    backward_fields,interval,RealType{0.5}+offset);
+                forward_step=cfet4_step(
+                    pspace,forward_fields[t],mean_field_time[t],
+                    forward_fields[t-1],mean_field_time[t-1],
+                    ComplexType{RealType{0.},-h});
+                backward_step=cfet4_step(
+                    pspace,backward_fields[t-1],mean_field_time[t-1],
+                    backward_fields[t],mean_field_time[t],
+                    ComplexType{RealType{0.},+h});
             }
-            result.forward_steps[t]=gauss_cfet4_step(
-                pspace,forward_early,mean_early,forward_late,mean_late,
-                ComplexType{RealType{0.},-pspace.delta_real_t});
-            // The backward branch traverses the interval from late to early.
-            // Swapping both nodes reverses the noncommuting product, so equal
-            // forward/backward fields close exactly.
-            result.backward_steps[t]=gauss_cfet4_step(
-                pspace,backward_late,mean_late,backward_early,mean_early,
-                ComplexType{RealType{0.},+pspace.delta_real_t});
-        }
-        else
-        {
-            result.forward_steps[t]=cfet4_step(
-                pspace,forward_fields[t],mean_field_time[t],
-                forward_fields[t-1],mean_field_time[t-1],
-                ComplexType{RealType{0.},-pspace.delta_real_t});
-            result.backward_steps[t]=cfet4_step(
-                pspace,backward_fields[t-1],mean_field_time[t-1],
-                backward_fields[t],mean_field_time[t],
-                ComplexType{RealType{0.},+pspace.delta_real_t});
+            // Store only the composed native interval; measurements stay on its edges.
+            if(j==0)
+            {
+                result.forward_steps[t]=forward_step;
+                result.backward_steps[t]=backward_step;
+            }
+            else
+            {
+                result.forward_steps[t]=forward_step*result.forward_steps[t];
+                result.backward_steps[t]=result.backward_steps[t]*backward_step;
+            }
         }
     }
     Operator final_density=result.imaginary_density_operator;
