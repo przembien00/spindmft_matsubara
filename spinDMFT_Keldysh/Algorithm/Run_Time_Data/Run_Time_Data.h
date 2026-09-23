@@ -21,6 +21,7 @@ namespace mag = Observables::Magnetization;
 using Corr = corr::CorrelationVector;
 using CorrTen = ten::CorrelationTensor<Corr>;
 using MagVec = mag::MagnetizationVector;
+using MagTen = mag::MagnetizationTensor<MagVec>;
 using IndexPair = ten::IndexPair;
 using CorrelationSet = spinDMFT::Contour::CorrelationSet;
 
@@ -41,10 +42,8 @@ class RunTimeData
     size_t generated_seed{};
     CorrelationSet contour_sample_stds{};
     CorrelationSet contour_tau_int{};
-    std::vector<FieldVector> magnetization_time_Re{};
-    std::vector<FieldVector> magnetization_time_Im{};
-    std::vector<FieldVector> magnetization_time_Re_stds{};
-    std::vector<FieldVector> magnetization_time_Im_stds{};
+    MagTen magnetization_time_Re_stds{};
+    MagTen magnetization_time_Im_stds{};
     std::vector<RealType> closed_contour_ratio_Re{};
     std::vector<RealType> closed_contour_ratio_Im{};
     std::vector<RealType> closed_contour_residual_Re_sample_stds{};
@@ -104,11 +103,12 @@ class RunTimeData
                                  size_t rejected_nonpositive,
                                  RealType maximum_relative_imaginary_sampling_weight );
     void mpi_reduce_and_finalize( CorrelationSet& correlations,
-                                  CorrelationSet& standard_errors );
+                                  MagTen& magnetization_Re,
+                                  MagTen& magnetization_Im );
     void record_iteration_error( RealType absolute_error,
                                  RealType standardized_error );
     void finalize_iteration_step();
-    bool terminate();
+    bool terminate( const MagTen& magnetization_Im );
     size_t num_blocks() const { return m_num_blocks; }
     size_t samples_per_block() const { return m_samples_per_block; }
 
@@ -122,8 +122,8 @@ class RunTimeData
         RealType partition_abs{};
         RealType partition_abs_sq{};
         CorrelationSet correlations{};
-        std::vector<MagVec> mag_Re{};
-        std::vector<MagVec> mag_Im{};
+        MagTen mag_Re{};
+        MagTen mag_Im{};
         std::vector<ComplexType> closure{};
         std::vector<RealType> closure_abs{};
     };
@@ -164,6 +164,6 @@ class RunTimeData
 
     static ComplexType edge_value( const CorrelationSet& values,
                                    size_t t, size_t p, size_t tau );
-    bool diagnostics_pass() const;
+    bool diagnostics_pass( const MagTen& magnetization_Im ) const;
 };
 }

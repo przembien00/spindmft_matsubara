@@ -16,22 +16,18 @@ int main( const int argC, char* const argV[] )
   tmm::DerivedTimeMeasure my_clock( my_rank, world_size );
   const ps::ParameterSpace my_pspace( argC, argV, world_size, my_rank );
   print::print_R0( my_rank, my_pspace.create_essentials_string() );
-  if( my_pspace.gaussian_factorization=="svd" )
-      print::print_R0( my_rank,
-          "INFO: svd uses the canonical complex-SVD Takagi factorization and "
-          "samples the same complete Gaussian ensemble as dense.\n" );
   func::initialize_matrices( my_pspace );
-  func::ComplexMagnetizationTrajectory my_magnetization_time(
-      my_pspace.num_RealTimePoints,func::ComplexFieldVector{} );
-  const FieldVector initial_spin_expval=my_pspace.initial_spin_expval;
-  for( auto& magnetization:my_magnetization_time )
-      for( size_t c=0;c<3;++c )
-          magnetization[c]=ComplexType{initial_spin_expval[c],RealType{0.}};
+  auto [my_magnetization_Re,my_magnetization_Im]
+      =func::generate_initial_magnetization(my_pspace);
   CorrelationSet my_correlations = func::generate_initial_correlations(
-      my_pspace, initial_spin_expval );
-  CorrelationSet my_standard_errors{ my_pspace.correlation_symmetry_type,
-                                     my_pspace.num_TimePoints,
-                                     my_pspace.num_RealTimePoints };
+      my_pspace,my_magnetization_Re );
+  CorrelationSet new_correlations{my_pspace.correlation_symmetry_type,
+                                  my_pspace.num_TimePoints,
+                                  my_pspace.num_RealTimePoints};
+  MagTen new_magnetization_Re{my_pspace.correlation_symmetry_type,
+                              my_pspace.num_RealTimePoints};
+  MagTen new_magnetization_Im{my_pspace.correlation_symmetry_type,
+                              my_pspace.num_RealTimePoints};
 
   rtd::RunTimeData my_rtdata( my_pspace, my_rank );
   my_rtdata.generated_seed = rd::generate_seed( my_rtdata.get_seed_str(), my_rank );
@@ -58,16 +54,11 @@ int main( const int argC, char* const argV[] )
         +(my_pspace.uses_harmonic_bath()?"Sampling Step ":"Iteration Step ")+it_str+
         " ------------------------\n" );
 
-    CorrelationSet new_correlations{ my_pspace.correlation_symmetry_type,
-                                     my_pspace.num_TimePoints,
-                                     my_pspace.num_RealTimePoints };
-    CorrelationSet new_standard_errors{ my_pspace.correlation_symmetry_type,
-                                        my_pspace.num_TimePoints,
-                                        my_pspace.num_RealTimePoints };
     const func::SelfConsistentField field = my_pspace.uses_harmonic_bath()
         ?func::prescribed_harmonic_bath_field(my_pspace,my_pspace.gaussian_factorization!="fft")
         :func::self_consistent_equations(
-            my_pspace,my_correlations,my_magnetization_time,
+            my_pspace,my_correlations,
+            my_magnetization_Re,my_magnetization_Im,
             my_pspace.gaussian_factorization!="fft");
     auto sampler=my_pspace.gaussian_factorization=="fft"
         ?func::make_complex_gaussian_sampler(field.covariance_source,
@@ -146,33 +137,32 @@ int main( const int argC, char* const argV[] )
     my_clock.leave_loop();
     my_clock.measure( "Monte-Carlo simulation", true );
     my_MC_estimator.reset();
-    my_rtdata.mpi_reduce_and_finalize(new_correlations,new_standard_errors);
+    my_rtdata.mpi_reduce_and_finalize(
+        new_correlations,new_magnetization_Re,new_magnetization_Im);
     my_clock.measure( "MPI communication", true );
 
-    func::ComplexMagnetizationTrajectory new_magnetization_time(
-        my_pspace.num_RealTimePoints,func::ComplexFieldVector{} );
-    auto new_magnetization_Re_errors=my_rtdata.magnetization_time_Re_stds;
-    auto new_magnetization_Im_errors=my_rtdata.magnetization_time_Im_stds;
-    for( size_t t=0;t<new_magnetization_time.size();++t )
-        for( size_t c=0;c<3;++c )
-            new_magnetization_time[t][c]=ComplexType{
-                my_rtdata.magnetization_time_Re[t][c],
-                my_rtdata.magnetization_time_Im[t][c]};
     if( my_pspace.constant_magnetization_time
         &&!my_pspace.uses_harmonic_bath() )
     {
-        new_magnetization_time=func::project_constant_magnetization(
-            new_magnetization_time );
-        new_magnetization_Re_errors.assign(
-            new_magnetization_Re_errors.size(),new_magnetization_Re_errors.front());
-        new_magnetization_Im_errors.assign(
-            new_magnetization_Im_errors.size(),new_magnetization_Im_errors.front());
+        new_magnetization_Re=func::project_constant_magnetization(
+            new_magnetization_Re );
+        new_magnetization_Im=func::project_constant_magnetization(
+            new_magnetization_Im );
+        for( size_t t=1;t<my_rtdata.magnetization_time_Re_stds.size();++t )
+        {
+            my_rtdata.magnetization_time_Re_stds[t]
+                =my_rtdata.magnetization_time_Re_stds.front();
+            my_rtdata.magnetization_time_Im_stds[t]
+                =my_rtdata.magnetization_time_Im_stds.front();
+        }
     }
 
     const auto residual=func::iteration_residual(
-        my_correlations,new_correlations,new_standard_errors,
-        my_magnetization_time,new_magnetization_time,
-        new_magnetization_Re_errors,new_magnetization_Im_errors );
+        my_correlations,new_correlations,my_rtdata.contour_sample_stds,
+        my_magnetization_Re,my_magnetization_Im,
+        new_magnetization_Re,new_magnetization_Im,
+        my_rtdata.magnetization_time_Re_stds,
+        my_rtdata.magnetization_time_Im_stds );
     my_rtdata.record_iteration_error(residual.absolute,residual.standardized);
 
     if( my_pspace.uses_harmonic_bath() )
@@ -180,23 +170,25 @@ int main( const int argC, char* const argV[] )
         // There is no fixed-point update in prescribed-bath mode.  Store the
         // measured estimator directly instead of mixing it with an arbitrary
         // spinDMFT initial guess.
-        my_correlations=std::move(new_correlations);
-        my_magnetization_time=std::move(new_magnetization_time);
+        my_correlations=new_correlations;
+        my_magnetization_Re=new_magnetization_Re;
+        my_magnetization_Im=new_magnetization_Im;
     }
     else
     {
         my_correlations=func::mix_correlations(
             my_correlations,new_correlations,my_pspace.mixing_alpha );
-        my_magnetization_time=func::mix_magnetization_trajectory(
-            my_magnetization_time,new_magnetization_time,my_pspace.mixing_alpha );
+        my_magnetization_Re=func::mix_magnetization_tensor(
+            my_magnetization_Re,new_magnetization_Re,my_pspace.mixing_alpha );
+        my_magnetization_Im=func::mix_magnetization_tensor(
+            my_magnetization_Im,new_magnetization_Im,my_pspace.mixing_alpha );
     }
-    my_standard_errors = std::move(new_standard_errors);
     my_rtdata.finalize_iteration_step();
     my_clock.measure( "iteration-step finalization", true );
     print::print_R0( my_rank,
         "------------------------------------------------------------------\n" );
   }
-  while( !my_rtdata.terminate() );
+  while( !my_rtdata.terminate(my_magnetization_Im) );
   my_clock.leave_loop();
   my_clock.measure( "self consistency", true );
   print::print_R0( my_rank,
@@ -205,7 +197,8 @@ int main( const int argC, char* const argV[] )
   stoc::HDF5_Storage my_data_storage(
       my_rank, my_pspace, my_rtdata.termination );
   my_data_storage.store_main(
-      my_pspace, my_rtdata, my_correlations, my_standard_errors );
+      my_pspace,my_rtdata,my_correlations,
+      my_magnetization_Re,my_magnetization_Im);
 
   my_clock.measure( "storing", true );
   my_clock.stop();

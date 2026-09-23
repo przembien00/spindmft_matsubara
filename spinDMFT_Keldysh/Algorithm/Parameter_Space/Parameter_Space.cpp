@@ -173,7 +173,7 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "number of contiguous blocks per core; pCN errors use a multi-scale batch-means plateau"
     )(
     "gaussianFactorization", bpo::value<std::string>()->default_value("fft"),
-    "complex pseudo-covariance factorization: dense, svd, fft, or weighted-dense (independent sampling only)"
+    "complex pseudo-covariance factorization: dense, fft, or weighted-dense (independent sampling only)"
     )(
     "gaussianWeightM", bpo::value<RealType>()->default_value(RealType{1.}),
     "positive Matsubara noise weight for weighted-dense"
@@ -375,10 +375,10 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     if( partition_imaginary_tolerance<RealType{0.} )
         throw std::invalid_argument("partitionImagTolerance must be non-negative");
     gaussian_factorization  = vm["gaussianFactorization"].as<std::string>();
-    if( gaussian_factorization!="dense" && gaussian_factorization!="svd"
-        && gaussian_factorization!="fft" && gaussian_factorization!="weighted-dense" )
+    if( gaussian_factorization!="dense" && gaussian_factorization!="fft"
+        && gaussian_factorization!="weighted-dense" )
         throw std::invalid_argument(
-            "gaussianFactorization must be dense, svd, fft, or weighted-dense" );
+            "gaussianFactorization must be dense, fft, or weighted-dense" );
     const std::array<const char*,3> weight_options{
         "gaussianWeightM","gaussianWeightEta","gaussianWeightKappa"};
     for(size_t i=0;i<weight_options.size();++i)
@@ -395,9 +395,6 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     fft_cross_frequency_cutoff=vm["fftCrossFrequencyCutoff"].as<RealType>();
     if(!std::isfinite(fft_cross_frequency_cutoff))
         throw std::invalid_argument("fftCrossFrequencyCutoff must be finite; use -1 to disable truncation");
-    if( uses_cf4()&&gaussian_factorization=="svd" )
-        throw std::invalid_argument(
-            "CF4 (realTimeSubsteps >= 1) supports gaussianFactorization=dense, weighted-dense, or fft; use realTimeSubsteps=0 for svd" );
     if( uses_cf4()&&(num_TimePoints<4||num_RealTimePoints<4) )
         throw std::invalid_argument(
             "CF4 (realTimeSubsteps >= 1) requires at least three imaginary- and real-time steps; use realTimeSubsteps=0 for shorter grids" );
@@ -442,7 +439,6 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     filename_extension      = vm["fileext"].as<std::string>();
     num_PrintDigits         = vm["numPrintDigits"].as<size_t>();
 
-    initial_spin_expval = FieldVector{0., 0., 0.};
     if( vm.count("loadinit") )
     {
         load_initial_spin_correlations = true;
@@ -544,19 +540,21 @@ void ParameterSpace::read_initial_correlations_from_file()
     // retain support for the legacy scalar checkpoint schema.
     if( H5Lexists(group_id,"Re_magnetization",H5P_DEFAULT)>0 )
     {
-        std::vector<RealType> magnetization_linearized;
         hdf5r::import_ND_tensor_linearized(
-            group_id,"/results/Re_magnetization",magnetization_linearized );
-        if( magnetization_linearized.size()<initial_spin_expval.size() )
+            group_id,"/results/Re_magnetization",
+            initial_magnetization_linearized );
+        if( initial_magnetization_linearized.size()<3 )
             error::INIT_CORRELATIONS_MISMATCH( __PRETTY_FUNCTION__ );
-        std::copy_n(magnetization_linearized.cbegin(),initial_spin_expval.size(),
-                    initial_spin_expval.begin());
     }
     else
     {
-        hdf5r::import_scalar( group_id, "S_x", initial_spin_expval[0] );
-        hdf5r::import_scalar( group_id, "S_y", initial_spin_expval[1] );
-        hdf5r::import_scalar( group_id, "S_z", initial_spin_expval[2] );
+        initial_magnetization_linearized.assign(3,RealType{});
+        hdf5r::import_scalar(
+            group_id,"S_x",initial_magnetization_linearized[0] );
+        hdf5r::import_scalar(
+            group_id,"S_y",initial_magnetization_linearized[1] );
+        hdf5r::import_scalar(
+            group_id,"S_z",initial_magnetization_linearized[2] );
     }
 
     // 5) close resources:

@@ -290,9 +290,37 @@ void initialize_matrices( const ps::ParameterSpace& pspace )
     }
 }
 
-CorrelationSet generate_initial_correlations( const ps::ParameterSpace& pspace,
-                                              const FieldVector& spin_expectation )
+std::pair<MagTen,MagTen> generate_initial_magnetization(
+    const ps::ParameterSpace& pspace )
 {
+    MagTen magnetization_Re{
+        pspace.correlation_symmetry_type,pspace.num_RealTimePoints};
+    MagTen magnetization_Im{
+        pspace.correlation_symmetry_type,pspace.num_RealTimePoints};
+    if( pspace.load_initial_spin_correlations )
+    {
+        if( pspace.initial_magnetization_linearized.size()<3 )
+            throw std::invalid_argument(
+                "imported initial magnetization needs x, y, and z components");
+        FieldVector imported_full{};
+        std::copy_n(pspace.initial_magnetization_linearized.cbegin(),
+                    imported_full.size(),imported_full.begin());
+        const MagVec imported{
+            pspace.correlation_symmetry_type,imported_full};
+        for( auto& magnetization : magnetization_Re ) magnetization=imported;
+    }
+    return {std::move(magnetization_Re),std::move(magnetization_Im)};
+}
+
+CorrelationSet generate_initial_correlations( const ps::ParameterSpace& pspace,
+                                              const MagTen& magnetization_Re )
+{
+    if( magnetization_Re.empty()
+        ||magnetization_Re.size()!=pspace.num_RealTimePoints
+        ||magnetization_Re.get_symmetry()!=pspace.correlation_symmetry_type )
+        throw std::invalid_argument(
+            "initial correlations need a matching nonempty magnetization tensor");
+    const FieldVector spin_expectation=magnetization_Re.front().expand();
     CorrelationSet result{pspace.correlation_symmetry_type,pspace.num_TimePoints,
                           pspace.num_RealTimePoints};
     CorrTen edge_Re{pspace.correlation_symmetry_type,pspace.num_TimePoints};
@@ -356,15 +384,21 @@ CorrelationSet generate_initial_correlations( const ps::ParameterSpace& pspace,
 
 CorrelationSet connected_contour_primitive(
     const CorrelationSet& correlations,
-    const ComplexMagnetizationTrajectory& magnetization_time )
+    const MagTen& magnetization_Re,
+    const MagTen& magnetization_Im )
 {
     if( correlations.Re.empty() || correlations.Im.size()!=correlations.Re.size()
-        || magnetization_time.size()!=correlations.Re.size() )
+        ||magnetization_Re.size()!=correlations.Re.size()
+        ||magnetization_Im.size()!=correlations.Re.size()
+        ||magnetization_Re.get_symmetry()!=magnetization_Im.get_symmetry()
+        ||magnetization_Re.get_symmetry()!=correlations.Re.front().get_symmetry()
+        ||magnetization_Re.get_directions()!=magnetization_Im.get_directions() )
         throw std::invalid_argument(
             "connected contour primitive needs matching correlation and magnetization grids" );
 
     CorrelationSet connected=correlations;
-    const ComplexFieldVector& magnetization_zero=magnetization_time.front();
+    const auto full_Re=magnetization_Re.expand();
+    const auto full_Im=magnetization_Im.expand();
     for( size_t t=0;t<connected.Re.size();++t )
     {
         if( connected.Im[t].size()!=connected.Re[t].size() )
@@ -375,8 +409,8 @@ CorrelationSet connected_contour_primitive(
             if( connected.Im[t][p].size()!=connected.Re[t][p].size() )
                 throw std::invalid_argument("inconsistent complex contour primitive grid");
             const ComplexType disconnected=
-                magnetization_time[t][direction[0]]
-               *magnetization_zero[direction[1]];
+                ComplexType{full_Re[t][direction[0]],full_Im[t][direction[0]]}
+               *ComplexType{full_Re.front()[direction[1]],full_Im.front()[direction[1]]};
             for( size_t tau=0;tau<connected.Re[t][p].size();++tau )
             {
                 const ComplexType full{correlations.Re[t][p][tau],
@@ -455,17 +489,18 @@ SelfConsistentField covariance_from_primitive( const ps::ParameterSpace& pspace,
 
 SelfConsistentField self_consistent_equations(
     const ps::ParameterSpace& pspace, const CorrelationSet& correlations,
-    const ComplexMagnetizationTrajectory& magnetization_time,
+    const MagTen& magnetization_Re, const MagTen& magnetization_Im,
     const bool materialize_covariance )
 {
     SelfConsistentField result=covariance_from_primitive(pspace,
-        connected_contour_primitive(correlations,magnetization_time),false,materialize_covariance);
-    result.mean_time.resize(magnetization_time.size());
-    for(size_t t=0;t<magnetization_time.size();++t)
+        connected_contour_primitive(correlations,magnetization_Re,magnetization_Im),
+        false,materialize_covariance);
+    const auto physical_magnetization=magnetization_Re.expand();
+    result.mean_time.resize(magnetization_Re.size());
+    for(size_t t=0;t<magnetization_Re.size();++t)
     {
-        FieldVector physical_magnetization{};
-        for(size_t c=0;c<3;++c)physical_magnetization[c]=std::real(magnetization_time[t][c]);
-        result.mean_time[t]=pspace.JL*(pspace.spin_model.coupling_matrix*physical_magnetization);
+        result.mean_time[t]=pspace.JL*(
+            pspace.spin_model.coupling_matrix*physical_magnetization[t]);
     }
     return result;
 }
@@ -904,60 +939,50 @@ CorrelationSet mix_correlations( const CorrelationSet& old_values,
     return result;
 }
 
-ComplexMagnetizationTrajectory mix_magnetization_trajectory(
-    const ComplexMagnetizationTrajectory& old_values,
-    const ComplexMagnetizationTrajectory& raw_values,
-    RealType alpha )
+MagTen mix_magnetization_tensor( const MagTen& old_values,
+                                 const MagTen& raw_values,
+                                 RealType alpha )
 {
     if( alpha<=RealType{0.} || alpha>RealType{1.} )
         throw std::invalid_argument("fixed-point mixing alpha must lie in (0,1]");
-    if( old_values.size()!=raw_values.size() )
+    if( old_values.size()!=raw_values.size()
+        ||old_values.get_symmetry()!=raw_values.get_symmetry()
+        ||old_values.get_directions()!=raw_values.get_directions() )
         throw std::invalid_argument("magnetization trajectories have different grids");
-    ComplexMagnetizationTrajectory result=raw_values;
-    for( size_t t=0;t<result.size();++t )
-        for( size_t c=0;c<3;++c )
-            result[t][c]=(RealType{1.}-alpha)*old_values[t][c]
-                        +alpha*raw_values[t][c];
+    MagTen result=(RealType{1.}-alpha)*old_values;
+    result+=alpha*raw_values;
     return result;
 }
 
-ComplexMagnetizationTrajectory project_constant_magnetization(
-    const ComplexMagnetizationTrajectory& values )
+MagTen project_constant_magnetization( const MagTen& values )
 {
     if( values.empty() )
         throw std::invalid_argument("cannot project an empty magnetization trajectory");
-    return ComplexMagnetizationTrajectory(values.size(),values.front());
-}
-
-RealType max_magnetization_difference(
-    const ComplexMagnetizationTrajectory& old_values,
-    const ComplexMagnetizationTrajectory& raw_values )
-{
-    if( old_values.size()!=raw_values.size() )
-        throw std::invalid_argument("magnetization trajectories have different grids");
-    RealType largest{};
-    for( size_t t=0;t<old_values.size();++t )
-        for( size_t c=0;c<3;++c )
-            largest=std::max(largest,std::abs(raw_values[t][c]-old_values[t][c]));
-    return largest;
+    MagTen result=values;
+    for( size_t t=1;t<result.size();++t ) result[t]=result.front();
+    return result;
 }
 
 IterationResidual iteration_residual(
     const CorrelationSet& old_correlations,
     const CorrelationSet& raw_correlations,
     const CorrelationSet& standard_errors,
-    const ComplexMagnetizationTrajectory& old_magnetization,
-    const ComplexMagnetizationTrajectory& raw_magnetization,
-    const std::vector<FieldVector>& magnetization_Re_errors,
-    const std::vector<FieldVector>& magnetization_Im_errors )
+    const MagTen& old_magnetization_Re,
+    const MagTen& old_magnetization_Im,
+    const MagTen& raw_magnetization_Re,
+    const MagTen& raw_magnetization_Im,
+    const MagTen& magnetization_Re_errors,
+    const MagTen& magnetization_Im_errors )
 {
     if( old_correlations.Re.size()!=raw_correlations.Re.size()
         ||old_correlations.Im.size()!=raw_correlations.Im.size()
         ||standard_errors.Re.size()!=raw_correlations.Re.size()
         ||standard_errors.Im.size()!=raw_correlations.Im.size()
-        ||old_magnetization.size()!=raw_magnetization.size()
-        ||magnetization_Re_errors.size()!=raw_magnetization.size()
-        ||magnetization_Im_errors.size()!=raw_magnetization.size() )
+        ||old_magnetization_Re.size()!=raw_magnetization_Re.size()
+        ||old_magnetization_Im.size()!=raw_magnetization_Im.size()
+        ||raw_magnetization_Im.size()!=raw_magnetization_Re.size()
+        ||magnetization_Re_errors.size()!=raw_magnetization_Re.size()
+        ||magnetization_Im_errors.size()!=raw_magnetization_Re.size() )
         throw std::invalid_argument("iteration residual inputs have different grids");
 
     IterationResidual result{};
@@ -1022,14 +1047,30 @@ IterationResidual iteration_residual(
     update_contour(old_correlations.Re,raw_correlations.Re,standard_errors.Re);
     update_contour(old_correlations.Im,raw_correlations.Im,standard_errors.Im);
 
-    for( size_t t=0;t<raw_magnetization.size();++t )
-        for( size_t c=0;c<3;++c )
+    const auto& directions=raw_magnetization_Re.get_directions();
+    const char symmetry=raw_magnetization_Re.get_symmetry();
+    if( old_magnetization_Re.get_symmetry()!=symmetry
+        ||old_magnetization_Im.get_symmetry()!=symmetry
+        ||raw_magnetization_Im.get_symmetry()!=symmetry
+        ||magnetization_Re_errors.get_symmetry()!=symmetry
+        ||magnetization_Im_errors.get_symmetry()!=symmetry
+        ||old_magnetization_Re.get_directions()!=directions
+        ||old_magnetization_Im.get_directions()!=directions
+        ||raw_magnetization_Im.get_directions()!=directions
+        ||magnetization_Re_errors.get_directions()!=directions
+        ||magnetization_Im_errors.get_directions()!=directions )
+        throw std::invalid_argument("iteration residual magnetization inputs have different symmetries");
+    for( size_t t=0;t<raw_magnetization_Re.size();++t )
+        for( size_t c=0;c<magnetization_Re_errors.num_components();++c )
         {
-            const ComplexType difference=
-                raw_magnetization[t][c]-old_magnetization[t][c];
-            result.absolute=std::max(result.absolute,std::abs(difference));
-            update(std::real(difference),magnetization_Re_errors[t][c]);
-            update(std::imag(difference),magnetization_Im_errors[t][c]);
+            const RealType difference_Re=
+                raw_magnetization_Re[t][c]-old_magnetization_Re[t][c];
+            const RealType difference_Im=
+                raw_magnetization_Im[t][c]-old_magnetization_Im[t][c];
+            result.absolute=std::max(
+                result.absolute,std::hypot(difference_Re,difference_Im));
+            update(difference_Re,magnetization_Re_errors[t][c]);
+            update(difference_Im,magnetization_Im_errors[t][c]);
         }
     return result;
 }

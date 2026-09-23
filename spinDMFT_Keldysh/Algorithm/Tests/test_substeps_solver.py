@@ -99,7 +99,6 @@ def main():
         for name, value in (("negative", "-2"), ("fractional", "1.5"),
                             ("overflow", "184467440737095516160"), ("grid_overflow", "18446744073709551615")):
             run(name, ["--realTimeSubsteps="+value], "realTimeSubsteps")
-        run("svd_cf4_rejected", ["--realTimeSubsteps=3", "--gaussianFactorization=svd"], "use realTimeSubsteps=0 for svd")
         independent = ["--samplingStrategy=independent"]
         baseline, rank = run("defaults", independent)
         explicit, _ = run("explicit_defaults", independent + ["--gaussianFactorization=fft",
@@ -143,8 +142,7 @@ def main():
                             factor_rank = refined_rank
                         np.testing.assert_array_equal(refined_rank, factor_rank)
         run("q0_short_grid", independent + ["--realTimeSubsteps=0", "--numImagTimeSteps=1", "--numRealTimeSteps=1"])
-        for factor in ("dense", "svd"):
-            run("q0_"+factor, independent + ["--realTimeSubsteps=0", "--gaussianFactorization="+factor])
+        run("q0_dense", independent + ["--realTimeSubsteps=0", "--gaussianFactorization=dense"])
         run("removed_cf4_option", ["--cf4Propagator"], "unrecognised option")
         run("cutoff_opt_in", independent + ["--realTimeSubsteps=2", "--fftCrossFrequencyCutoff=3"])
     print(f"Passed {len(checked)} dense/FFT substep CLI and HDF5 checks.")

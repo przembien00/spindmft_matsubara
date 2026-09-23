@@ -94,6 +94,61 @@ class MagnetizationVector
 
 
 // ========================================================
+// ============= MAGNETIZATION TENSOR HEADER ==============
+// ========================================================
+/* Time-dependent single-site magnetization.  The outer index is the real-time
+point and every entry is a symmetry-reduced MagnetizationVector. */
+template<typename Magnetization>
+class MagnetizationTensor
+{
+ public:
+    // CONSTRUCTORS
+    MagnetizationTensor() = default;
+    MagnetizationTensor( const char symmetry_type, const size_t num_TimePoints );
+    MagnetizationTensor( const char symmetry_type, const SiteFields& full );
+
+    // PUBLIC METHODS
+    SiteFields expand() const;
+    void print( const size_t my_rank = 0 ) const;
+
+    // GET FUNCTIONS
+    size_t size() const { return m_tensor.size(); }
+    bool empty() const { return m_tensor.empty(); }
+    char get_symmetry() const { return m_symmetry_type; }
+    size_t num_components() const { return m_directions.size(); }
+    const std::vector<size_t>& get_directions() const { return m_directions; }
+
+    // ITERATORS
+    auto begin() { return m_tensor.begin(); }
+    auto end() { return m_tensor.end(); }
+    auto cbegin() const { return m_tensor.cbegin(); }
+    auto cend() const { return m_tensor.cend(); }
+
+    // OPERATORS
+    Magnetization& operator[]( const size_t time ) { return m_tensor[time]; }
+    const Magnetization& operator[]( const size_t time ) const { return m_tensor[time]; }
+    Magnetization& front() { return m_tensor.front(); }
+    const Magnetization& front() const { return m_tensor.front(); }
+    Magnetization& back() { return m_tensor.back(); }
+    const Magnetization& back() const { return m_tensor.back(); }
+    MagnetizationTensor& operator+=( const MagnetizationTensor& other );
+    MagnetizationTensor& operator*=( const RealType& factor );
+
+ private:
+    std::vector<Magnetization> m_tensor{};
+    std::vector<size_t> m_directions{};
+    char m_symmetry_type{};
+};
+
+template<typename Magnetization>
+MagnetizationTensor<Magnetization> operator*(
+    const RealType& factor, const MagnetizationTensor<Magnetization>& tensor );
+template<typename Magnetization>
+MagnetizationTensor<Magnetization> operator*(
+    const MagnetizationTensor<Magnetization>& tensor, const RealType& factor );
+
+
+// ========================================================
 // ========= MAGNETIZATION VECTOR IMPLEMENTATION ==========
 // ========================================================
 // constructor from symmetry type, components initialized to zero
@@ -161,6 +216,98 @@ inline MagnetizationVector& MagnetizationVector::operator*=( const RealType& fac
         component *= factor;
     }
     return *this;
+}
+
+
+// ========================================================
+// ========= MAGNETIZATION TENSOR IMPLEMENTATION ==========
+// ========================================================
+template<typename Magnetization>
+inline MagnetizationTensor<Magnetization>::MagnetizationTensor(
+    const char symmetry_type, const size_t num_TimePoints ):
+    m_tensor( num_TimePoints, Magnetization{symmetry_type} ),
+    m_directions( determine_magnetization_directions(symmetry_type) ),
+    m_symmetry_type( symmetry_type )
+{}
+
+template<typename Magnetization>
+inline MagnetizationTensor<Magnetization>::MagnetizationTensor(
+    const char symmetry_type, const SiteFields& full ):
+    m_directions( determine_magnetization_directions(symmetry_type) ),
+    m_symmetry_type( symmetry_type )
+{
+    m_tensor.reserve( full.size() );
+    for( const auto& value : full )
+    {
+        m_tensor.emplace_back( symmetry_type, value );
+    }
+}
+
+template<typename Magnetization>
+inline SiteFields MagnetizationTensor<Magnetization>::expand() const
+{
+    SiteFields full{};
+    full.reserve( m_tensor.size() );
+    for( const auto& value : m_tensor )
+    {
+        full.emplace_back( value.expand() );
+    }
+    return full;
+}
+
+template<typename Magnetization>
+inline void MagnetizationTensor<Magnetization>::print( const size_t my_rank ) const
+{
+    if( my_rank == 0 )
+    {
+        for( size_t t = 0; t < m_tensor.size(); ++t )
+        {
+            std::cout << "t[" << t << "]: ";
+            m_tensor[t].print( my_rank );
+        }
+    }
+}
+
+template<typename Magnetization>
+inline MagnetizationTensor<Magnetization>& MagnetizationTensor<Magnetization>::operator+=(
+    const MagnetizationTensor<Magnetization>& other )
+{
+    if( m_symmetry_type != other.get_symmetry() || m_tensor.size() != other.size() )
+    {
+        error::SIZE_MISMATCH( __PRETTY_FUNCTION__ );
+    }
+    for( size_t t = 0; t < m_tensor.size(); ++t )
+    {
+        m_tensor[t] += other[t];
+    }
+    return *this;
+}
+
+template<typename Magnetization>
+inline MagnetizationTensor<Magnetization>& MagnetizationTensor<Magnetization>::operator*=(
+    const RealType& factor )
+{
+    for( auto& value : m_tensor )
+    {
+        value *= factor;
+    }
+    return *this;
+}
+
+template<typename Magnetization>
+inline MagnetizationTensor<Magnetization> operator*(
+    const RealType& factor, const MagnetizationTensor<Magnetization>& tensor )
+{
+    MagnetizationTensor<Magnetization> result{ tensor };
+    result *= factor;
+    return result;
+}
+
+template<typename Magnetization>
+inline MagnetizationTensor<Magnetization> operator*(
+    const MagnetizationTensor<Magnetization>& tensor, const RealType& factor )
+{
+    return factor * tensor;
 }
 
 

@@ -58,15 +58,6 @@ struct GaussianBlockFactors;
 // constructed from the equivalent real-symmetric eigenproblem.
 TakagiFactor autonne_takagi( const ComplexDynamicMatrix& Gamma );
 
-// Canonical Takagi factorization obtained from a full complex SVD.  Degenerate
-// singular-value subspaces receive a small Takagi phase correction.  The
-// returned factor has both the same pseudo-covariance and the same Hermitian
-// covariance as autonne_takagi():
-//
-//   L L^T      = Gamma,
-//   L L^dagger = sqrt(Gamma Gamma^dagger).
-TakagiFactor svd_takagi( const ComplexDynamicMatrix& Gamma );
-
 class JointComplexGaussianSampler
 {
  public:
@@ -124,32 +115,6 @@ class DenseComplexGaussianSampler : public JointComplexGaussianSampler
 
     RealType reconstruction_error() const override;
     size_t numerical_rank() const { return latent_dimension(); }
-    size_t latent_dimension() const override;
-    size_t size() const override;
-    size_t largest_factorization_dimension() const override;
-    std::vector<ContourFieldSample> draw_contour_batch(
-        std::mt19937& engine,size_t count,bool include_real_gauss_fields ) override;
-
- private:
-    std::shared_ptr<GaussianBlockFactors> m_factors;
-    std::normal_distribution<RealType> m_standard_normal{ RealType{0.}, RealType{1.} };
-};
-
-// Alternative canonical sampler using the complex-SVD Takagi factor.  It
-// samples exactly the same complete Gaussian ensemble as the dense real-lift
-// algorithm; only factor construction differs.
-class SVDComplexGaussianSampler : public JointComplexGaussianSampler
-{
- public:
-    using LatentVector = JointComplexGaussianSampler::LatentVector;
-    using FieldVector = JointComplexGaussianSampler::FieldVector;
-
-    explicit SVDComplexGaussianSampler( const ComplexDynamicMatrix& covariance );
-
-    LatentVector draw_latent( std::mt19937& engine ) override;
-    FieldVector field_from_latent( const LatentVector& latent ) override;
-    FieldVector draw( std::mt19937& engine ) override;
-    RealType reconstruction_error() const override;
     size_t latent_dimension() const override;
     size_t size() const override;
     size_t largest_factorization_dimension() const override;

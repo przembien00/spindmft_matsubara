@@ -18,6 +18,7 @@ namespace ten = Observables::Tensors;
 namespace mag = Observables::Magnetization;
 using CorrTen = ten::CorrelationTensor<corr::CorrelationVector>;
 using MagVec = mag::MagnetizationVector;
+using MagTen = mag::MagnetizationTensor<MagVec>;
 
 #include"Time_Measure/Time_Measure.h"
 namespace tmm = Time_Measure;
