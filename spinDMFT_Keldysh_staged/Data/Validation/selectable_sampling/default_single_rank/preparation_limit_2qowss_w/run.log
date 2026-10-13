@@ -1,0 +1,46 @@
+[Przemeks-MacBook-Pro][[64050,0],0][btl_tcp_component.c:1021:mca_btl_tcp_component_create_listen] bind() failed: Operation not permitted (1)
+spin_model_string                  : spinmodel=ISO
+spin                               : 1/2
+JQ                                 : 0
+JL                                 : 0
+beta                               : 1
+B_string                           : h=z_h_abs=0.5
+noise_string                       : noise=none
+extra_interaction_string           : extraint=none
+correlation_symmetry_type          : C
+num_ImagTimeSteps                  : 6
+delta_t                            : 0.1667
+num_RealTimeSteps                  : 6
+real_time_substeps                 : 1
+delta_real_propagation_t           : 0.083333
+Tmax                               : 0.5
+delta_real_t                       : 0.0833
+num_Samples                        : 64
+sampling_strategy                  : independent
+gaussian_factorization             : dense
+staged_field_sampling              : full-contour Takagi
+propagator                         : gauss-cf4
+iteration_error_sigma_threshold    : 5
+information_text                   : 
+[1;33minitialization done (0)[0m : it took me 0.000173 seconds
+
+--- Matsubara iteration 1 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 9.3e-05 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 0.000154 seconds
+[1;33mMPI communication done (0)[0m : it took me 1.8e-05 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.1225
+largest standardized residual       : inf
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 64.0000
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 1
+closed-contour trace residual       : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1.1e-05 seconds
+[1;31mTerminating because the iteration limit was reached.[0m
+[1;33mMatsubara self consistency done (0)[0m : it took me 0.000285 seconds
+created folder : Data
+created folder : Data/NOT_CONVERGED
+[1;36meverything done (0)[0m     : in total it took me 0.004761 seconds
+Matsubara preparation did not converge; real-time stage was not started.

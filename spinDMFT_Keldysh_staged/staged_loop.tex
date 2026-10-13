@@ -1,0 +1,267 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=25mm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{xurl}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\newcommand{\code}[1]{\path{#1}}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt plus 1pt}
+\setlength{\emergencystretch}{3em}
+\setlist{itemsep=3pt,topsep=4pt}
+\begin{document}
+\title{Staged spinDMFT with joint Takagi Matsubara pCN}
+\date{12 October 2026}
+\maketitle
+\tableofcontents
+
+\section{Purpose and preparation}
+The solver converges the imaginary-time spinDMFT problem, freezes its physical
+Matsubara pseudo-covariance and initial mean, then iterates the mixed and real-time
+correlations. All thermal mixed blocks are retained. Independent Gaussian draws
+are the default. The option \code{--jointMatsubaraPCN} changes sampling to
+Matsubara-only pCN with fresh real-time null-space draws from the same bare
+joint Gaussian law. \code{--samplingStrategy=pcn} is an alias.
+
+Preparation factors the imaginary-only covariance with dense Takagi. It uses
+independent draws or pCN on its real Gaussian latents. Each sample yields an
+unnormalized thermal operator, its trace \(Z_M\), and spin numerators. Independent
+sampling uses ratios of ensemble sums; pCN uses inverse-modulus weights as below.
+The preparation stopping threshold is
+\[
+ \max_c\operatorname{mean}_{\tau}|\Delta g_c|
+ < \texttt{reliterror}\,\frac{S(S+1)}{3\sqrt{3N}},
+\]
+including the real origin-magnetization residual, with Re/Im correlation
+components treated separately. Changes are measured before mixing. The physical
+covariance is constructed from the final mixed input. Preparation sample count
+and iteration limit have separate controls. Failure to converge never starts the
+real-time stage. The saved imaginary factor is a reference, not the real-time
+sampling factor.
+
+\section{Correlations, covariance, and means}
+
+The common primitive is
+
+\[
+X^{ab}(t,\tau)=\langle S_b(-i\tau)S_a(t)\rangle.
+\]
+
+It is stored on real-time and imaginary-time vertices, including distinct one-sided imaginary endpoints at 0 and beta. At \(t=0\) it contains the Matsubara spin correlation. The endpoints \(X(t,0)\) and \(X(t,\beta)\) supply lesser and greater real-time orderings. The covariance builder reconstructs MM, M+/M\ensuremath{-}, ++, \ensuremath{-}\ensuremath{-}, +\ensuremath{-}, and \ensuremath{-}+ from this common primitive, respecting contour order and transpose symmetry. M+ and M\ensuremath{-} are related by the contour identities; they are not two unconstrained fitted functions. Real-real correlations are reconstructed as functions of the time difference, so this remains the source solver's equilibrium ansatz rather than a general two-real-time nonequilibrium solver.
+
+For spin components a,b the feedback covariance is
+
+\[
+\Gamma^{ab}_{AB}(s,s')=J_Q^2\sum_{cd}D_{ac}D_{bd}
+ \langle T_{\mathcal C}\delta S_c(s_A)\delta S_d(s'_B)\rangle
+ +\Gamma^{ab}_{\rm static}.
+\]
+
+The disconnected subtraction in the primitive is the \textbf{unconjugated} product \(m_a(t)m_b(0)\), including both measured real and imaginary parts. The deterministic mean is \(J_LD\,\operatorname{Re}m(t)\) on the real branches, and \(J_LD\,\operatorname{Re}m(0)\) on M. The external field and local extra interaction remain in the propagation Hamiltonian. Coincident same-branch contacts use the inherited greater/lesser half-sum.
+
+All field covariances mean \(\mathbb E[\delta V\,\delta V^T]\), not \(\mathbb E[\delta V\,\delta V^\dagger]\). The kernel is complex symmetric and need not be Hermitian or positive semidefinite. No eigenvalue clipping or Hermitian projection is applied.
+
+Measuring products of sampled fields is \textbf{not} the self-consistency update. Those products reconstruct the input kernel. The update is obtained from propagated spin observables and the coupling equation above.
+
+\section{The default full-contour Takagi draw}
+
+Write the centered fields as \(M=\delta V_M\) and \(R=(\delta V_+,\delta V_-)\):
+
+\[
+\Gamma_k=\begin{pmatrix}A_\star&B_k\\B_k^T&C_k\end{pmatrix}.
+\]
+
+Here \(B_k\) includes both Matsubara–real branches and \(C_k\) includes all four real-real blocks. \(A_\star\) is never iterated in Stage 2. The deterministic field mean is added separately during propagation; the sampled Gaussian has zero mean.
+
+At each real-time iteration the driver constructs and factorizes the complete complex-symmetric kernel:
+
+\[
+\Gamma_k=U_k\Sigma_k U_k^T,\qquad
+L_k=U_k\sqrt{\Sigma_k},\qquad
+\Sigma_k=\operatorname{diag}(\sigma_{k,1},\ldots,\sigma_{k,n}),\quad
+\sigma_{k,j}\geq0.
+\]
+
+The nonnegative Takagi values are singular values, not eigenvalues of \(\Gamma\). This construction does not require \(\Gamma\) to be Hermitian or positive semidefinite. Negative or complex eigenvalues are not clipped. The inherited implementation uses an equivalent real-symmetric eigenproblem and omits numerically zero Takagi modes using its global roundoff/rank threshold. Reconstruction is checked against the original physical kernel, so a material loss of its entries is not accepted.
+
+For each sample it draws one independent real normal vector and maps it through this joint factor:
+
+\[
+x_k\sim\mathcal N(0,I),\qquad
+\begin{pmatrix}M\\R\end{pmatrix}=L_k x_k.
+\]
+
+Partitioning the rows of the factor gives
+
+\[
+M=L_{M,k}x_k,\qquad R=L_{R,k}x_k,
+\qquad
+\begin{aligned}
+L_{M,k}L_{M,k}^T&=A_\star,\\
+L_{M,k}L_{R,k}^T&=B_k,\\
+L_{R,k}L_{R,k}^T&=C_k.
+\end{aligned}
+\]
+
+Sharing the latent coordinates produces the mixed correlations. Drawing M and R independently would erase \(B_k\). There is no separate regression, inverse of A, or real-time Schur-complement factorization in this version.
+
+The dense sampler may split exactly disconnected covariance components and reuse exactly identical factors with independent latent coordinates. Such components are identified by exact zeros, not by discarding small mixed entries. This is mathematically the same joint Takagi sampling construction; it does not impose a split between Matsubara and real branches.
+
+\subsection{What is frozen, and what can change}
+
+The fixed quantity is \(\mathbb E[MM^T]=A\), together with the deterministic Matsubara mean. For complex Gaussian fields, this unconjugated covariance does not determine the full probability distribution on their real and imaginary parts. That also depends on the Hermitian sampling covariance. For canonical Takagi draws it is
+
+\[
+H_k=\mathbb E[v_k v_k^\dagger]=L_kL_k^\dagger
+    =(\Gamma_k\Gamma_k^\dagger)^{1/2}.
+\]
+
+This equality is exact before numerical rank truncation. Its Matsubara block can change with \(B_k\) and \(C_k\) even though \(A_\star\) stays fixed. The rows \(L_{M,k}\) need not equal the imaginary-only preparation factor. Neither the complete Matsubara marginal distribution nor individual Matsubara draws are held fixed. The pCN option uses this same changing Gaussian reference.
+
+A two-variable example makes the distinction explicit:
+
+\[
+\Gamma(b)=\begin{pmatrix}1&b\\b&-1\end{pmatrix},\quad b\in\mathbb R,
+\qquad
+H(b)=\sqrt{1+b^2}\,I.
+\]
+
+The Matsubara pseudo-covariance remains 1, but its Hermitian variance grows with the mixed coupling b. Similarly, a zero A with nonzero B is representable by full complex Gaussian sampling: M has zero unconjugated covariance but need not vanish in every sample. A completely zero joint kernel does produce exactly zero fields and zero latent dimension.
+
+For holomorphic contour numerators and partition functions, Gaussian Wick contractions depend on \(\Gamma\), with no conjugated fields. When these averages exist, changing the auxiliary Hermitian covariance at fixed \(\Gamma\) preserves their exact Gaussian expectations. Hence imaginary-only observables still use the frozen A in the ensemble sense, despite the changing auxiliary marginal. This argument applies to ratios of ensemble averages. It does not justify averaging separately normalized trajectories, conjugated-field observables, or claiming equality of finite-sample estimates.
+
+\subsection{Why use this representation}
+
+Among factors F satisfying \(FF^T=\Gamma\) with independent real normal latents, canonical Takagi minimizes the total field second moment:
+
+\[
+\mathbb E[\|v\|^2]=\operatorname{tr}(FF^\dagger)
+\ \geq\ \|\Gamma\|_* =\sum_j\sigma_j,
+\qquad
+\operatorname{tr}(L L^\dagger)=\sum_j\sigma_j.
+\]
+
+The inequality follows from the nuclear-norm bound on \(FF^T\) by the squared Frobenius norm of F. The weights here are one per native grid component, not quadrature weights. This does not prove minimal spin-observable variance, a better phase average, or faster fixed-point convergence. A particular observable may favor a different gauge.
+
+The cost is a new joint factorization each iteration, with dimension up to the whole contour rather than only the real residual. Exact disconnected symmetry blocks can reduce that dimension. Imaginary propagation still occurs for each sample; preparation freezes the feedback kernel, not propagators or samples.
+
+
+\section{Joint Takagi Matsubara pCN}
+For each current joint factor \(L\), partition its rows into \(L_M,L_R\). Let
+\(U\) be a real orthonormal basis for the row space of
+\[
+ T_M=\begin{pmatrix}\operatorname{Re}L_M\\\operatorname{Im}L_M\end{pmatrix}.
+\]
+A thin real SVD obtains this basis. The rank threshold is machine epsilon times
+\(\max(2n_M,q)\) times the largest singular value, where \(q\) is the joint latent
+rank. The matrix is scaled before SVD and its relative reconstruction is checked.
+For independent real standard normals \(a,\xi\), set
+\[
+ x=Ua+(I-UU^T)\xi,\qquad M=L_MUa,\qquad R=L_Rx.
+\]
+The projector is applied through \(U\); no square null-space matrix is stored.
+Since \(UU^T\) is an orthogonal projector,
+\[
+ E[xx^T]=UU^T+(I-UU^T)^2=I.
+\]
+Thus the split retains both \(LL^T\) and \(LL^\dagger\), up to numerical rank
+tolerance. It introduces no additional sampling covariance or gauge floor.
+
+Update only \(a\) by pCN:
+\[
+ a'=\sqrt{1-\epsilon^2}\,a+\epsilon\zeta,\qquad
+ p_{\mathrm{accept}}=\min\left(1,\frac{|Z_M(L_MUa')|}{|Z_M(L_MUa)|}\right).
+\]
+Acceptance propagates imaginary time only. After every production step,
+including rejection, draw fresh \(\xi\) and propagate the resulting contour.
+The shared contribution retains the thermal mixed correlations. The sampled law
+is proportional to \(p_0(a)p_0(\xi)|Z_M|\); observables use
+\[
+ \langle O\rangle=\frac{\sum_s N_{O,s}/|Z_{M,s}|}
+                           {\sum_s Z_{M,s}/|Z_{M,s}|}.
+\]
+Negative-real and complex traces remain in support. Exactly zero modulus
+proposals are rejected; nonfinite traces abort. Gaussian covariance identities
+refer to the bare reference, not the tilted sampling moments.
+
+At each bath iteration and on each MPI rank, initialize and burn in a new chain.
+Stage 2 rebuilds the joint factor and its Matsubara row space. The physical
+\(A_\star\) and deterministic mean stay fixed, while the auxiliary marginal
+\(H_{MM}\) may change. \code{mhStepSize} lies in \((0,1]\),
+\code{mhBurnIn} counts discarded proposals, and \code{numSamplesPerCore} counts
+production steps including rejection. Stage 1 uses its imaginary-only factor
+with the same acceptance and estimator.
+
+\section{Real-time feedback and propagation}
+At each iteration, construct the complete covariance from the current primitive
+and magnetization, check the MM block against the frozen covariance, and copy
+that covariance exactly into the factorization input. Sample the current joint
+law and measure all mixed correlations, magnetization, and contour traces.
+Only the feedback copy has its origin reset to the prepared value. All other
+coordinates are updated with \code{mixingAlpha}; raw measurements remain in the
+output. Real-time stopping requires the standardized residual criterion and an
+absolute update below \(\max(S,S^2)\), plus the existing diagnostic gates.
+This absolute ceiling is a divergence guard, not a precision guarantee.
+
+Endpoint CFET, Gauss-CF4 and staggered Strang are supported. In staggered
+coordinates \(\eta=(V_++V_-)/2\), \(\nu=V_+-V_-\), the sampling metric is
+\[
+ W=\operatorname{diag}(I_M,2I_\eta,\tfrac12 I_\nu).
+\]
+Takagi factorization is applied after coordinate scaling and inverse-scaled
+before the pCN split, preserving the branch-equivalent bare Gaussian law.
+The eta and nu grids are staggered; these weights are per coordinate, not
+quadrature weights. Propagation details are in \code{README.md}.
+
+\section{Statistics and scope}
+For pCN, paired complex ratio errors use contiguous multi-scale batch means,
+including fluctuations of the denominator. Autocorrelation and effective sample
+size use the ratio influence \((N/|Z_M|-g Z_M/|Z_M|)/\langle Z_M/|Z_M|\rangle\).
+Inspect blocking curves; the preparation stopping threshold still uses the
+nominal sample count. Real-time errors are conditional on the saved preparation.
+Repeat the full calculation to assess propagated preparation uncertainty.
+
+The new split removes a separate covariance choice but does not prove stability
+at long times. The importance weight contains only the imaginary-time trace,
+so real-time observable variance can still grow. Fixed-point convergence,
+magnetization stationarity, timestep convergence and sampling precision require
+separate checks.
+
+\section{Options, output and verification}
+Use \code{--jointMatsubaraPCN --mhStepSize=0.3 --mhBurnIn=1000}.
+Independent sampling remains the default. Explicit conflicting sampling options
+are rejected. The old \code{conditionalSampling} and \code{matsubaraGaugeScale}
+options and their frozen-marginal implementation have been removed. Historical
+simulation data are retained as provenance.
+
+The staged solver requires dense factorization, prefix insertion and
+partition-function normalization. FFT, weighted-dense, closed-contour
+insertion/normalization, nonnegative FFT cutoffs and self-consistent
+\code{noselfcons} are rejected. Harmonic prescribed baths provide a validation
+path without fixed-point iteration.
+
+New pCN filenames begin \code{staged__jointMpcn_absZ__}; independent filenames
+begin \code{staged__}. The parameter group records \code{joint_matsubara_pcn},
+the Gaussian reference, updated coordinates, residual refresh and rank rule.
+Both stages store phase, acceptance, autocorrelation and blocking diagnostics.
+\code{/preparation} stores the frozen physical input, reference factor, raw
+preparation estimates, and MM residual checks. Zero-rank factors have no matrix
+dataset and an explicit zero latent dimension. \code{/results} contains raw
+final-iteration measurements.
+
+Exit codes are 0 for convergence or prescribed-bath completion, 2 for preparation
+iteration limit, 3 for real-time iteration limit and 1 for invalid input or
+numerical failure. Failed preparation is explicitly marked and never proceeds.
+
+The C++ tests verify both Gaussian covariances, weighted factors, singular and
+weak blocks, zero baths, and mixed coupling with zero MM covariance. They also
+exercise actual pCN rejection with fresh real noise and analytic complex-phase
+averages. Executable tests cover exact thermal spins, harmonic-bath comparison
+with independent sampling, and short self-consistency at mixingAlpha=1.
+Build and test commands are in \code{README.md}. These tests do not establish
+long-time production stability.
+\end{document}

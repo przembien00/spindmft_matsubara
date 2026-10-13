@@ -1,0 +1,129 @@
+spin_model_string                  : spinmodel=ISO
+spin                               : 1/2
+JQ                                 : 1
+JL                                 : 0
+beta                               : 0.5
+B_string                           : h=z_h_abs=0.5
+noise_string                       : noise=none
+extra_interaction_string           : extraint=none
+correlation_symmetry_type          : C
+num_ImagTimeSteps                  : 6
+delta_t                            : 0.0833
+num_RealTimeSteps                  : 6
+real_time_substeps                 : 1
+delta_real_propagation_t           : 0.083333
+Tmax                               : 0.5
+delta_real_t                       : 0.0833
+num_Samples                        : 2048
+sampling_strategy                  : independent
+gaussian_factorization             : dense
+propagator                         : gauss-cf4
+iteration_error_sigma_threshold    : 5
+information_text                   : 
+[1;33minitialization done (0)[0m : it took me 0.00018 seconds
+
+--- Matsubara iteration 1 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.000321 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 0.01308 seconds
+[1;33mMPI communication done (0)[0m : it took me 2.7e-05 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0623
+largest standardized residual       : 52.8521
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 4093.6070
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 21
+closed-contour trace residual       : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1.3e-05 seconds
+
+--- Matsubara iteration 2 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.000264 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 0.01106 seconds
+[1;33mMPI communication done (0)[0m : it took me 2.3e-05 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0176
+largest standardized residual       : 22.4988
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 4093.6181
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 21
+closed-contour trace residual       : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 9e-06 seconds
+
+--- Matsubara iteration 3 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.00025 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 0.011022 seconds
+[1;33mMPI communication done (0)[0m : it took me 2.2e-05 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0053
+largest standardized residual       : 6.7311
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 4093.6261
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 21
+closed-contour trace residual       : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 8e-06 seconds
+
+--- Matsubara iteration 4 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.000236 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 0.011338 seconds
+[1;33mMPI communication done (0)[0m : it took me 1.9e-05 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0016
+largest standardized residual       : 2.1861
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 4093.6278
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 21
+closed-contour trace residual       : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 7e-06 seconds
+[1;32mTerminating: fixed point and contour diagnostics converged.[0m
+[1;33mMatsubara self consistency done (0)[0m : it took me 0.047704 seconds
+
+Matsubara preparation frozen. Starting conditional mixed/real-time iteration.
+
+--- Mixed/real-time iteration 1 ---
+[1;33mconditional field distribution done (0)[0m : it took me 0.001332 seconds
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.014918 seconds
+[1;33mMPI communication done (0)[0m : it took me 8.3e-05 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0603
+largest standardized residual       : 96.3177
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 2046.8602
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 42
+closed-contour trace residual       : 0.0003
+[1;33miteration-step finalization done (0)[0m : it took me 1.6e-05 seconds
+
+--- Mixed/real-time iteration 2 ---
+[1;33mconditional field distribution done (0)[0m : it took me 0.001402 seconds
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.015486 seconds
+[1;33mMPI communication done (0)[0m : it took me 9.5e-05 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 34729898925461249865023488.0000
+largest standardized residual       : 12.0423
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 2046.8160
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 42
+closed-contour trace residual       : 10220871467120048734208.0000
+[1;33miteration-step finalization done (0)[0m : it took me 2.3e-05 seconds
+
+--- Mixed/real-time iteration 3 ---
+Rank 0: staged solver failed: conditional Gaussian reconstruction exceeds takagiTolerance
+--------------------------------------------------------------------------
+MPI_ABORT was invoked on rank 0 in communicator MPI_COMM_WORLD
+  Proc: [[2725,0],0]
+  Errorcode: 1
+
+NOTE: invoking MPI_ABORT causes Open MPI to kill all MPI processes.
+You may or may not see output from other processes, depending on
+exactly when Open MPI kills them.
+--------------------------------------------------------------------------

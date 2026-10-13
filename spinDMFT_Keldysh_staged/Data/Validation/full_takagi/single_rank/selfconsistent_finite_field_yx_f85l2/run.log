@@ -1,0 +1,153 @@
+[Przemeks-MacBook-Pro][[5475,0],0][btl_tcp_component.c:1021:mca_btl_tcp_component_create_listen] bind() failed: Operation not permitted (1)
+spin_model_string                  : spinmodel=ISO
+spin                               : 1/2
+JQ                                 : 1
+JL                                 : 0
+beta                               : 0.5
+B_string                           : h=z_h_abs=0.5
+noise_string                       : noise=none
+extra_interaction_string           : extraint=none
+correlation_symmetry_type          : C
+num_ImagTimeSteps                  : 6
+delta_t                            : 0.0833
+num_RealTimeSteps                  : 6
+real_time_substeps                 : 1
+delta_real_propagation_t           : 0.083333
+Tmax                               : 0.5
+delta_real_t                       : 0.0833
+num_Samples                        : 2048
+sampling_strategy                  : independent
+gaussian_factorization             : dense
+propagator                         : gauss-cf4
+iteration_error_sigma_threshold    : 5
+information_text                   : 
+[1;33minitialization done (0)[0m : it took me 0.000187 seconds
+
+--- Matsubara iteration 1 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.000134 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 0.010083 seconds
+[1;33mMPI communication done (0)[0m : it took me 2.8e-05 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0611
+largest standardized residual       : 76.6345
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 4093.5447
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 7
+closed-contour trace residual       : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1.2e-05 seconds
+
+--- Matsubara iteration 2 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.000185 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 0.011871 seconds
+[1;33mMPI communication done (0)[0m : it took me 2.1e-05 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0168
+largest standardized residual       : 17.7141
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 4093.7158
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 14
+closed-contour trace residual       : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 9e-06 seconds
+
+--- Matsubara iteration 3 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.000159 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 0.011483 seconds
+[1;33mMPI communication done (0)[0m : it took me 2.8e-05 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0051
+largest standardized residual       : 5.3073
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 4093.7244
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 14
+closed-contour trace residual       : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1e-05 seconds
+
+--- Matsubara iteration 4 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.000177 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 0.011467 seconds
+[1;33mMPI communication done (0)[0m : it took me 3.2e-05 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0015
+largest standardized residual       : 1.4983
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 4093.7268
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 14
+closed-contour trace residual       : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1e-05 seconds
+[1;32mTerminating: fixed point and contour diagnostics converged.[0m
+[1;33mMatsubara self consistency done (0)[0m : it took me 0.045717 seconds
+
+Matsubara preparation frozen. Starting joint-Takagi mixed/real-time iteration.
+
+--- Mixed/real-time iteration 1 ---
+[1;33mjoint field distribution done (0)[0m : it took me 0.001109 seconds
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.015307 seconds
+[1;33mMPI communication done (0)[0m : it took me 8.7e-05 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0603
+largest standardized residual       : 143.0501
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 2046.8780
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 42
+closed-contour trace residual       : 0.0004
+[1;33miteration-step finalization done (0)[0m : it took me 1.5e-05 seconds
+
+--- Mixed/real-time iteration 2 ---
+[1;33mjoint field distribution done (0)[0m : it took me 0.001113 seconds
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.015323 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.000102 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0169
+largest standardized residual       : 21.1573
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 2046.8396
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 42
+closed-contour trace residual       : 0.0001
+[1;33miteration-step finalization done (0)[0m : it took me 1.5e-05 seconds
+
+--- Mixed/real-time iteration 3 ---
+[1;33mjoint field distribution done (0)[0m : it took me 0.001145 seconds
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.015514 seconds
+[1;33mMPI communication done (0)[0m : it took me 9.9e-05 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0053
+largest standardized residual       : 7.0651
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 2046.8298
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 42
+closed-contour trace residual       : 0.0003
+[1;33miteration-step finalization done (0)[0m : it took me 1.7e-05 seconds
+
+--- Mixed/real-time iteration 4 ---
+[1;33mjoint field distribution done (0)[0m : it took me 0.001155 seconds
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.01555 seconds
+[1;33mMPI communication done (0)[0m : it took me 9.8e-05 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0015
+largest standardized residual       : 2.5492
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 2046.7986
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 42
+closed-contour trace residual       : 0.0003
+[1;33miteration-step finalization done (0)[0m : it took me 1.3e-05 seconds
+[1;32mTerminating: fixed point and contour diagnostics converged.[0m
+[1;33mreal-time self consistency done (0)[0m : it took me 0.066967 seconds
+created folder : Data
+[1;33mstoring done (0)[0m        : it took me 0.004803 seconds
+[1;36meverything done (0)[0m     : in total it took me 0.117677 seconds

@@ -1,0 +1,192 @@
+[Przemeks-MacBook-Pro][[24464,0],0][btl_tcp_component.c:1021:mca_btl_tcp_component_create_listen] bind() failed: Operation not permitted (1)
+spin_model_string                  : spinmodel=ISO
+spin                               : 1/2
+JQ                                 : 1
+JL                                 : -2
+beta                               : 2.5
+B_string                           : h=z_h_abs=0.5
+noise_string                       : noise=none
+extra_interaction_string           : extraint=none
+correlation_symmetry_type          : C
+num_ImagTimeSteps                  : 30
+delta_t                            : 0.0833
+num_RealTimeSteps                  : 100
+real_time_substeps                 : 1
+delta_real_propagation_t           : 0.150000
+Tmax                               : 15
+delta_real_t                       : 0.15
+num_Samples                        : 10000
+sampling_strategy                  : pcn
+gaussian_factorization             : dense
+staged_field_sampling              : conditional fixed Matsubara marginal
+matsubara_gauge_scale              : 0.300000
+pcn_target                         : p0(x)|Z_M(Fx)|; direct conditional real residuals
+mh_step_size                       : 0.7
+mh_burn_in                         : 1000
+propagator                         : staggered-strang
+iteration_error_sigma_threshold    : 5
+information_text                   : 
+[1;33minitialization done (0)[0m : it took me 0.000217 seconds
+
+--- Matsubara iteration 1 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.014967 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 1.61029 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.000189 seconds
+Iteration step finished:
+raw Matsubara absolute residual     : 0.2438
+largest standardized residual       : 170.9013
+absolute Matsubara threshold        : 0.0032
+sampled-Z phase magnitude           : 0.9998
+minimum autocorrelation N_eff       : 5351.9187
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 93
+closed-contour trace residual       : 0.0000
+MH acceptance rate                  : 0.8807
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1.7e-05 seconds
+
+--- Matsubara iteration 2 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.015673 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 1.59181 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.000187 seconds
+Iteration step finished:
+raw Matsubara absolute residual     : 0.1353
+largest standardized residual       : 126.8897
+absolute Matsubara threshold        : 0.0032
+sampled-Z phase magnitude           : 0.9997
+minimum autocorrelation N_eff       : 3598.0905
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 93
+closed-contour trace residual       : 0.0000
+MH acceptance rate                  : 0.8611
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1.5e-05 seconds
+
+--- Matsubara iteration 3 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.015061 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 1.58485 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.000167 seconds
+Iteration step finished:
+raw Matsubara absolute residual     : 0.0498
+largest standardized residual       : 98.4265
+absolute Matsubara threshold        : 0.0032
+sampled-Z phase magnitude           : 0.9995
+minimum autocorrelation N_eff       : 4987.8173
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 93
+closed-contour trace residual       : 0.0000
+MH acceptance rate                  : 0.8898
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1.5e-05 seconds
+
+--- Matsubara iteration 4 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.015003 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 1.58394 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.000171 seconds
+Iteration step finished:
+raw Matsubara absolute residual     : 0.0136
+largest standardized residual       : 49.8291
+absolute Matsubara threshold        : 0.0032
+sampled-Z phase magnitude           : 0.9994
+minimum autocorrelation N_eff       : 4340.4733
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 93
+closed-contour trace residual       : 0.0000
+MH acceptance rate                  : 0.9062
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1.7e-05 seconds
+
+--- Matsubara iteration 5 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.015049 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 1.58703 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.000183 seconds
+Iteration step finished:
+raw Matsubara absolute residual     : 0.0037
+largest standardized residual       : 14.7153
+absolute Matsubara threshold        : 0.0032
+sampled-Z phase magnitude           : 0.9994
+minimum autocorrelation N_eff       : 5205.0407
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 93
+closed-contour trace residual       : 0.0000
+MH acceptance rate                  : 0.9117
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1.6e-05 seconds
+
+--- Matsubara iteration 6 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.015149 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 1.58744 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.000176 seconds
+Iteration step finished:
+raw Matsubara absolute residual     : 0.0014
+largest standardized residual       : 5.3086
+absolute Matsubara threshold        : 0.0032
+sampled-Z phase magnitude           : 0.9994
+minimum autocorrelation N_eff       : 5781.0709
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 93
+closed-contour trace residual       : 0.0000
+MH acceptance rate                  : 0.9159
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1.8e-05 seconds
+[1;32mTerminating: fixed point and contour diagnostics converged.[0m
+[1;33mMatsubara self consistency done (0)[0m : it took me 9.63745 seconds
+
+Matsubara preparation frozen. Starting conditional mixed/real-time iteration.
+
+--- Mixed/real-time iteration 1 ---
+[1;33mjoint field distribution done (0)[0m : it took me 2.03665 seconds
+[1;33mmixed real-time sampling done (0)[0m : it took me 2.49091 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.014432 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.7643
+largest standardized residual       : 1253.3888
+standardized residual threshold     : 5.0000
+sampled-Z phase magnitude           : 0.9994
+minimum autocorrelation N_eff       : 988.0440
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 603
+closed-contour trace residual       : 0.0365
+MH acceptance rate                  : 0.9164
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 0.00013 seconds
+
+--- Mixed/real-time iteration 2 ---
+[1;33mjoint field distribution done (0)[0m : it took me 2.47498 seconds
+[1;33mmixed real-time sampling done (0)[0m : it took me 2.54935 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.014492 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 6.2375
+largest standardized residual       : 39.9910
+standardized residual threshold     : 5.0000
+sampled-Z phase magnitude           : 0.9994
+minimum autocorrelation N_eff       : 746.4646
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 603
+closed-contour trace residual       : 6.2527
+MH acceptance rate                  : 0.9210
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 0.000155 seconds
+
+--- Mixed/real-time iteration 3 ---
+[1;33mjoint field distribution done (0)[0m : it took me 2.46752 seconds
+[1;33mmixed real-time sampling done (0)[0m : it took me 2.53541 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.014644 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 146613977181977952.0000
+largest standardized residual       : 11.3975
+standardized residual threshold     : 5.0000
+sampled-Z phase magnitude           : 0.9994
+minimum autocorrelation N_eff       : 573.1631
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 603
+closed-contour trace residual       : 1551315229630032.0000
+MH acceptance rate                  : 0.9158
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 0.000196 seconds
+[1;31mTerminating because the iteration limit was reached.[0m
+[1;33mreal-time self consistency done (0)[0m : it took me 14.6152 seconds
+created folder : Data
+created folder : Data/NOT_CONVERGED
+[1;33mstoring done (0)[0m        : it took me 0.005309 seconds
+[1;36meverything done (0)[0m     : in total it took me 24.2582 seconds

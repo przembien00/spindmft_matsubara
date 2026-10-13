@@ -1,0 +1,39 @@
+{
+  "balanced_file": "spinDMFT_Keldysh_staged/Data/Validation/strang_basis_fix/balanced/Data/staged__spinmodel=ISO__JL=-2__beta=2.5__h=z_h_abs=0.5__prop=staggered-strang.hdf5",
+  "termination": "by convergence",
+  "iterations": 10,
+  "max_Re_correlation": 0.25,
+  "max_Im_correlation": 0.2240030922475967,
+  "max_abs_magnetization": 0.4795695672455013,
+  "max_Re_correlation_stderr": 0.018930594097807448,
+  "max_Im_correlation_stderr": 0.019647100490631814,
+  "final_absolute_residual": 0.06494428521813952,
+  "final_standardized_residual": 4.485322692836341,
+  "max_frozen_MM_residual": 0.0,
+  "basis": "branch-equivalent M,sqrt(2)*eta,nu/sqrt(2); dense Takagi in this basis then inverse scaled; conditional mode scales only the residual factor and retains the frozen M marginal",
+  "final_phase": 0.9988231689834121,
+  "effective_samples": 55973.03683398624,
+  "trace_residual": 0.06004785028825498,
+  "balanced_absolute_residuals": [
+    0.745,
+    0.527,
+    3.7,
+    4.0245,
+    0.3608,
+    0.0811,
+    0.0848,
+    0.0377,
+    0.0755,
+    0.0649
+  ],
+  "balanced_failed_nonfinite": false,
+  "unbalanced_absolute_residuals": [
+    0.7311,
+    0.6376,
+    11.5602,
+    312550.45,
+    8.67708804123768e+37
+  ],
+  "unbalanced_failed_nonfinite": true,
+  "max_complex_correlation": 0.25
+}

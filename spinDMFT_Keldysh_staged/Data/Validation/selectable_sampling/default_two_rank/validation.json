@@ -1,0 +1,76 @@
+{
+  "mpi_ranks": 2,
+  "conditional_sampling": false,
+  "cases": [
+    {
+      "case": "zero_bath_cf0",
+      "exit_code": 0,
+      "output": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Validation/selectable_sampling/default_two_rank/zero_bath_cf0_c_82gt62/Data/staged__spinmodel=ISO__JQ=0__beta=1__h=z_h_abs=0.5.hdf5",
+      "max_exact_correlation_error": 5.569407999111906e-16
+    },
+    {
+      "case": "zero_bath_cf1",
+      "exit_code": 0,
+      "output": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Validation/selectable_sampling/default_two_rank/zero_bath_cf1_6nwf3jbt/Data/staged__spinmodel=ISO__JQ=0__beta=1__h=z_h_abs=0.5.hdf5",
+      "max_exact_correlation_error": 6.107189097026971e-16
+    },
+    {
+      "case": "preparation_limit",
+      "exit_code": 2,
+      "output": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Validation/selectable_sampling/default_two_rank/preparation_limit_s6fuyy5g/Data/NOT_CONVERGED/staged__spinmodel=ISO__JQ=0__beta=1__h=z_h_abs=0.5___preparation_failed.hdf5"
+    },
+    {
+      "case": "realtime_limit",
+      "exit_code": 3,
+      "output": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Validation/selectable_sampling/default_two_rank/realtime_limit_sj4fbt3w/Data/NOT_CONVERGED/staged__spinmodel=ISO__JQ=0__beta=1__h=z_h_abs=0.5.hdf5"
+    },
+    {
+      "case": "reject_samplingStrategy_pcn",
+      "rejected": true
+    },
+    {
+      "case": "reject_gaussianFactorization_fft",
+      "rejected": true
+    },
+    {
+      "case": "reject_gaussianFactorization_weighted-dense",
+      "rejected": true
+    },
+    {
+      "case": "reject_spinInsertionStrategy_closed-contour",
+      "rejected": true
+    },
+    {
+      "case": "reject_correlationNormalization_closed-contour",
+      "rejected": true
+    },
+    {
+      "case": "reject_noselfcons",
+      "rejected": true
+    },
+    {
+      "case": "reject_cutoff",
+      "rejected": true
+    },
+    {
+      "case": "reject_inactive_gauge_scale",
+      "rejected": true
+    },
+    {
+      "case": "harmonic_dephasing",
+      "exit_code": 0,
+      "output": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Validation/selectable_sampling/default_two_rank/harmonic_dephasing_arcozjzb/Data/HARMONIC_BATH/staged__spinmodel=ISO__beta=0.5__bath=harmonic_omega=1_g=0.25_axis=z__h=z_h_abs=0.5.hdf5",
+      "max_MM_residual": 0.0,
+      "max_stationarity_error": 0.00031340096829880065
+    },
+    {
+      "case": "selfconsistent_finite_field",
+      "exit_code": 0,
+      "output": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Validation/selectable_sampling/default_two_rank/selfconsistent_finite_field_y62lle33/Data/staged__spinmodel=ISO__beta=0.5__h=z_h_abs=0.5.hdf5",
+      "preparation_iterations": 4,
+      "realtime_iterations": 4,
+      "max_MM_residual": 0.0,
+      "max_origin_relative_magnetization_drift": 0.00020559314078902655
+    }
+  ]
+}

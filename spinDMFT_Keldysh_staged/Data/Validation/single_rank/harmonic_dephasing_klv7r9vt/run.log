@@ -1,0 +1,62 @@
+I don't perform self-consistent iterations in this simulation!
+spin_model_string                  : spinmodel=ISO
+spin                               : 1/2
+JQ                                 : 1
+JL                                 : 0
+beta                               : 0.5
+B_string                           : h=z_h_abs=0.5
+noise_string                       : noise=none
+extra_interaction_string           : extraint=none
+correlation_symmetry_type          : D
+num_ImagTimeSteps                  : 6
+delta_t                            : 0.0833
+num_RealTimeSteps                  : 6
+real_time_substeps                 : 1
+delta_real_propagation_t           : 0.083333
+Tmax                               : 0.5
+delta_real_t                       : 0.0833
+num_Samples                        : 8192
+sampling_strategy                  : independent
+gaussian_factorization             : dense
+propagator                         : gauss-cf4
+iteration_error_sigma_threshold    : 5
+information_text                   : 
+[1;33minitialization done (0)[0m : it took me 0.000197 seconds
+
+--- Matsubara iteration 1 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.000293 seconds
+[1;33mMatsubara sampling done (0)[0m : it took me 0.013854 seconds
+[1;33mMPI communication done (0)[0m : it took me 6.6e-05 seconds
+Iteration step finished:
+initial-guess difference (unused)   : 0.0615
+largest standardized residual       : 66.8597
+standardized residual threshold     : 5.0000
+average phase magnitude             : 0.9999
+complex-weight N_eff                : 4092.7431
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 21
+closed-contour trace residual       : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1e-05 seconds
+[1;33mMatsubara self consistency done (0)[0m : it took me 0.014231 seconds
+
+Matsubara preparation frozen. Starting conditional mixed/real-time iteration.
+
+--- Mixed/real-time iteration 1 ---
+[1;33mconditional field distribution done (0)[0m : it took me 0.001475 seconds
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.07033 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.000343 seconds
+Iteration step finished:
+initial-guess difference (unused)   : 0.0619
+largest standardized residual       : 2300.0284
+standardized residual threshold     : 5.0000
+average phase magnitude             : 0.9999
+complex-weight N_eff                : 8185.2713
+branch transpose residual           : 0.0000
+largest Gaussian factor block       : 42
+closed-contour trace residual       : 0.0001
+[1;33miteration-step finalization done (0)[0m : it took me 1.9e-05 seconds
+[1;33mreal-time self consistency done (0)[0m : it took me 0.072556 seconds
+created folder : Data
+created folder : Data/HARMONIC_BATH
+[1;33mstoring done (0)[0m        : it took me 0.004904 seconds
+[1;36meverything done (0)[0m     : in total it took me 0.091893 seconds

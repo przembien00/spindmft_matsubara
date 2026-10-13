@@ -1,0 +1,751 @@
+[
+  {
+    "case": "independent_conditional_10000",
+    "file": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Diagnostics/pcn_mixed_instability/independent_conditional_10000/Data/NOT_CONVERGED/staged__conditional_gauge=1__spinmodel=ISO__JL=-2__beta=2.5__h=z_h_abs=0.5__prop=staggered-strang.hdf5",
+    "real_time_started": "yes",
+    "preparation_termination": "by convergence",
+    "termination": "by iteration limit",
+    "sampling_strategy": "independent",
+    "iterations": 3,
+    "max_absolute_correlation": 2152.481494502697,
+    "max_correlation_error": 1511.9735733428265,
+    "absolute_residuals": [
+      0.7694976482967586,
+      0.5156471370251801,
+      4011.644657014173
+    ],
+    "phase_magnitudes": [
+      0.9630138612586491,
+      0.9637131344501496,
+      0.9634805297393304
+    ],
+    "closure_residuals": [
+      0.06461849293601625,
+      0.3304435846176461,
+      902.5861294867693
+    ],
+    "times": [
+      {
+        "time": 0.0,
+        "max_absolute_correlation": 0.25,
+        "max_correlation_error": 0.0007209676070502374
+      },
+      {
+        "time": 1.05,
+        "max_absolute_correlation": 0.2352162546754621,
+        "max_correlation_error": 0.0018485116189914301
+      },
+      {
+        "time": 3.0,
+        "max_absolute_correlation": 0.20488313546159792,
+        "max_correlation_error": 0.006917941879830435
+      },
+      {
+        "time": 4.95,
+        "max_absolute_correlation": 0.23199175589343693,
+        "max_correlation_error": 0.020452949572280013
+      },
+      {
+        "time": 7.949999999999999,
+        "max_absolute_correlation": 0.6333599975280338,
+        "max_correlation_error": 0.2993674063658735
+      },
+      {
+        "time": 10.049999999999999,
+        "max_absolute_correlation": 7.507189958234192,
+        "max_correlation_error": 5.0802823024459896
+      },
+      {
+        "time": 12.0,
+        "max_absolute_correlation": 33.97101196712173,
+        "max_correlation_error": 55.921691839338926
+      },
+      {
+        "time": 15.0,
+        "max_absolute_correlation": 2152.481494502697,
+        "max_correlation_error": 1511.9735733428265
+      }
+    ]
+  },
+  {
+    "case": "joint_independent_10000",
+    "file": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Diagnostics/pcn_mixed_instability/joint_independent_10000/Data/NOT_CONVERGED/staged__spinmodel=ISO__JL=-2__beta=2.5__h=z_h_abs=0.5__prop=staggered-strang.hdf5",
+    "real_time_started": "yes",
+    "preparation_termination": "by convergence",
+    "termination": "by iteration limit",
+    "sampling_strategy": "independent",
+    "iterations": 3,
+    "max_absolute_correlation": 122.47571675041387,
+    "max_correlation_error": 121.62051604898464,
+    "absolute_residuals": [
+      0.7364137373431308,
+      0.5163950272756934,
+      133.99209639789433
+    ],
+    "phase_magnitudes": [
+      0.9993610348502389,
+      0.9972240030663116,
+      0.9952975254059462
+    ],
+    "closure_residuals": [
+      0.031054702284328873,
+      0.4527648966845756,
+      35.03257102631765
+    ],
+    "times": [
+      {
+        "time": 0.0,
+        "max_absolute_correlation": 0.25,
+        "max_correlation_error": 0.0003297317276612631
+      },
+      {
+        "time": 1.05,
+        "max_absolute_correlation": 0.23502726127246518,
+        "max_correlation_error": 0.0012768007337652394
+      },
+      {
+        "time": 3.0,
+        "max_absolute_correlation": 0.21280698240300014,
+        "max_correlation_error": 0.0032239080036308375
+      },
+      {
+        "time": 4.95,
+        "max_absolute_correlation": 0.2128591224122673,
+        "max_correlation_error": 0.006317891519714782
+      },
+      {
+        "time": 7.949999999999999,
+        "max_absolute_correlation": 0.22253797967572583,
+        "max_correlation_error": 0.020068913430711505
+      },
+      {
+        "time": 10.049999999999999,
+        "max_absolute_correlation": 0.3474552249023025,
+        "max_correlation_error": 0.19005954849705764
+      },
+      {
+        "time": 12.0,
+        "max_absolute_correlation": 2.039819883185096,
+        "max_correlation_error": 1.8469351597524375
+      },
+      {
+        "time": 15.0,
+        "max_absolute_correlation": 122.47571675041387,
+        "max_correlation_error": 121.62051604898464
+      }
+    ]
+  },
+  {
+    "case": "pcn_10000",
+    "file": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Diagnostics/pcn_mixed_instability/pcn_10000/Data/NOT_CONVERGED/staged__conditional_gauge=1__Mpcn_absZ__spinmodel=ISO__JL=-2__beta=2.5__h=z_h_abs=0.5__prop=staggered-strang.hdf5",
+    "real_time_started": "yes",
+    "preparation_termination": "by convergence",
+    "termination": "by iteration limit",
+    "sampling_strategy": "pcn",
+    "iterations": 3,
+    "max_absolute_correlation": 1069.228574906462,
+    "max_correlation_error": 1222.0478749950926,
+    "absolute_residuals": [
+      0.7184284650827497,
+      0.5701556061470898,
+      1813.2641716278047
+    ],
+    "phase_magnitudes": [
+      0.9630210638984062,
+      0.9646590179141916,
+      0.9642853435954981
+    ],
+    "closure_residuals": [
+      0.045756449513948985,
+      0.21486918982618594,
+      620.861091783802
+    ],
+    "times": [
+      {
+        "time": 0.0,
+        "max_absolute_correlation": 0.25,
+        "max_correlation_error": 0.001922732911705014
+      },
+      {
+        "time": 1.05,
+        "max_absolute_correlation": 0.23439668213865575,
+        "max_correlation_error": 0.002326336671618051
+      },
+      {
+        "time": 3.0,
+        "max_absolute_correlation": 0.20760059757633387,
+        "max_correlation_error": 0.007206055674878296
+      },
+      {
+        "time": 4.95,
+        "max_absolute_correlation": 0.22279958878698378,
+        "max_correlation_error": 0.020455428507022307
+      },
+      {
+        "time": 7.949999999999999,
+        "max_absolute_correlation": 0.34817072190168263,
+        "max_correlation_error": 0.1583440390745667
+      },
+      {
+        "time": 10.049999999999999,
+        "max_absolute_correlation": 0.9099471317248464,
+        "max_correlation_error": 1.1754363789941127
+      },
+      {
+        "time": 12.0,
+        "max_absolute_correlation": 18.777294492542563,
+        "max_correlation_error": 17.834836455736628
+      },
+      {
+        "time": 15.0,
+        "max_absolute_correlation": 1069.228574906462,
+        "max_correlation_error": 1222.0478749950926
+      }
+    ]
+  },
+  {
+    "case": "pcn_first_iteration_10000",
+    "file": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Diagnostics/pcn_mixed_instability/pcn_first_iteration_10000/Data/NOT_CONVERGED/staged__conditional_gauge=1__Mpcn_absZ__spinmodel=ISO__JL=-2__beta=2.5__h=z_h_abs=0.5__prop=staggered-strang.hdf5",
+    "real_time_started": "yes",
+    "preparation_termination": "by convergence",
+    "termination": "by iteration limit",
+    "sampling_strategy": "pcn",
+    "iterations": 1,
+    "max_absolute_correlation": 0.25000000000000006,
+    "max_correlation_error": 0.01244411648549288,
+    "absolute_residuals": [
+      0.7184284650827497
+    ],
+    "phase_magnitudes": [
+      0.9630210638984062
+    ],
+    "closure_residuals": [
+      0.045756449513948985
+    ],
+    "times": [
+      {
+        "time": 0.0,
+        "max_absolute_correlation": 0.25000000000000006,
+        "max_correlation_error": 0.0018101237106304075
+      },
+      {
+        "time": 1.05,
+        "max_absolute_correlation": 0.2218594355569298,
+        "max_correlation_error": 0.0020996465659778923
+      },
+      {
+        "time": 3.0,
+        "max_absolute_correlation": 0.1631704309530383,
+        "max_correlation_error": 0.0034256107335099224
+      },
+      {
+        "time": 4.95,
+        "max_absolute_correlation": 0.12417281116816986,
+        "max_correlation_error": 0.0036768796112038437
+      },
+      {
+        "time": 7.949999999999999,
+        "max_absolute_correlation": 0.08302295268723638,
+        "max_correlation_error": 0.0056749813352000526
+      },
+      {
+        "time": 10.049999999999999,
+        "max_absolute_correlation": 0.09544046856981848,
+        "max_correlation_error": 0.006711941036134134
+      },
+      {
+        "time": 12.0,
+        "max_absolute_correlation": 0.1120044826397473,
+        "max_correlation_error": 0.009247070189373782
+      },
+      {
+        "time": 15.0,
+        "max_absolute_correlation": 0.12749267131511086,
+        "max_correlation_error": 0.011605403280213296
+      }
+    ]
+  },
+  {
+    "case": "pcn_gauge03_10000",
+    "file": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Diagnostics/pcn_mixed_instability/pcn_gauge03_10000/Data/NOT_CONVERGED/staged__conditional_gauge=0.29999999999999999__Mpcn_absZ__spinmodel=ISO__JL=-2__beta=2.5__h=z_h_abs=0.5__prop=staggered-strang.hdf5",
+    "real_time_started": "yes",
+    "preparation_termination": "by convergence",
+    "termination": "by iteration limit",
+    "sampling_strategy": "pcn",
+    "iterations": 3,
+    "max_absolute_correlation": 1.0674968393675906e+17,
+    "max_correlation_error": 1.4158285993905952e+17,
+    "absolute_residuals": [
+      0.7643211622884502,
+      6.237492068964759,
+      1.4661397718197795e+17
+    ],
+    "phase_magnitudes": [
+      0.9994076280174837,
+      0.9993919908880898,
+      0.9994147313810808
+    ],
+    "closure_residuals": [
+      0.03647234314957779,
+      6.252744622810773,
+      1551315229630032.0
+    ],
+    "times": [
+      {
+        "time": 0.0,
+        "max_absolute_correlation": 0.25000000000000006,
+        "max_correlation_error": 0.0009387193225358832
+      },
+      {
+        "time": 1.05,
+        "max_absolute_correlation": 0.235460668271043,
+        "max_correlation_error": 0.0060432675406356115
+      },
+      {
+        "time": 3.0,
+        "max_absolute_correlation": 0.20438510302349058,
+        "max_correlation_error": 0.03510601328143407
+      },
+      {
+        "time": 4.95,
+        "max_absolute_correlation": 0.436759816063138,
+        "max_correlation_error": 0.39566974624130924
+      },
+      {
+        "time": 7.949999999999999,
+        "max_absolute_correlation": 56.47345417425908,
+        "max_correlation_error": 35.698338163483875
+      },
+      {
+        "time": 10.049999999999999,
+        "max_absolute_correlation": 1779.8699984422865,
+        "max_correlation_error": 1523.1211813241584
+      },
+      {
+        "time": 12.0,
+        "max_absolute_correlation": 11109243.614005085,
+        "max_correlation_error": 11364413.488537407
+      },
+      {
+        "time": 15.0,
+        "max_absolute_correlation": 1.0674968393675906e+17,
+        "max_correlation_error": 1.4158285993905952e+17
+      }
+    ]
+  },
+  {
+    "case": "pcn_mixing02_10000",
+    "file": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Diagnostics/pcn_mixed_instability/pcn_mixing02_10000/Data/NOT_CONVERGED/staged__conditional_gauge=1__Mpcn_absZ__spinmodel=ISO__JL=-2__beta=2.5__h=z_h_abs=0.5__prop=staggered-strang___preparation_failed.hdf5",
+    "real_time_started": "no",
+    "preparation_termination": "by iteration limit",
+    "termination": "by iteration limit",
+    "sampling_strategy": "pcn",
+    "iterations": 30,
+    "max_absolute_correlation": 0.25,
+    "max_correlation_error": 0.000796246285329169,
+    "absolute_residuals": [
+      0.24317969639705478,
+      0.22922581779226925,
+      0.21236147558612795,
+      0.19541322097834046,
+      0.1723627555842987,
+      0.15826376584021243,
+      0.14019763761560947,
+      0.12343751259687163,
+      0.10489181470623987,
+      0.09142963441661833,
+      0.08160827618979483,
+      0.0704418524674188,
+      0.058940321521366634,
+      0.05281310988373944,
+      0.04515074401626312,
+      0.03704068814412831,
+      0.033274736571691055,
+      0.02926537530628104,
+      0.02282020433453036,
+      0.020889546995784547,
+      0.017601358588904215,
+      0.014447545343779622,
+      0.012644877004959254,
+      0.011590758586734418,
+      0.008722982797386647,
+      0.007884910288354308,
+      0.006490971783627786,
+      0.005680349365677684,
+      0.004766263065043519,
+      0.0034819798084287923
+    ],
+    "phase_magnitudes": [
+      0.9937300333506021,
+      0.9929486551771494,
+      0.9929268848075723,
+      0.99243749360894,
+      0.991105787943331,
+      0.9893039584237399,
+      0.9871976651101705,
+      0.9850498587230133,
+      0.9832812325655144,
+      0.9810909696148497,
+      0.9786571144465726,
+      0.9768465350895356,
+      0.975390384203509,
+      0.9733488340056601,
+      0.9721743032113694,
+      0.9712332776877712,
+      0.9696137983779561,
+      0.9684430524074107,
+      0.9684094380702811,
+      0.9672384553962754,
+      0.966729875662672,
+      0.9662262798659705,
+      0.9657537160811048,
+      0.965697608590352,
+      0.9652850509261188,
+      0.9649089230596591,
+      0.9646093979307494,
+      0.9645172890999684,
+      0.9643957528798,
+      0.9643744065945158
+    ],
+    "closure_residuals": [
+      9.822344008293365e-21,
+      9.43845420606303e-20,
+      1.014940368572568e-20,
+      1.421711251323054e-21,
+      1.8702767294019333e-20,
+      2.2257594392303317e-20,
+      5.130330278271002e-20,
+      1.5851108375199827e-21,
+      8.480090993475096e-21,
+      1.680578175143987e-20,
+      3.124157122477477e-21,
+      1.6125489850117253e-20,
+      8.489021695216118e-21,
+      4.0958070050066293e-20,
+      8.54843839898207e-20,
+      4.278585339727143e-20,
+      6.420754637702323e-21,
+      6.555552399912035e-21,
+      4.228853757406236e-20,
+      4.2786519890788684e-20,
+      7.501513861381764e-22,
+      8.117897148559347e-21,
+      2.973614010668863e-20,
+      1.3168812395389365e-19,
+      6.774634338543687e-20,
+      1.543951281247377e-20,
+      1.3258386965650965e-20,
+      7.083737247006383e-21,
+      2.86981831609541e-20,
+      2.1234623796032498e-20
+    ],
+    "times": [
+      {
+        "time": 0.0,
+        "max_absolute_correlation": 0.25,
+        "max_correlation_error": 0.000796246285329169
+      }
+    ]
+  },
+  {
+    "case": "pcn_mixing05_10000",
+    "file": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Diagnostics/pcn_mixed_instability/pcn_mixing05_10000/Data/staged__conditional_gauge=1__Mpcn_absZ__spinmodel=ISO__JL=-2__beta=2.5__h=z_h_abs=0.5__prop=staggered-strang.hdf5",
+    "real_time_started": "yes",
+    "preparation_termination": "by convergence",
+    "termination": "by convergence",
+    "sampling_strategy": "pcn",
+    "iterations": 10,
+    "max_absolute_correlation": 0.25,
+    "max_correlation_error": 0.09631717851652596,
+    "absolute_residuals": [
+      0.7570125714830176,
+      0.2199361284646441,
+      0.2001862065128008,
+      0.27894184549993334,
+      0.7725022600525061,
+      0.32849316220068064,
+      0.35859253036064526,
+      0.23480389414212965,
+      0.21276461209671613,
+      0.1275867079748941
+    ],
+    "phase_magnitudes": [
+      0.9628175513811699,
+      0.9632886006571821,
+      0.9648290792329143,
+      0.9648290792329143,
+      0.9648290792329143,
+      0.9648290792329143,
+      0.9648290792329143,
+      0.9643969906968932,
+      0.9643969906968932,
+      0.9643969906968932
+    ],
+    "closure_residuals": [
+      0.10081786324180443,
+      0.10290272509710839,
+      0.2527134847945805,
+      0.831237039301928,
+      0.39190464784492457,
+      0.21312533857170607,
+      0.2671496848158502,
+      0.3327882182802883,
+      0.12973990264003063,
+      0.22189050041591518
+    ],
+    "times": [
+      {
+        "time": 0.0,
+        "max_absolute_correlation": 0.25,
+        "max_correlation_error": 0.0016846602472339
+      },
+      {
+        "time": 1.05,
+        "max_absolute_correlation": 0.23483099633126117,
+        "max_correlation_error": 0.00221606961658179
+      },
+      {
+        "time": 3.0,
+        "max_absolute_correlation": 0.2013172732909251,
+        "max_correlation_error": 0.004961148264813696
+      },
+      {
+        "time": 4.95,
+        "max_absolute_correlation": 0.1956289154540238,
+        "max_correlation_error": 0.007739069671078797
+      },
+      {
+        "time": 7.949999999999999,
+        "max_absolute_correlation": 0.2031433935525237,
+        "max_correlation_error": 0.014937704944909381
+      },
+      {
+        "time": 10.049999999999999,
+        "max_absolute_correlation": 0.1968590040010923,
+        "max_correlation_error": 0.024912031357186948
+      },
+      {
+        "time": 12.0,
+        "max_absolute_correlation": 0.21411374378224463,
+        "max_correlation_error": 0.042314972196438504
+      },
+      {
+        "time": 15.0,
+        "max_absolute_correlation": 0.17628702691239606,
+        "max_correlation_error": 0.09631717851652596
+      }
+    ]
+  },
+  {
+    "case": "pcn_mixing05_seed29_10000",
+    "file": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Diagnostics/pcn_mixed_instability/pcn_mixing05_seed29_10000/Data/staged__conditional_gauge=1__Mpcn_absZ__spinmodel=ISO__JL=-2__beta=2.5__h=z_h_abs=0.5__prop=staggered-strang.hdf5",
+    "real_time_started": "yes",
+    "preparation_termination": "by convergence",
+    "termination": "by convergence",
+    "sampling_strategy": "pcn",
+    "iterations": 12,
+    "max_absolute_correlation": 0.2672985653547552,
+    "max_correlation_error": 0.09536842008427322,
+    "absolute_residuals": [
+      0.7568889160206287,
+      0.2930162406869583,
+      0.2265005375263152,
+      0.20500382756237773,
+      0.29471551403209467,
+      0.3614040789241548,
+      0.2462231141845242,
+      0.21672942277980425,
+      0.29658386694696265,
+      0.42975393338523454,
+      0.13825137406331733,
+      0.17061613280273072
+    ],
+    "phase_magnitudes": [
+      0.9642145991078249,
+      0.9634321709633683,
+      0.9627045188760192,
+      0.9627045188760192,
+      0.9627045188760192,
+      0.9627045188760192,
+      0.9627045188760192,
+      0.9627045188760192,
+      0.9628126955475025,
+      0.9628126955475025,
+      0.9628126955475025,
+      0.9628126955475025
+    ],
+    "closure_residuals": [
+      0.10053603811916532,
+      0.09341320851577577,
+      0.13105336712251786,
+      0.48677540500084404,
+      0.15169133193696116,
+      0.37082803681322596,
+      0.49632483550186063,
+      0.2958799528513186,
+      0.2633160719721108,
+      0.3202936413493977,
+      0.26057719639176585,
+      0.1500988849658025
+    ],
+    "times": [
+      {
+        "time": 0.0,
+        "max_absolute_correlation": 0.2500000000000001,
+        "max_correlation_error": 0.0019068190731517014
+      },
+      {
+        "time": 1.05,
+        "max_absolute_correlation": 0.23708273834791005,
+        "max_correlation_error": 0.003037973467086598
+      },
+      {
+        "time": 3.0,
+        "max_absolute_correlation": 0.20800657361279073,
+        "max_correlation_error": 0.005577011556616758
+      },
+      {
+        "time": 4.95,
+        "max_absolute_correlation": 0.20617353485023945,
+        "max_correlation_error": 0.00905260857433165
+      },
+      {
+        "time": 7.949999999999999,
+        "max_absolute_correlation": 0.2020657555093296,
+        "max_correlation_error": 0.019118260271883576
+      },
+      {
+        "time": 10.049999999999999,
+        "max_absolute_correlation": 0.21142010667476785,
+        "max_correlation_error": 0.0275781017748671
+      },
+      {
+        "time": 12.0,
+        "max_absolute_correlation": 0.25374419152519845,
+        "max_correlation_error": 0.038506741531668706
+      },
+      {
+        "time": 15.0,
+        "max_absolute_correlation": 0.19644257846239946,
+        "max_correlation_error": 0.09536842008427322
+      }
+    ]
+  },
+  {
+    "case": "pcn_shortT3_10000",
+    "file": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Diagnostics/pcn_mixed_instability/pcn_shortT3_10000/Data/staged__conditional_gauge=1__Mpcn_absZ__spinmodel=ISO__JL=-2__beta=2.5__h=z_h_abs=0.5__prop=staggered-strang.hdf5",
+    "real_time_started": "yes",
+    "preparation_termination": "by convergence",
+    "termination": "by convergence",
+    "sampling_strategy": "pcn",
+    "iterations": 5,
+    "max_absolute_correlation": 0.25,
+    "max_correlation_error": 0.0060963605715897255,
+    "absolute_residuals": [
+      0.438286923912392,
+      0.2716947260008445,
+      0.09654096741480725,
+      0.013356957707596817,
+      0.01450574772061282
+    ],
+    "phase_magnitudes": [
+      0.9635577529171029,
+      0.9645405279856019,
+      0.9647260409209646,
+      0.9647260409209646,
+      0.9647260409209646
+    ],
+    "closure_residuals": [
+      0.0075184494004948916,
+      0.010097519105694333,
+      0.013294395831859932,
+      0.01805610537926037,
+      0.013402376322429958
+    ],
+    "times": [
+      {
+        "time": 0.0,
+        "max_absolute_correlation": 0.25,
+        "max_correlation_error": 0.0019018455045070365
+      },
+      {
+        "time": 1.05,
+        "max_absolute_correlation": 0.237403602729911,
+        "max_correlation_error": 0.002490958962375845
+      },
+      {
+        "time": 3.0,
+        "max_absolute_correlation": 0.21411296222320597,
+        "max_correlation_error": 0.0060963605715897255
+      }
+    ]
+  },
+  {
+    "case": "reproduce_1rank_1000samples",
+    "file": "/Users/przembien/Projects/spindmft_matsubara/spinDMFT_Keldysh_staged/Data/Diagnostics/pcn_mixed_instability/reproduce_1rank_1000samples/Data/NOT_CONVERGED/staged__conditional_gauge=1__Mpcn_absZ__spinmodel=ISO__JL=-2__beta=2.5__h=z_h_abs=0.5__prop=staggered-strang.hdf5",
+    "real_time_started": "yes",
+    "preparation_termination": "by convergence",
+    "termination": "by iteration limit",
+    "sampling_strategy": "pcn",
+    "iterations": 3,
+    "max_absolute_correlation": 33511661.862624314,
+    "max_correlation_error": 35049906.16897798,
+    "absolute_residuals": [
+      0.7064527911446193,
+      1.9587257329324452,
+      52407272.12352235
+    ],
+    "phase_magnitudes": [
+      0.9636512315100789,
+      0.9631179967823423,
+      0.9631179967823423
+    ],
+    "closure_residuals": [
+      0.13527256003338697,
+      2.6064050302940593,
+      5021410.534618926
+    ],
+    "times": [
+      {
+        "time": 0.0,
+        "max_absolute_correlation": 0.25,
+        "max_correlation_error": 0.005616672251064014
+      },
+      {
+        "time": 1.05,
+        "max_absolute_correlation": 0.23959295569400982,
+        "max_correlation_error": 0.011045557843529468
+      },
+      {
+        "time": 3.0,
+        "max_absolute_correlation": 0.26000392482425716,
+        "max_correlation_error": 0.05893852559704206
+      },
+      {
+        "time": 4.95,
+        "max_absolute_correlation": 0.6054568400373759,
+        "max_correlation_error": 0.4884907596263062
+      },
+      {
+        "time": 7.949999999999999,
+        "max_absolute_correlation": 5.33549950682997,
+        "max_correlation_error": 4.928139649242665
+      },
+      {
+        "time": 10.049999999999999,
+        "max_absolute_correlation": 58.42476313885565,
+        "max_correlation_error": 59.584629610425466
+      },
+      {
+        "time": 12.0,
+        "max_absolute_correlation": 3259.128045005606,
+        "max_correlation_error": 3329.2824124064477
+      },
+      {
+        "time": 15.0,
+        "max_absolute_correlation": 33511661.862624314,
+        "max_correlation_error": 35049906.16897798
+      }
+    ]
+  }
+]
