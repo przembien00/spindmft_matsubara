@@ -2,11 +2,12 @@
 #SBATCH --job-name=staged-sweep
 #SBATCH --ntasks=16
 #SBATCH --cpus-per-task=1
+#SBATCH --time=08:00:00
+#SBATCH --mem-per-cpu=2G
+#SBATCH --partition=med
 #SBATCH --array=0-17
 #SBATCH --output=logs/slurm-%A_%a.out
 #SBATCH --error=logs/slurm-%A_%a.err
-
-# Add site-specific time or partition directives here if your cluster requires them.
 
 set -euo pipefail
 
