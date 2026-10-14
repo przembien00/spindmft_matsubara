@@ -11,8 +11,6 @@
 
 set -euo pipefail
 
-cd "$(dirname "$(readlink -f "$0")")"
-
 betas=(0.2 0.5 1.0 1.5 2.0 2.5)
 jls=(0 -2.4495)
 
@@ -42,9 +40,9 @@ else
 fi
 
 echo "Task ${task_id}: cstype=${cstype}, beta=${beta}, JL=${JL}"
-echo "MPI ranks: ${SLURM_NTASKS:-16}; samples per rank: 10000000"
+echo "MPI ranks: ${SLURM_NTASKS:-16}; samples per rank: 1000000"
 
-srun --ntasks=16 --cpus-per-task=1 ./executable_DOUBLE.out \
+mpirun -n 16 ./executable_DOUBLE.out \
     --spinmodel=ISO \
     --cstype="${cstype}" \
     "${field_args[@]}" \
@@ -53,8 +51,9 @@ srun --ntasks=16 --cpus-per-task=1 ./executable_DOUBLE.out \
     --numImagTimeSteps=50 \
     --numRealTimeSteps=200 \
     --Tmax=15 \
-    --numSamplesPerCore=10000000 \
+    --numSamplesPerCore=1000000 \
     --preparationSamplesPerCore=100000 \
     --iterlimit=30 \
     --realTimeEvolution=staggered-strang \
     --gaussianFactorization=dense
+
