@@ -35,7 +35,6 @@ namespace spinDMFT::Parameter_Space
 // ===============================================================
 // constructor : build parameter space from command line arguments
 ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int world_size, const int my_rank ):
-    my_rank( my_rank ),
     world_size( world_size )
 {
     // 1a.) Define Options
@@ -139,8 +138,11 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "set the step width for the equidistant time discretization (time in units of hbar/JQ)"
     )(
     "realTimeSubsteps", bpo::value<std::string>()->default_value("1"),
-    "CF4 substeps per measurement interval (default 1); 0 selects native-grid endpoint propagation; dense/weighted-dense use cubic field interpolation, FFT uses spectral nodes"
+    "positive Strang substeps per measurement interval (default 1); refines the joint field grid"
   )(
+    "realTimeEvolution", bpo::value<std::string>()->default_value("staggered-strang"),
+    "real-time evolution: staggered-strang (the only supported method)"
+    )(
     "numRealTimeSteps", bpo::value<size_t>()->default_value(size_t{10}),
     "set the number of real-time steps on [0,Tmax]"
     )(
@@ -150,9 +152,6 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     // ...concerning the statistics
     "numSamplesPerCore", bpo::value<size_t>()->default_value(size_t{100}),
     "set the number of samples per core (!) for the Monte Carlo simulation"
-    )(
-    "numSamplesPerSet", bpo::value<size_t>()->default_value(size_t{100}),
-    "set the number of samples per set for the Monte Carlo simulation"
     )(
     "seed", bpo::value<std::string>()->default_value("random"),
     "set the seed for the random generator (random : seed is determined by clock)"
@@ -172,8 +171,8 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "numBlocks", bpo::value<size_t>()->default_value(size_t{32}),
     "number of contiguous blocks per core; pCN errors use a multi-scale batch-means plateau"
     )(
-    "gaussianFactorization", bpo::value<std::string>()->default_value("fft"),
-    "complex pseudo-covariance factorization: dense, fft, or weighted-dense (independent sampling only)"
+    "gaussianFactorization", bpo::value<std::string>()->default_value("dense"),
+    "complex pseudo-covariance factorization: dense (default) or weighted-dense (independent sampling only)"
     )(
     "gaussianWeightM", bpo::value<RealType>()->default_value(RealType{1.}),
     "positive Matsubara noise weight for weighted-dense"
@@ -240,9 +239,6 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     )(
     "initcorrfile", bpo::value<std::string>()->default_value("[auto]"),
     "provide the filename from which the initial correlations should be taken"
-    )(
-    "initcorrsrc", bpo::value<std::string>()->default_value("spinDMFT_Keldysh"),
-    "deprecated compatibility option; initial correlations are read from this solver's Data folder"
     );
 
     description_storing.add_options()
@@ -338,6 +334,9 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     delta_t        = beta / static_cast<RealType>(num_TimeSteps);
     num_RealTimeSteps  = vm["numRealTimeSteps"].as<size_t>();
     if( num_RealTimeSteps == 0 ) throw std::invalid_argument("numRealTimeSteps must be positive");
+    real_time_evolution=vm["realTimeEvolution"].as<std::string>();
+    if(real_time_evolution!="staggered-strang")
+        throw std::invalid_argument("realTimeEvolution must be staggered-strang; other evolution methods have been removed");
     const auto substeps_text=vm["realTimeSubsteps"].as<std::string>();
     if(substeps_text.empty()||substeps_text.find_first_not_of("0123456789")!=std::string::npos)
         throw std::invalid_argument("realTimeSubsteps must be a nonnegative integer");
@@ -353,13 +352,13 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
         ||real_time_substeps>(std::numeric_limits<size_t>::max()/6-1)/num_RealTimeSteps)
         throw std::invalid_argument("realTimeSubsteps field grid must fit size_t");
     num_RealTimePoints = num_RealTimeSteps + 1;
+    if(real_time_substeps==0)
+        throw std::invalid_argument("staggered-strang requires realTimeSubsteps >= 1");
     Tmax                = vm["Tmax"].as<RealType>();
     if( Tmax < RealType{0.} ) throw std::invalid_argument("Tmax must be non-negative");
     delta_real_t        = Tmax / static_cast<RealType>(num_RealTimeSteps);
     // ...concerning the statistics
     num_SamplesPerCore      = vm["numSamplesPerCore"].as<size_t>();
-    num_SamplesPerSet       = vm["numSamplesPerSet"].as<size_t>();
-    num_SetsPerCore         = (size_t) std::ceil( static_cast<RealType>(num_SamplesPerCore) / static_cast<RealType>(num_SamplesPerSet) ); 
     num_Samples             = world_size * num_SamplesPerCore;
     seed                    = vm["seed"].as<std::string>();
     sampling_strategy       = vm["samplingStrategy"].as<std::string>();
@@ -375,6 +374,8 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     if( partition_imaginary_tolerance<RealType{0.} )
         throw std::invalid_argument("partitionImagTolerance must be non-negative");
     gaussian_factorization  = vm["gaussianFactorization"].as<std::string>();
+    if(gaussian_factorization=="fft")
+        throw std::invalid_argument("staggered-strang requires dense or weighted-dense factorization; FFT field interpolation does not preserve its causal covariance");
     if( gaussian_factorization!="dense" && gaussian_factorization!="fft"
         && gaussian_factorization!="weighted-dense" )
         throw std::invalid_argument(
@@ -395,9 +396,10 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     fft_cross_frequency_cutoff=vm["fftCrossFrequencyCutoff"].as<RealType>();
     if(!std::isfinite(fft_cross_frequency_cutoff))
         throw std::invalid_argument("fftCrossFrequencyCutoff must be finite; use -1 to disable truncation");
-    if( uses_cf4()&&(num_TimePoints<4||num_RealTimePoints<4) )
-        throw std::invalid_argument(
-            "CF4 (realTimeSubsteps >= 1) requires at least three imaginary- and real-time steps; use realTimeSubsteps=0 for shorter grids" );
+    if(!vm["fftCrossFrequencyCutoff"].defaulted())
+        throw std::invalid_argument("fftCrossFrequencyCutoff is incompatible with staggered-strang");
+    if(num_TimePoints<4)
+        throw std::invalid_argument("staggered-strang Matsubara preparation requires numImagTimeSteps >= 3");
     spin_insertion_strategy=vm["spinInsertionStrategy"].as<std::string>();
     if( spin_insertion_strategy!="closed-contour"
         && spin_insertion_strategy!="prefix" )
@@ -447,7 +449,6 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
             extrapolate_initial_spin_correlations = true;
         }
         initial_correlations_src_file = vm["initcorrfile"].as<std::string>();
-        initial_correlations_src_directory = "spinDMFT_Keldysh";
         read_initial_correlations_from_file();
     }
 
@@ -459,11 +460,10 @@ void ParameterSpace::read_initial_correlations_from_file()
     // 1) open file and group:
     std::string total_filename = "Data/" + initial_correlations_src_file + ".hdf5";
     hid_t file_id = H5Fopen( total_filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT );
-    if( file_id < 0 ){ error::IMPORT_FILE_NOT_FOUND( __PRETTY_FUNCTION__, total_filename ); }
+    if( file_id < 0 ){ error::IMPORT_FILE_NOT_FOUND( total_filename ); }
     hid_t group_id = H5Gopen( file_id, "/parameters", H5P_DEFAULT );
     // 2) import parameters of loaded data and check if they match with the new ones:
     char old_correlation_symmetry_type{}; 
-    std::string old_RealType{};
     if( H5Aexists(group_id,"num_ImagTimePoints")>0 )
         hdf5r::import_scalar( group_id, "num_ImagTimePoints", old_num_TimePoints );
     else
@@ -473,7 +473,6 @@ void ParameterSpace::read_initial_correlations_from_file()
     else
         hdf5r::import_scalar( group_id, "delta_t", old_delta_t );
     hdf5r::import_scalar( group_id, "correlation_symmetry_type", old_correlation_symmetry_type );
-    hdf5r::import_string( group_id, "RealType", old_RealType );
     // check discretization (may only mismatch if extrapolation is used)
     if( !extrapolate_initial_spin_correlations )
     {
@@ -487,55 +486,33 @@ void ParameterSpace::read_initial_correlations_from_file()
     {
         error::INIT_CORRELATIONS_MISMATCH( __PRETTY_FUNCTION__ );
     }
-//    else // check RealType (also has to match in any case)
-//    {
-//        #ifdef USE_DOUBLE
-//        if( old_RealType != "DOUBLE" )
-//        {
-//            error::INIT_CORRELATIONS_MISMATCH( __PRETTY_FUNCTION__ );
-//        }
-//        #endif
-//        #ifdef USE_FLOAT 
-//        if( old_RealType != "FLOAT" )
-//        {
-//            error::INIT_CORRELATIONS_MISMATCH( __PRETTY_FUNCTION__ );
-//        }
-//        #endif
-//    }
     // 3) import the correlation data:
     H5Gclose( group_id );
     group_id = H5Gopen( file_id, "/results", H5P_DEFAULT );
-    if( initial_correlations_src_directory == "spinDMFT_Keldysh" )
-    {
-        const std::string re_name=H5Lexists(group_id,"Re_correlation_edge",H5P_DEFAULT)>0
-            ?"/results/Re_correlation_edge":"/results/Re_correlation";
-        hdf5r::import_ND_tensor_linearized( group_id, re_name,
-                                            initial_correlations_linearized );
-        if( H5Lexists(group_id,"Im_correlation_edge",H5P_DEFAULT)>0 )
-            hdf5r::import_ND_tensor_linearized(
-                group_id,"/results/Im_correlation_edge",
-                initial_correlations_imag_linearized );
-        else if( H5Lexists(group_id,"Im_correlation",H5P_DEFAULT)>0 )
-            hdf5r::import_ND_tensor_linearized(
-                group_id,"/results/Im_correlation",
-                initial_correlations_imag_linearized );
-        else
-            initial_correlations_imag_linearized.assign(
-                initial_correlations_linearized.size(),RealType{0.});
-        auto reject_nan=[]( const RealType& v )
-        {
-            if( std::isnan( v ) )
-                error::INIT_CORRELATIONS_CONTAIN_NANS( __PRETTY_FUNCTION__ );
-        };
-        std::for_each(initial_correlations_linearized.cbegin(),
-                      initial_correlations_linearized.cend(),reject_nan);
-        std::for_each(initial_correlations_imag_linearized.cbegin(),
-                      initial_correlations_imag_linearized.cend(),reject_nan);
-    }
+    const std::string re_name=H5Lexists(group_id,"Re_correlation_edge",H5P_DEFAULT)>0
+        ?"/results/Re_correlation_edge":"/results/Re_correlation";
+    hdf5r::import_ND_tensor_linearized( group_id, re_name,
+                                        initial_correlations_linearized );
+    if( H5Lexists(group_id,"Im_correlation_edge",H5P_DEFAULT)>0 )
+        hdf5r::import_ND_tensor_linearized(
+            group_id,"/results/Im_correlation_edge",
+            initial_correlations_imag_linearized );
+    else if( H5Lexists(group_id,"Im_correlation",H5P_DEFAULT)>0 )
+        hdf5r::import_ND_tensor_linearized(
+            group_id,"/results/Im_correlation",
+            initial_correlations_imag_linearized );
     else
+        initial_correlations_imag_linearized.assign(
+            initial_correlations_linearized.size(),RealType{0.});
+    auto reject_nan=[]( const RealType& v )
     {
-        error::SRC_DIRECTORY( initial_correlations_src_directory, __PRETTY_FUNCTION__ );
-    }
+        if( std::isnan( v ) )
+            error::INIT_CORRELATIONS_CONTAIN_NANS( __PRETTY_FUNCTION__ );
+    };
+    std::for_each(initial_correlations_linearized.cbegin(),
+                  initial_correlations_linearized.cend(),reject_nan);
+    std::for_each(initial_correlations_imag_linearized.cbegin(),
+                  initial_correlations_imag_linearized.cend(),reject_nan);
     // 4) import m(0). New files store magnetization only as a trajectory;
     // retain support for the legacy scalar checkpoint schema.
     if( H5Lexists(group_id,"Re_magnetization",H5P_DEFAULT)>0 )
@@ -596,7 +573,7 @@ std::string ParameterSpace::create_essentials_string() const
     if( gaussian_factorization=="fft" )
         ss << print::quantity_to_output_line( pre_colon_space, "fft_cross_frequency_cutoff", std::to_string(fft_cross_frequency_cutoff) );
     ss
-    << print::quantity_to_output_line( pre_colon_space, "propagator", uses_cf4()?"gauss-cf4":"endpoint-cfet4" )
+    << print::quantity_to_output_line( pre_colon_space, "propagator", "staggered-strang" )
     << print::quantity_to_output_line( pre_colon_space, "iteration_error_sigma_threshold", print::remove_zeros(print::round_value_to_string(iteration_error_sigma_threshold,num_PrintDigits)) )
     << print::quantity_to_output_line( pre_colon_space, "information_text" , information_text );
     if(gaussian_factorization=="weighted-dense")

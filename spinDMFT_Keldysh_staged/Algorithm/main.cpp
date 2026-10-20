@@ -72,7 +72,7 @@ void run_stage(const ps::ParameterSpace& p,int rank,StageState& state,rtd::RunTi
             ||sampler->reconstruction_error()>p.takagi_tolerance)
             throw std::runtime_error("joint Gaussian factor failed pseudo-covariance reconstruction");
         data.record_complex_field_diagnostics(field.covariance_symmetry_error,
-            real?field.branch_identity_error:RealType{},sampler->reconstruction_error(),
+            sampler->reconstruction_error(),
             RealType{},sampler->latent_dimension(),sampler->largest_factorization_dimension());
         // Separate stage streams, also for the same seed and iteration index.
         std::mt19937 engine{static_cast<unsigned>(rd::throw_seed(data.generated_seed,
@@ -115,13 +115,12 @@ void run_stage(const ps::ParameterSpace& p,int rank,StageState& state,rtd::RunTi
                     for(size_t first=0;first<p.num_SamplesPerCore;)
                     {
                         const size_t count=std::min(batch_size,p.num_SamplesPerCore-first);
-                        const auto fields=sampler->draw_contour_batch(engine,count,p.uses_cf4());
+                        const auto fields=sampler->draw_contour_batch(engine,count,false);
                         for(const auto& field_sample:fields)
                         {
                             func::build_contour_trajectory(p,field_sample,prepared_mean,
                                 independent_trajectory,independent_workspace,false,func::FinalTraceMode::Skip);
-                            func::measure_contour_observables(data,independent_trajectory,sample,measurement,"prefix");
-                            data.accumulate_sample(sample);
+                            func::measure_and_accumulate_independent(data,independent_trajectory,measurement,"prefix");
                         }
                         first+=count;
                     }
@@ -151,7 +150,7 @@ void run_stage(const ps::ParameterSpace& p,int rank,StageState& state,rtd::RunTi
                 // Refresh the joint factor null-space after EVERY step,
                 // including rejection, retaining the M-active coordinates.
                 const auto latent=chain_sampler->draw_joint_latent(chain->latent(),engine);
-                fields=sampler->contour_field_from_latent(latent,p.uses_cf4());
+                fields=sampler->contour_field_from_latent(latent,false);
             }
             else
             {
@@ -245,7 +244,7 @@ int main(int argc,char* const argv[])
             stoc::HDF5_Storage storage(rank,failed,"by iteration limit");
             storage.store_main(failed,prep_data,preparation.raw,preparation.raw_re,preparation.raw_im);
             storage.store_preparation(pM,prep_data,preparation.input,preparation.re,preparation.im,
-                preparation.raw,preparation.raw_re,preparation.raw_im,{},{},frozen_errors,false);
+                {},{},frozen_errors,false);
             clock.stop();storage.store_time(clock);storage.finalize();
             print::print_R0(rank,"Matsubara preparation did not converge; real-time stage was not started.\n");
             MPI_Finalize();return 2;
@@ -271,7 +270,7 @@ int main(int argc,char* const argv[])
         stoc::HDF5_Storage storage(rank,parameters,real_data.termination);
         storage.store_main(parameters,real_data,real.raw,real.raw_re,real.raw_im);
         storage.store_preparation(pM,prep_data,preparation.input,preparation.re,preparation.im,
-            preparation.raw,preparation.raw_re,preparation.raw_im,frozen,preparation_factor,frozen_errors,true);
+            frozen,preparation_factor,frozen_errors,true);
         clock.measure("storing",true);clock.stop();storage.store_time(clock);storage.finalize();
         MPI_Finalize();return real_data.termination=="by iteration limit"?3:0;
     }

@@ -1,4 +1,5 @@
 #include"Storage_Concept.h"
+#include"../Functions/Functions.h"
 #include<fstream>
 #include<iomanip>
 #include<limits>
@@ -114,6 +115,10 @@ void HDF5_Storage::create_file( const ps::ParameterSpace& pspace )
     {
         filename += "__mag=constant";
     }
+    filename += "__prop=staggered-strang";
+    if(pspace.real_time_substeps>1)
+        filename += "__substeps="+std::to_string(pspace.real_time_substeps);
+
     if( pspace.correlation_normalization=="closed-contour" )
     {
         filename += "__corrnorm=D";
@@ -233,7 +238,6 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
 
     // ...concerning statistics
     hdf5r::store_scalar( ps_group_id, "num_SamplesPerCore",         pspace.num_SamplesPerCore );
-    hdf5r::store_scalar( ps_group_id, "num_SamplesPerSet",          pspace.num_SamplesPerSet );
     hdf5r::store_scalar( ps_group_id, "num_Samples",                pspace.num_Samples );
     hdf5r::store_scalar( ps_group_id, "num_Cores",                  pspace.get_num_Cores() );
 
@@ -266,11 +270,11 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
         hdf5r::store_scalar(ps_group_id,"gaussian_weight_eta",pspace.gaussian_noise_weights[1]);
         hdf5r::store_scalar(ps_group_id,"gaussian_weight_kappa",pspace.gaussian_noise_weights[2]);
         hdf5r::store_string(ps_group_id,"gaussian_weight_basis",
-            "V_M, eta=(V_++V_-)/2, kappa=(V_+-V_-)/2; native point-major xyz grids with distinct Matsubara endpoints");
+            "V_M, midpoint eta, boundary kappa=nu/2; one joint staggered grid");
         hdf5r::store_string(ps_group_id,"gaussian_weight_objective",
-            "minimize tr(W E[z z^dagger]) at fixed full E[z z^T]; weights are per native grid entry, not quadrature weights; common scale normalized to max weight 2");
+            "minimize weighted conjugated covariance at fixed joint pseudo-covariance; per-node weights M,eta,nu are wM,wEta,wKappa/4; common scale normalized to max effective weight 1");
         hdf5r::store_string(ps_group_id,"gaussian_reconstruction_basis",
-            "original physical V_M,V_+,V_- covariance after inverse weighting and branch transformation");
+            "joint V_M,eta,nu covariance after inverse diagonal weighting");
     }
     hdf5r::store_string( ps_group_id, "gaussian_execution",
         "exact-zero covariance blocks; identical block factors reused with independent latents; original global rank cutoff; sample-major independent batches of up to 32" );
@@ -283,23 +287,23 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
     hdf5r::store_scalar( ps_group_id, "fft_cross_frequency_cutoff",
                          pspace.fft_cross_frequency_cutoff );
     hdf5r::store_scalar(ps_group_id,"real_time_substeps",pspace.real_time_substeps);
+    hdf5r::store_string(ps_group_id,"real_time_evolution",pspace.real_time_evolution);
+    hdf5r::store_string(ps_group_id,"staggered_field_layout",
+        "V_M(tau_k),eta((n+1/2)h),nu(mh); h=delta_real_t/real_time_substeps; shared nu boundaries; measurements on native edges");
+    hdf5r::store_string(ps_group_id,"staggered_covariance",
+        "joint E[z z^T]: MM unchanged; eta-M mixed primitive at midpoints; eta-eta=(Cgreater+Clesser)/2; eta_n-nu_m=Cgreater-Clesser for m<=n, exactly zero otherwise; nu-nu=nu-M=0; interpolate smooth primitive before applying causal support");
+
+
     hdf5r::store_scalar(ps_group_id,"delta_real_propagation_t",
         pspace.delta_real_t/static_cast<RealType>(pspace.real_time_steps_per_interval()));
     hdf5r::store_string(ps_group_id,"real_time_field_interpolation",
-        !pspace.uses_cf4()?"native endpoints"
-        :pspace.gaussian_factorization=="fft"
-        ?"signed-frequency phase-shifted inverse FFT; positive Nyquist mode; fixed native covariance grid"
-        :"four-point cubic interpolation");
+        "none: direct joint midpoint eta and boundary nu samples; smooth correlation kernels interpolated before exact causal support");
     hdf5r::store_string( ps_group_id, "propagator",
-        pspace.uses_cf4()?"gauss-cf4":"endpoint-cfet4" );
+        "staggered-strang" );
     hdf5r::store_string( ps_group_id, "propagator_definition",
-        pspace.uses_cf4()
-        ?pspace.gaussian_factorization=="fft"
-         ?"two Gauss--Legendre internal nodes from the sampled FFT realization on each real-time propagation subinterval, cubic edge interpolation on the Matsubara branch, and a two-exponential fourth-order commutator-free Magnus step"
-         :"four-point cubic interpolation of the sampled dense edge field at two Gauss--Legendre internal nodes on each real-time propagation subinterval and each Matsubara interval, and a two-exponential fourth-order commutator-free Magnus step; assumes a smooth field between edges"
-        :"three-exponential endpoint CFET composition; globally second order for a general time-dependent Hamiltonian" );
+        "Q_n=exp(-i h nu_n dot S/4), P_n=exp(-i h H_eta(midpoint)); U=Q_(n+1) P_n Q_n, B=Q_n P_n^(-1) Q_(n+1); shared boundary half kicks; Matsubara Gauss-CF4 preparation; second order for smooth prescribed fields, averaged thermal-contour weak order unvalidated" );
     hdf5r::store_string( ps_group_id, "gaussian_factorization_options",
-        "dense: exact-block physical-grid real-lift Autonne--Takagi; weighted-dense: full-contour weighted Takagi in (M,eta,kappa), inverse transformed to physical fields; fft: doubled-real FFT, joint frequency Takagi blocks, inverse FFT, and physical-grid restriction; optional nonnegative cutoff discards high-frequency Matsubara-real covariance and samples high {omega,-omega} blocks independently" );
+        "dense: joint Matsubara, midpoint eta and boundary nu Takagi factorization; weighted-dense: diagonal weighting of the same joint covariance before Takagi, inverse scaled to physical fields" );
     hdf5r::store_string( ps_group_id, "correlation_normalization",
                          pspace.correlation_normalization );
     hdf5r::store_string( ps_group_id, "magnetization_normalization",
@@ -343,13 +347,11 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
         hdf5r::store_scalar( ps_group_id, "num_ratio_jackknife_blocks",
                              pspace.num_blocks );
     hdf5r::store_string( ps_group_id, "field_covariance",
-        pspace.uses_harmonic_bath()
-        ?"complex symmetric pseudo-covariance E[V V^T] from the exact contour correlation of X=g(a+a^dagger), on M,+,- physical field values"
-        :"complex symmetric pseudo-covariance E[V V^T] from the connected spin correlation, on M,+,- physical field values" );
+        "complex symmetric joint pseudo-covariance E[z z^T] on V_M,midpoint eta,boundary nu with exact retarded support" );
     hdf5r::store_string( ps_group_id, "contour_convention",
         "0 -> T (+), T -> 0 (-), 0 -> -i beta (M); q_M=-1, q_+=-i, q_-=+i" );
     hdf5r::store_string( ps_group_id, "field_layout",
-        "flat(A,n,a)=3*(offset_A+n)+a; offsets M=0, +=N_tau+1, -=N_tau+1+N_R" );
+        "V_M(tau_k), eta((n+1/2)h), nu(mh); point-major xyz sectors; h=delta_real_t/real_time_substeps" );
     hdf5r::store_string( ps_group_id, "imaginary_field_grid",
         "one-sided edge grid; tau=k*delta_imag_t for k=0,...,N_tau with distinct 0+ and beta- fields" );
 
@@ -379,7 +381,6 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
     hdf5r::store_string( ps_group_id, "load_initial_spin_correlations",         hdf5r::bool_to_string(pspace.load_initial_spin_correlations) );
     hdf5r::store_string( ps_group_id, "extrapolate_initial_spin_correlations",  hdf5r::bool_to_string(pspace.extrapolate_initial_spin_correlations) );
     hdf5r::store_string( ps_group_id, "initial_correlations_src_file",          hdf5r::none_if_empty(pspace.initial_correlations_src_file) );
-    hdf5r::store_string( ps_group_id, "initial_correlations_src_directory",     hdf5r::none_if_empty(pspace.initial_correlations_src_directory) );
 
     // ========== storing and naming ==========
     hdf5r::store_string( ps_group_id, "information_text",           hdf5r::none_if_empty(pspace.information_text) );

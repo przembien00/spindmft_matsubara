@@ -57,7 +57,9 @@ magnetization must be strictly below
 `reliterror * S*(S+1) / (3*sqrt(3*N))`, where `N` is the total preparation sample
 count across MPI ranks. Changes are measured before mixing. Sampling errors are
 reported but do not relax this threshold. The existing diagnostic gates still
-apply. The real-time stage requires its standardized residual threshold and
+apply. `--reliterror` is also the shared standard-error multiplier for requiring
+the measured imaginary origin magnetization to be consistent with zero; there
+is no separate `imagMagSigma` option. The real-time stage requires its standardized residual threshold and
 an absolute update smaller than `max(S,S*S)`. This additional finite-spin
 scale check prevents exploding error bars from turning a divergent update
 into apparent convergence; it is a divergence guard, not a precision guarantee.
@@ -120,8 +122,9 @@ New filenames begin `staged__jointMpcn_absZ__`, distinguishing this method
 from historical samplers. `/parameters` records `joint_matsubara_pcn`, the
 updated coordinates, null-space refresh, and SVD rank rule. Both stages
 store acceptance, phase, autocorrelation and blocking diagnostics. The
-saved preparation factor is an imaginary-only reference, not a factor reused
-for real-time sampling.
+preparation factor is an internal imaginary-only reference; its matrix and the
+preparation covariance matrix are not saved. Real-time sampling uses a fresh
+full-contour factor.
 
 Regression commands:
 
@@ -141,12 +144,14 @@ Validation on 2026-10-12: the Release build, all 18 registered CTests, and
 the two-rank MPI pCN executable/HDF5 suite passed. The updated LaTeX loop
 note also compiled successfully.
 
-## Staggered Strang option
+## Staggered Strang evolution
 
-Add `--realTimeEvolution=staggered-strang` to use the point-sampled causal
-scheme from Solution II of
+Staggered Strang is the only real-time evolution method and is the default.
+The optional explicit spelling is `--realTimeEvolution=staggered-strang`.
+It uses the point-sampled causal scheme from Solution II of
 `../spinDMFT_Keldysh/Notes/magnetization_drift_causal_discretization.tex`.
-The existing `--realTimeEvolution=cfet` remains the default. Both independent sampling and `--jointMatsubaraPCN` support this evolution;
+Other evolution names, including `cfet`, are rejected. Both independent
+sampling and `--jointMatsubaraPCN` support Strang splitting;
 the dense/prefix/partition-function requirements still apply.
 
 ```sh
@@ -211,9 +216,12 @@ convergence and reduced equilibrium magnetization drift still require
 matched self-consistent scans.
 
 Output filenames begin with `staged__`. `/results` contains the final raw spin
-measurements; `/preparation` records the frozen input, last raw preparation
-measurements, fixed physical covariance, reference imaginary factor,
-preparation statistics, and invariant checks.
+measurements; `/preparation` records the frozen input, preparation statistics,
+and invariant checks. Factor and covariance matrices are not saved. Raw preparation estimates are used
+internally for mixing and convergence but are not saved separately. The preparation
+`*_sample_stds` describe the last measured estimates, not the mixed frozen input.
+Preparation correlations, their standard errors, and pCN autocorrelation diagnostics
+have axes `[direction, tau]`; real-time output retains `[t, direction, tau]`.
 A failed preparation writes an explicitly marked file in
 `Data/.../NOT_CONVERGED/` and does not launch the real-time stage.
 

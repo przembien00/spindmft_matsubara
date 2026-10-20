@@ -472,6 +472,28 @@ int main()
                 failures+=require(value==ComplexType{},"zero-rank batch produces zero fields");
     }
     {
+        // Scalar blocks retain 1e-13 locally, but the six-row global cutoff
+        // removes it. Identical small blocks share a factor: the physical
+        // diagnostic must use its refreshed, post-truncation reconstruction.
+        func::ComplexDynamicMatrix covariance(6,6,ComplexType{});
+        covariance(0,0)=RealType{1.};
+        covariance(1,1)=covariance(2,2)=RealType{1e-13};
+        for(const bool zero:{false,true})
+        {
+            if(zero)reset(covariance);
+            func::DenseComplexGaussianSampler sampler(covariance,
+                std::vector<RealType>{2.,2.,2.,1.,0.5,1.});
+            const auto L=sampler_factor(sampler);
+            const RealType residual=relative_residual(L*blaze::trans(L),covariance);
+            failures+=require(std::abs(residual-sampler.reconstruction_error())<RealType{1e-15},
+                "weighted physical residual uses final shared-factor reconstruction");
+            failures+=require(sampler.latent_dimension()==(zero?0:1),
+                "weighted shared blocks retain global cutoff and zero rank");
+            if(!zero)failures+=require(sampler.reconstruction_error()>RealType{1e-14},
+                "physical reconstruction reports discarded local modes");
+        }
+    }
+    {
         // FFT GEMM batches and GEMV single draws must represent the same
         // joint fields, including shifted Gauss grids and RNG tails.
         const auto covariance=make_doubled_frequency_covariance();

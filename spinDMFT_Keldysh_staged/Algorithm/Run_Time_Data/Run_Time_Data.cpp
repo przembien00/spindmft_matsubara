@@ -77,11 +77,8 @@ RunTimeData::RunTimeData( const ps::ParameterSpace& pspace, int my_rank,
       m_real_time_residual_scale(std::max(pspace.spin_float,pspace.spin_float*pspace.spin_float)),
       m_iteration_limit(pspace.Iteration_Limit),
       m_covariance_tolerance(pspace.covariance_tolerance),
-      m_branch_identity_tolerance(pspace.branch_identity_tolerance),
       m_takagi_tolerance(pspace.takagi_tolerance),
       m_minimum_phase_magnitude(pspace.minimum_phase_magnitude),
-      m_denominator_constancy_tolerance(pspace.denominator_constancy_tolerance),
-      m_imaginary_magnetization_sigma(pspace.imaginary_magnetization_sigma),
       m_partition_imaginary_tolerance(pspace.partition_imaginary_tolerance),
       m_corr_directions(CorrTen{pspace.correlation_symmetry_type,
                                 pspace.num_TimePoints}.get_direction_pairs()),
@@ -116,6 +113,12 @@ void RunTimeData::begin_iteration_accumulation()
         m_num_real_points*m_corr_directions.size()*m_num_imaginary_edge_points,{});
     m_blocks.assign(m_num_blocks,ComplexBlockSums{
         m_symmetry,m_num_imaginary_edge_points,m_num_real_points});
+}
+
+void RunTimeData::begin_independent_sample(ComplexType Z)
+{
+    if(m_pcn)throw std::invalid_argument("fused independent measurement cannot accumulate pCN states");
+    begin_sample(Z);
 }
 
 void RunTimeData::begin_sample( ComplexType Z, RealType observable_normalization )
@@ -269,12 +272,11 @@ ComplexType RunTimeData::edge_value(
 { return {values.Re[t][p][tau],values.Im[t][p][tau]}; }
 
 void RunTimeData::record_complex_field_diagnostics(
-    RealType symmetry_error,RealType branch_error,RealType factor_error,
+    RealType symmetry_error,RealType factor_error,
     RealType approximation_error,size_t latent_dimension,
     size_t largest_factorization_dimension )
 {
     covariance_symmetry_errors.push_back(symmetry_error);
-    branch_identity_errors.push_back(branch_error);
     gaussian_factor_reconstruction_errors.push_back(factor_error);
     gaussian_covariance_approximation_errors.push_back(approximation_error);
     gaussian_factor_latent_dimensions.push_back(
@@ -964,10 +966,9 @@ void RunTimeData::record_matsubara_iteration_error(
 
 bool RunTimeData::diagnostics_pass( const MagTen& magnetization_Im ) const
 {
-    if( covariance_symmetry_errors.empty()||branch_identity_errors.empty()
+    if( covariance_symmetry_errors.empty()
         ||gaussian_factor_reconstruction_errors.empty()||average_phase_magnitudes.empty() ) return false;
     if( covariance_symmetry_errors.back()>m_covariance_tolerance
-        ||branch_identity_errors.back()>m_branch_identity_tolerance
         ||gaussian_factor_reconstruction_errors.back()>m_takagi_tolerance
         ||average_phase_magnitudes.back()<m_minimum_phase_magnitude ) return false;
     // if( m_pcn&&(maximum_relative_imaginary_sampling_weights.empty()
@@ -975,7 +976,7 @@ bool RunTimeData::diagnostics_pass( const MagTen& magnetization_Im ) const
     //       >m_partition_imaginary_tolerance) ) return false;
     for( size_t c=0;c<m_mag_directions.size();++c )
         if( std::abs(magnetization_Im.front()[c])>
-            m_imaginary_magnetization_sigma*
+            m_iteration_error_sigma_threshold*
             magnetization_time_Im_stds.front()[c] ) return false;
     return true;
 }
@@ -1001,9 +1002,7 @@ void RunTimeData::finalize_iteration_step()
              print::round_value_to_string(average_phase_magnitudes.back(),m_num_print_digits))
           <<print::quantity_to_output_line(36,m_pcn
              ?"minimum autocorrelation N_eff":"complex-weight N_eff",
-             print::round_value_to_string(effective_sample_sizes.back(),m_num_print_digits))
-          <<print::quantity_to_output_line(36,"branch transpose residual",
-             print::round_value_to_string(branch_identity_errors.back(),m_num_print_digits));
+             print::round_value_to_string(effective_sample_sizes.back(),m_num_print_digits));
         if( m_fft )
             std::cout<<print::quantity_to_output_line(36,"Gaussian covariance truncation",
                  print::round_value_to_string(

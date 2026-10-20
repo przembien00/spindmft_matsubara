@@ -36,7 +36,6 @@ struct SelfConsistentField
     ComplexDynamicMatrix covariance{};
     CovarianceSource covariance_source{};
     RealType covariance_symmetry_error{};
-    RealType branch_identity_error{};
 };
 
 void initialize_matrices( const ps::ParameterSpace& pspace );
@@ -99,7 +98,7 @@ struct BasicContourTrajectory
 template<typename Matrix>
 struct BasicTrajectoryWorkspace
 {
-    std::vector<ComplexFieldVector> imaginary_fields,forward_fields,backward_fields;
+    std::vector<ComplexFieldVector> imaginary_fields;
     std::vector<Matrix> imaginary_steps,prefix,suffix;
 };
 
@@ -118,12 +117,9 @@ class PreparedMeanField
     void validate_grid(const ps::ParameterSpace& pspace) const;
     const MeanFieldTrajectory& edges() const { return m_edges; }
     const MeanFieldTrajectory& midpoints() const { return m_midpoints; }
-    const std::array<MeanFieldTrajectory,2>& gauss_nodes() const { return m_gauss; }
  private:
     MeanFieldTrajectory m_edges,m_midpoints;
-    std::array<MeanFieldTrajectory,2> m_gauss;
     size_t m_steps,m_substeps;
-    bool m_staggered;
 };
 
 // An imaginary-only preparation is sufficient for partition-function pCN
@@ -198,6 +194,13 @@ void measure_contour_observables( const rtd::RunTimeData& layout,
     const BasicContourTrajectory<Matrix>& trajectory, rtd::MeasuredSample& sample,
     MeasurementWorkspace& workspace,
     const std::string& insertion_strategy="closed-contour" );
+
+// Same estimators, streamed directly into independent total/block sums.
+// Does not materialize a MeasuredSample; pCN callers must use the buffered API.
+template<typename Matrix>
+void measure_and_accumulate_independent(rtd::RunTimeData& data,
+    const BasicContourTrajectory<Matrix>& trajectory,MeasurementWorkspace& workspace,
+    const std::string& insertion_strategy="closed-contour");
 
 // Correlations and magnetization use either the closed-contour insertion
 // B_-(T,0) U_+(t,T) S U_+(t,0), or the prefix insertion

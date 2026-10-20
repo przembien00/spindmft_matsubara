@@ -26,4 +26,14 @@ ComplexType branch_correlation( const CorrelationSet& correlations,
                                 const ContourIndex& first,
                                 const ContourIndex& second );
 
+// Smooth primitive interpolation in units of the measurement-grid spacing.
+// Uses at most four neighboring knots (linear/quadratic on short grids).
+ComplexType interpolated_edge_value(const CorrelationSet& correlations,
+    RealType real_coordinate,size_t a,size_t b,size_t imaginary_edge);
+
+// Direct covariance in the staggered (M,eta,nu) basis. Only smooth kernel
+// values are interpolated; retarded support is applied at the actual nodes.
+ComplexType staggered_correlation(const CorrelationSet& correlations,
+    const StaggeredIndex& first,const StaggeredIndex& second,size_t substeps);
+
 }

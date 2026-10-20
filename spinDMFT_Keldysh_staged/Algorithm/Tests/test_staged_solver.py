@@ -24,7 +24,7 @@ def main():
     parser.add_argument('executable', type=Path)
     parser.add_argument('--output-dir', type=Path)
     parser.add_argument('--mpi-ranks', type=int, default=1)
-    parser.add_argument('--evolution', choices=['cfet', 'staggered-strang'], default='cfet')
+    parser.add_argument('--evolution', choices=['staggered-strang'], default='staggered-strang')
     args = parser.parse_args()
     executable = args.executable.resolve()
     records = []
@@ -60,17 +60,49 @@ def main():
             with h5py.File(files[0]) as f:
                 assert text(f['parameters'].attrs['joint_matsubara_pcn']) == 'no'
                 p = f['parameters'].attrs
+                assert 'closed_contour_diagnostic_definition' not in p
+                assert 'connected_correlation_strategy' not in p
+                for removed in ('contour_convention', 'covariance_construction',
+                                'equal_time_prescription', 'equal_time_prescription_definition',
+                                'field_covariance', 'field_covariance_measure', 'field_layout',
+                                'field_sampling', 'field_source', 'denominator_constancy_tolerance',
+                                'branch_identity_tolerance', 'imaginary_magnetization_sigma',
+                                'staggered_gaussian_objective',
+                                'staggered_gaussian_basis',
+                                'staggered_field_layout',
+                                'staggered_covariance',
+                                'spin_insertion_strategy',
+                                'solver',
+                                'sampling_count_unit',
+                                'results_kind',
+                                'real_time_field_interpolation',
+                                'real_time_evolution',
+                                'propagator_definition',
+                                'propagator',
+                                'observable_execution',
+                                'normalization_strategy',
+                                'mean_field_strategy',
+                                'imaginary_field_grid',
+                                'gaussian_factorization_options',
+                                'gaussian_execution'):
+                    assert removed not in p
+                constant_magnetization = p['constant_magnetization_time']
+                assert isinstance(constant_magnetization, (bool, np.bool_))
+                assert bool(constant_magnetization) == ('--constantMagnetization' in options)
+                preparation = f['preparation']
+                for removed in ('convergence_rule', 'factor_scope', 'frozen_state_kind', 'frozen_sampling_scope', 'uncertainty_scope'):
+                    assert removed not in f['preparation'].attrs
+                for part in ('Re', 'Im'):
+                    values = preparation[part + '_correlation']
+                    assert values.ndim == 2
+                    assert preparation[part + '_correlation_sample_stds'].shape == values.shape
+                assert f['results/Re_correlation'].ndim == 3
                 evolution = next((v.split('=', 1)[1] for v in options
                                   if v.startswith('--realTimeEvolution=')), args.evolution)
-                assert text(p['real_time_evolution']) == evolution
                 assert ('__prop=staggered-strang' in files[0].name) == (evolution == 'staggered-strang')
                 if evolution == 'staggered-strang' and p['num_RealTimeSteps'] > 0:
                     q = int(p['real_time_substeps'])
                     assert q >= 1
-                    assert text(p['propagator']) == 'staggered-strang'
-                    assert 'direct joint' in text(p['real_time_field_interpolation'])
-                    assert 'exactly zero' in text(p['staggered_covariance'])
-                    assert 'sqrt(2)*eta,nu/sqrt(2)' in text(p['staggered_gaussian_basis'])
                     assert ('__substeps=' in files[0].name) == (q > 1)
                     assert p['delta_real_propagation_t'] == p['delta_real_t'] / q
             records.append({'case': name, 'exit_code': status, 'output': str(files[0])})
@@ -84,11 +116,13 @@ def main():
         energies = np.array([0.25, -0.25])
         partition = np.exp(-energies).sum()
         expected_m = -0.5 * np.tanh(0.25)
-        for substeps in ([1, 3] if args.evolution == 'staggered-strang' else [0, 1]):
+        for substeps in [1, 3]:
             # Exercise both a partial final batch and fewer than 32 samples.
             zero_samples = 37 if substeps in (0, 3) else 17
             options = ['--JQ=0', '--realTimeSubsteps=' + str(substeps),
                        '--numSamplesPerCore=' + str(zero_samples)]
+            if substeps == 3:
+                options.append('--constantMagnetization')
             path = run('zero_bath_cf' + str(substeps), options)
             with h5py.File(path) as f:
                 assert text(f['preparation'].attrs['termination']) == 'by convergence'
@@ -100,7 +134,8 @@ def main():
                 assert text(f['runtimedata'].attrs['termination']) == 'by convergence'
                 assert np.all(f['preparation'].attrs['frozen_MM_residuals'] == 0)
                 assert f['preparation'].attrs['preparation_latent_dimension'] == 0
-                assert np.all(read_complex(f['preparation'], 'covariance') == 0)
+                assert not any(key in f['preparation'] for key in
+                               ('Re_factor', 'Im_factor', 'Re_covariance', 'Im_covariance'))
                 m = read_complex(f['results'], 'magnetization')
                 np.testing.assert_allclose(m[:, 2], expected_m, atol=2e-13, rtol=0)
                 labels = [text(v) for v in f['results/correlation_direction_labels'][...]]
@@ -132,7 +167,9 @@ def main():
             assert text(f['runtimedata'].attrs['termination']) == 'by iteration limit'
             assert 'NOT_CONVERGED' in str(failed)
 
-        for removed in ['--conditionalSampling', '--matsubaraGaugeScale=1']:
+        for removed in ['--conditionalSampling', '--matsubaraGaugeScale=1',
+                        '--denominatorConstancyTolerance=0.1', '--branchIdentityTolerance=0.1',
+                        '--imagMagSigma=5']:
             run('reject_removed_' + removed[2:].split('=')[0], [removed], 1, 'unrecognised option')
         for option in ['--gaussianFactorization=fft',
                        '--gaussianFactorization=weighted-dense',
@@ -141,6 +178,7 @@ def main():
             run('reject_' + option[2:].replace('=', '_'), [option], 1, 'staged solver requires')
         run('reject_noselfcons', ['--noselfcons'], 1, 'cannot prepare a converged')
         run('reject_cutoff', ['--fftCrossFrequencyCutoff=2'], 1, 'does not support an FFT cutoff')
+        run('reject_cfet', ['--realTimeEvolution=cfet'], 1, 'other evolution methods have been removed')
         run('reject_evolution', ['--realTimeEvolution=unknown'], 1, 'realTimeEvolution must be')
         if args.evolution == 'staggered-strang':
             run('reject_zero_substeps', ['--realTimeSubsteps=0'], 1, 'requires realTimeSubsteps >= 1')
@@ -151,7 +189,7 @@ def main():
                    '--preparationSamplesPerCore=4096', '--numBlocks=32']
         path = run('harmonic_dephasing', harmonic_options)
         if args.evolution == 'staggered-strang':
-            reference = run('harmonic_preparation_reference', [*harmonic_options, '--realTimeEvolution=cfet'])
+            reference = run('harmonic_preparation_reference', [*harmonic_options, '--realTimeSubsteps=3'])
             with h5py.File(path) as new, h5py.File(reference) as old:
                 for name in new['preparation']:
                     np.testing.assert_array_equal(new['preparation'][name][...], old['preparation'][name][...],
@@ -163,16 +201,11 @@ def main():
             np.testing.assert_allclose(
                 g.attrs['absolute_iteration_error_threshold'],
                 5 * 0.25 / np.sqrt(3 * 4096 * args.mpi_ranks), atol=0, rtol=1e-14)
-            A = read_complex(g, 'covariance')
-            F = read_complex(g, 'factor')
-            np.testing.assert_allclose(F @ F.T, A, atol=1e-11, rtol=1e-10)
-            assert text(f['parameters'].attrs['field_sampling']) == (
-                'full-contour dense Takagi; fixed Matsubara pseudo-covariance and mean')
-            assert 'freshly factorized full contour' in text(g.attrs['factor_scope'])
-            assert 'auxiliary marginal may change' in text(g.attrs['frozen_sampling_scope'])
+            assert not any(key in g for key in
+                           ('Re_factor', 'Im_factor', 'Re_covariance', 'Im_covariance'))
             assert 'matsubara_gauge_scale' not in g.attrs
             assert 'conditional_sampling' not in f['parameters'].attrs
-            assert g.attrs['preparation_latent_dimension'] <= A.shape[0]
+            assert g.attrs['preparation_latent_dimension'] <= 3 * g['Re_correlation'].shape[-1]
             assert np.max(g.attrs['frozen_MM_residuals']) < 1e-12
             assert g.attrs['samples_per_core'] == 4096
             assert text(g.attrs['termination']) == 'prescribed harmonic bath'
@@ -187,7 +220,7 @@ def main():
             assert np.all(np.abs(value-0.25) < 6*error+3e-4), (value, error)
             # Raw real-time origin data remain independently measured and are
             # not replaced with the smaller-budget preparation output.
-            assert not np.array_equal(f['results/Re_correlation'][0], g['Re_correlation'][0])
+            assert not np.array_equal(f['results/Re_correlation'][0], g['Re_correlation'][...])
             records[-1]['max_MM_residual'] = float(np.max(g.attrs['frozen_MM_residuals']))
             records[-1]['max_stationarity_error'] = float(np.max(np.abs(m[:, 2].real-exact)))
 

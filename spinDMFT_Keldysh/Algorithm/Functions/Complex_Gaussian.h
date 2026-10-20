@@ -66,6 +66,8 @@ class JointComplexGaussianSampler
 
     struct ContourFieldSample
     {
+        // With staggered Strang this vector instead stores the joint
+        // [V_M,eta_midpoint,nu_boundary] draw in StaggeredLayout order.
         FieldVector edge_field{};
         // For CF4, node 0/1 is the earlier/later Gauss--Legendre node in
         // every real-time propagation subinterval. Each vector is laid out as
@@ -108,6 +110,9 @@ class DenseComplexGaussianSampler : public JointComplexGaussianSampler
     using FieldVector = JointComplexGaussianSampler::FieldVector;
 
     explicit DenseComplexGaussianSampler( const ComplexDynamicMatrix& covariance );
+    // Diagonal noise objective in an already transformed field basis.
+    DenseComplexGaussianSampler(const ComplexDynamicMatrix& covariance,
+        const std::vector<RealType>& weights);
 
     LatentVector draw_latent( std::mt19937& engine ) override;
     FieldVector field_from_latent( const LatentVector& latent ) override;
@@ -123,6 +128,8 @@ class DenseComplexGaussianSampler : public JointComplexGaussianSampler
 
  private:
     std::shared_ptr<GaussianBlockFactors> m_factors;
+    std::vector<RealType> m_weight_roots{};
+    RealType m_unweighted_reconstruction_error{};
     std::normal_distribution<RealType> m_standard_normal{ RealType{0.}, RealType{1.} };
 };
 

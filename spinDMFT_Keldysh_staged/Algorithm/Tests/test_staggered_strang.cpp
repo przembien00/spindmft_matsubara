@@ -165,7 +165,7 @@ void check_exponential_pair()
 
 void check_skipped_final_trace()
 {
-    for(const std::string evolution:{"cfet","staggered-strang"})
+    for(const std::string evolution:{"staggered-strang"})
     {
         auto p=parameters();p.real_time_evolution=evolution;
         p.num_SamplesPerCore=p.num_Samples=p.num_blocks=1;
@@ -203,11 +203,10 @@ void check_skipped_final_trace()
 
 void check_static_trajectory()
 {
-    for(const std::string evolution:{"cfet","staggered-strang"})
-        for(size_t substeps:{size_t{0},size_t{1},size_t{3}})
+    for(const std::string evolution:{"staggered-strang"})
+        for(size_t substeps:{size_t{1},size_t{3}})
             for(bool preparation:{false,true})
             {
-                if(evolution=="staggered-strang"&&substeps==0)continue;
                 auto p=parameters();p.real_time_evolution=evolution;p.real_time_substeps=substeps;
                 p.num_SamplesPerCore=p.num_Samples=p.num_blocks=1;
                 if(preparation){p.num_RealTimeSteps=0;p.num_RealTimePoints=1;p.Tmax=0.;}
@@ -266,22 +265,15 @@ void check_prepared_mean()
 {
     const auto polynomial=[](RealType t)
         {return FieldVector{0.01*(t*t*t+2*t),0.02*t*t-0.03,0.03*t+0.01};};
-    for(const std::string evolution:{"cfet","staggered-strang"})
-        for(size_t substeps:{size_t{0},size_t{1},size_t{3}})
+    for(const std::string evolution:{"staggered-strang"})
+        for(size_t substeps:{size_t{1},size_t{3}})
             for(size_t points:{size_t{1},size_t{2},size_t{3},size_t{5}})
             {
-                if(evolution=="staggered-strang"&&substeps==0)continue;
                 auto p=parameters();p.real_time_evolution=evolution;p.real_time_substeps=substeps;
                 p.num_RealTimePoints=points;p.num_RealTimeSteps=points-1;p.Tmax=(points-1)*p.delta_real_t;
                 f::MeanFieldTrajectory mean(points);
                 for(size_t t=0;t<points;++t)mean[t]=polynomial(RealType(t));
-                if(evolution=="cfet"&&substeps>0&&points>1&&points<4)
-                {
-                    bool rejected=false;
-                    try{f::PreparedMeanField invalid(p,mean);}catch(const std::invalid_argument&){rejected=true;}
-                    require(rejected,"prepared Gauss nodes retain the minimum-grid requirement");
-                    continue;
-                }
+
                 f::initialize_matrices(p);
                 const f::PreparedMeanField prepared(p,mean);
                 const size_t q=p.real_time_steps_per_interval();
@@ -295,13 +287,7 @@ void check_prepared_mean()
                         require(blaze::length(prepared.midpoints()[t*q+j]-expected)<1e-13,
                             "cached midpoints reproduce cubic or short-grid linear interpolation");
                     }
-                    else if(p.uses_cf4())
-                        for(size_t node=0;node<2;++node)
-                        {
-                            const RealType u=(RealType(j)+0.5+(node?1:-1)*std::sqrt(3.)/6)/RealType(q);
-                            require(blaze::length(prepared.gauss_nodes()[node][t*q+j]-polynomial(RealType(t)+u))<1e-13,
-                                "cached Gauss nodes reproduce cubic polynomial at boundaries and substeps");
-                        }
+
                 }
                 const auto original=mean;
                 mean.front()[0]+=0.2; // Must not alter the immutable prepared snapshot.

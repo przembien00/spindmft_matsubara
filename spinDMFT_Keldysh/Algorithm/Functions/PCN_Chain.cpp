@@ -50,7 +50,7 @@ bool PCNChain::evaluate( const LatentVector& latent,
                          ContourTrajectory& trajectory,
                          RealType& sampling_weight_real )
 {
-    m_proposed_field=m_sampler.contour_field_from_latent(latent,m_pspace.uses_cf4());
+    m_proposed_field=m_sampler.contour_field_from_latent(latent,false);
     build_contour_trajectory(m_pspace,m_proposed_field,m_mean_field_time,
         trajectory,m_workspace,m_pspace.correlation_normalization!="closed-contour");
     return finite_positive_sampling_weight(sampling_weight(trajectory),sampling_weight_real);

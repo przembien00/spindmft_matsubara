@@ -842,7 +842,38 @@ JointComplexGaussianSampler::draw_contour_batch(
 
 DenseComplexGaussianSampler::DenseComplexGaussianSampler( const ComplexDynamicMatrix& covariance )
     : m_factors(symmetry_factors(covariance,false)) {}
-RealType DenseComplexGaussianSampler::reconstruction_error() const { return m_factors->error; }
+DenseComplexGaussianSampler::DenseComplexGaussianSampler(
+    const ComplexDynamicMatrix& covariance,const std::vector<RealType>& weights)
+{
+    if(covariance.rows()!=covariance.columns() || weights.size()!=covariance.rows() || weights.empty())
+        throw std::invalid_argument("diagonal Gaussian weights must match the covariance");
+    const RealType maximum=*std::max_element(weights.begin(),weights.end());
+    for(const auto weight:weights)
+    {
+        if(!std::isfinite(weight)||weight<=RealType{})
+            throw std::invalid_argument("Gaussian weights must be finite and positive");
+        const RealType root=std::sqrt(weight/maximum);
+        if(root==RealType{})throw std::invalid_argument("Gaussian weight ratio underflows");
+        m_weight_roots.push_back(root);
+    }
+    ComplexDynamicMatrix scaled=covariance;
+    for(size_t i=0;i<scaled.rows();++i)for(size_t j=0;j<scaled.columns();++j)
+        scaled(i,j)*=m_weight_roots[i]*m_weight_roots[j];
+    m_factors=symmetry_factors(scaled,false);
+    reset(scaled);
+    for(const auto& block:m_factors->blocks)
+    {
+        const ComplexDynamicMatrix reconstructed=block.factor->L*blaze::trans(block.factor->L);
+        for(size_t i=0;i<block.rows.size();++i)for(size_t j=0;j<block.rows.size();++j)
+            scaled(block.rows[i],block.rows[j])=reconstructed(i,j)
+                /(m_weight_roots[block.rows[i]]*m_weight_roots[block.rows[j]]);
+    }
+    const RealType norm=frobenius_norm(covariance);
+    m_unweighted_reconstruction_error=norm>RealType{}?frobenius_norm(scaled-covariance)/norm
+        :frobenius_norm(scaled);
+}
+RealType DenseComplexGaussianSampler::reconstruction_error() const
+{ return m_weight_roots.empty()?m_factors->error:m_unweighted_reconstruction_error; }
 size_t DenseComplexGaussianSampler::latent_dimension() const { return m_factors->rank; }
 size_t DenseComplexGaussianSampler::size() const { return m_factors->size; }
 size_t DenseComplexGaussianSampler::largest_factorization_dimension() const { return m_factors->largest; }
@@ -853,12 +884,21 @@ DenseComplexGaussianSampler::LatentVector DenseComplexGaussianSampler::draw_late
     return latent;
 }
 DenseComplexGaussianSampler::FieldVector DenseComplexGaussianSampler::field_from_latent(const LatentVector& latent)
-{ return block_field(*m_factors,latent); }
+{
+    auto field=block_field(*m_factors,latent);
+    if(!m_weight_roots.empty())for(size_t i=0;i<field.size();++i)field[i]/=m_weight_roots[i];
+    return field;
+}
 DenseComplexGaussianSampler::FieldVector DenseComplexGaussianSampler::draw(std::mt19937& engine)
 { return field_from_latent(draw_latent(engine)); }
 std::vector<JointComplexGaussianSampler::ContourFieldSample>
 DenseComplexGaussianSampler::draw_contour_batch(std::mt19937& engine,size_t count,bool)
-{ return block_batch(*this,*m_factors,engine,count); }
+{
+    auto fields=block_batch(*this,*m_factors,engine,count);
+    if(!m_weight_roots.empty())for(auto& sample:fields)
+        for(size_t i=0;i<sample.edge_field.size();++i)sample.edge_field[i]/=m_weight_roots[i];
+    return fields;
+}
 
 namespace
 {

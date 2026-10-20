@@ -3,7 +3,6 @@
 #include<cmath>
 #include<iostream>
 #include<limits>
-#include<Physics/CFET.h>
 
 namespace func = spinDMFT::Functions;
 namespace contour = spinDMFT::Contour;
@@ -53,58 +52,6 @@ func::ComplexFieldVector smooth_noncommuting_field( const RealType time )
         ComplexType{RealType{-0.18}*std::cos(RealType{1.1}*time),0.}};
 }
 
-Operator noncommuting_cf4_propagator( const ps::ParameterSpace& source,
-                                      const size_t real_steps,
-                                      const bool supply_internal_nodes=true )
-{
-    ps::ParameterSpace p=source;
-    p.real_time_substeps=1;
-    p.num_RealTimeSteps=real_steps;
-    p.num_RealTimePoints=real_steps+1;
-    p.delta_real_t=p.Tmax/static_cast<RealType>(real_steps);
-    const contour::ContourLayout layout{p.num_TimePoints,p.num_RealTimePoints};
-    func::JointComplexGaussianSampler::ContourFieldSample sample{};
-    sample.edge_field.resize(layout.dimension(),false);
-    reset(sample.edge_field);
-    for( size_t point=0;point<p.num_RealTimePoints;++point )
-    {
-        const auto field=smooth_noncommuting_field(
-            static_cast<RealType>(point)*p.delta_real_t);
-        for( size_t c=0;c<3;++c )
-        {
-            sample.edge_field[layout.flat(
-                contour::Branch::Forward,point,c)]=field[c];
-            sample.edge_field[layout.flat(
-                contour::Branch::Backward,point,c)]=field[c];
-        }
-    }
-    if( supply_internal_nodes )
-    {
-        for( auto& shifted:sample.real_gauss_fields )
-        {
-            shifted.resize(6*real_steps,false);
-            reset(shifted);
-        }
-        const RealType offset=std::sqrt(RealType{3.})/RealType{6.};
-        const std::array<RealType,2> fractions{
-            RealType{0.5}-offset,RealType{0.5}+offset};
-        for( size_t interval=0;interval<real_steps;++interval )
-            for( size_t node=0;node<2;++node )
-            {
-                const RealType time=(static_cast<RealType>(interval)+fractions[node])
-                                   *p.delta_real_t;
-                const auto field=smooth_noncommuting_field(time);
-                for( size_t c=0;c<3;++c )
-                {
-                    sample.real_gauss_fields[node][6*interval+c]=field[c];
-                    sample.real_gauss_fields[node][6*interval+3+c]=field[c];
-                }
-            }
-    }
-    const func::MeanFieldTrajectory mean_time(p.num_RealTimePoints,FieldVector{});
-    const auto trajectory=func::compute_contour_trajectory(p,sample,mean_time);
-    return cumulative_branch_propagators(trajectory,real_steps).first;
-}
 }
 
 // Integrate actual trajectories over three Gaussian latent coordinates using
@@ -129,28 +76,33 @@ int check_weighted_gaussian_propagation(ps::ParameterSpace p)
     func::ComplexDynamicMatrix K{{{0.20,0.03},{0.03,0.02},{0.02,-0.01}},
                                   {{0.03,0.02},{0.14,0.05},{0.08,0.04}},
                                   {{0.02,-0.01},{0.08,0.04},{0.10,-0.02}}};
-    const contour::ContourLayout layout{p.num_TimePoints,p.num_RealTimePoints};
+    const contour::StaggeredLayout layout{p.num_TimePoints,p.num_RealTimeSteps};
     func::ComplexDynamicMatrix gamma(layout.dimension(),layout.dimension(),ComplexType{});
     for(size_t i=0;i<layout.dimension();++i)for(size_t j=0;j<layout.dimension();++j)
     {
         const auto a=layout.decode(i),b=layout.decode(j);
         if(a.component==2&&b.component==2)
-            gamma(i,j)=K(static_cast<size_t>(a.branch),static_cast<size_t>(b.branch));
+            gamma(i,j)=K(static_cast<size_t>(a.sector),static_cast<size_t>(b.sector));
     }
     const func::MeanFieldTrajectory mean(p.num_RealTimePoints,FieldVector{});
-    for(bool cf4:{false,true})for(const std::array<RealType,3> noise_weights:
+    for(const std::array<RealType,3> noise_weights:
         {std::array<RealType,3>{1.,2.,2.},std::array<RealType,3>{1.,2.,8.},std::array<RealType,3>{1.,8.,2.}})
     {
-        p.real_time_substeps=cf4?1:0;
-        func::WeightedDenseComplexGaussianSampler sampler(
-            gamma,p.num_TimeSteps,p.num_RealTimePoints,noise_weights);
+        std::vector<RealType> diagonal_weights(layout.dimension());
+        for(size_t i=0;i<diagonal_weights.size();++i)
+        {
+            const auto sector=layout.decode(i).sector;
+            diagonal_weights[i]=sector==contour::StaggeredSector::Matsubara?noise_weights[0]
+                :sector==contour::StaggeredSector::Eta?noise_weights[1]:noise_weights[2]/4;
+        }
+        func::DenseComplexGaussianSampler sampler(gamma,diagonal_weights);
         failures+=require(sampler.latent_dimension()==3,"commuting Gaussian reference has three latent modes");
         if(sampler.latent_dimension()!=3)continue;
         std::vector<Operator> average(p.num_RealTimePoints,Operator(2,2,ComplexType{}));
         for(size_t i=0;i<order;++i)for(size_t j=0;j<order;++j)for(size_t k=0;k<order;++k)
         {
             func::JointComplexGaussianSampler::LatentVector r{nodes[i],nodes[j],nodes[k]};
-            const auto tr=func::compute_contour_trajectory(p,sampler.contour_field_from_latent(r,cf4),mean);
+            const auto tr=func::compute_contour_trajectory(p,sampler.contour_field_from_latent(r,false),mean);
             Operator density=tr.imaginary_density_operator;
             const RealType weight=weights[i]*weights[j]*weights[k];
             for(size_t t=0;t<p.num_RealTimePoints;++t)
@@ -167,7 +119,7 @@ int check_weighted_gaussian_propagation(ps::ParameterSpace p)
             {
                 const RealType spin=std::real(ComplexType(S_Z(diagonal,diagonal)));
                 const std::array<ComplexType,3> q{
-                    ComplexType{-p.beta*spin,0.},ComplexType{0.,-time*spin},ComplexType{0.,time*spin}};
+                    ComplexType{-p.beta*spin,0.},ComplexType{},ComplexType{0.,-time*spin}};
                 ComplexType exponent=-p.beta*spin*p.B.m_h[2];
                 for(size_t a=0;a<3;++a)for(size_t b=0;b<3;++b)exponent+=RealType{0.5}*q[a]*K(a,b)*q[b];
                 exact(diagonal,diagonal)=std::exp(exponent);
@@ -183,7 +135,7 @@ int main()
 {
     int failures{};
     ps::ParameterSpace p;
-    p.real_time_substeps=0;
+    p.real_time_substeps=1;
     p.spin_float=RealType{0.5}; p.num_HilbertSpaceDimension=2;
     p.spin_model=Physics::SpinModel{"ISO"};
     p.B=Physics::MagneticField{"z",RealType{0.7},RealType{0.},RealType{0.}};
@@ -221,8 +173,8 @@ int main()
     quadrupolar.extra_interaction=Physics::ExtraInteraction{
         "quadrupolar",quadrupolar_strength};
     func::initialize_matrices(quadrupolar);
-    const contour::ContourLayout quadrupolar_layout{
-        quadrupolar.num_TimePoints,quadrupolar.num_RealTimePoints};
+    const contour::StaggeredLayout quadrupolar_layout{
+        quadrupolar.num_TimePoints,quadrupolar.num_RealTimeSteps};
     func::DenseComplexGaussianSampler::FieldVector quadrupolar_zero_field(
         quadrupolar_layout.dimension(),ComplexType{});
     const func::MeanFieldTrajectory quadrupolar_mean(
@@ -237,7 +189,7 @@ int main()
                       "spin-half direct exponential includes scalar quadrupolar term");
     func::initialize_matrices(p);
 
-    const contour::ContourLayout layout{p.num_TimePoints,p.num_RealTimePoints};
+    const contour::StaggeredLayout layout{p.num_TimePoints,p.num_RealTimeSteps};
     func::DenseComplexGaussianSampler::FieldVector zero_field(layout.dimension(),ComplexType{});
     const func::MeanFieldTrajectory mean_time(p.num_RealTimePoints,FieldVector{});
     const auto trajectory=func::compute_contour_trajectory(p,zero_field,mean_time);
@@ -271,81 +223,19 @@ int main()
                                   <RealType{1e-11},
                           "common time-dependent mean closes the real contour");
 
-    const Operator H_old=p.B.m_h[2]*S_Z;
-    const Operator H_new=varying_mean_time[1][0]*S_X
-                        +(p.B.m_h[2]+varying_mean_time[1][2])*S_Z;
-    std::array<Operator,3> expected_cfet4_exponentials{};
-    std::transform(Physics::CFET::BETA_LIST.cbegin(),
-                   Physics::CFET::BETA_LIST.cend(),
-                   expected_cfet4_exponentials.begin(),
-                   [&]( const Physics::CFET::BetaComponent& beta )
+    auto cubic_field=zero_field;
+    for(size_t k=0;k<p.num_TimePoints;++k)
     {
-        return func::general_matrix_exponential(
-            ComplexType{RealType{0.},-p.delta_real_t}
-            *(beta[0]*H_new+beta[1]*H_old));
-    });
-    const Operator expected_cfet4=expected_cfet4_exponentials[0]
-                                 *expected_cfet4_exponentials[1]
-                                 *expected_cfet4_exponentials[2];
-    failures+=require(frobenius(
-        varying_mean_trajectory.forward_steps[1]-expected_cfet4)
-        <RealType{1e-12},"real-time step uses the spinDMFT CFET4 composition");
-    const Operator cfet2_step=func::general_matrix_exponential(
-        ComplexType{RealType{0.},-p.delta_real_t}
-        *RealType{0.5}*(H_new+H_old));
-    failures+=require(frobenius(expected_cfet4-cfet2_step)>RealType{1e-8},
-                      "time-dependent noncommuting CFET4 step differs from CFET2");
-
-    const Operator cf4_reference=noncommuting_cf4_propagator(p,4096);
-    const RealType cf4_error_8=frobenius(
-        noncommuting_cf4_propagator(p,8)-cf4_reference);
-    const RealType cf4_error_16=frobenius(
-        noncommuting_cf4_propagator(p,16)-cf4_reference);
-    failures+=require(cf4_error_8/cf4_error_16>RealType{12.},
-                      "Gauss-node CF4 has fourth-order refinement");
-
-    const RealType dense_cf4_error_16=frobenius(
-        noncommuting_cf4_propagator(p,16,false)-cf4_reference);
-    const RealType dense_cf4_error_32=frobenius(
-        noncommuting_cf4_propagator(p,32,false)-cf4_reference);
-    failures+=require(dense_cf4_error_16/dense_cf4_error_32>RealType{12.},
-                      "dense interpolated-node CF4 has fourth-order refinement");
-
-    ps::ParameterSpace cf4_closure_pspace=p;
-    cf4_closure_pspace.real_time_substeps=1;
-    func::JointComplexGaussianSampler::ContourFieldSample cf4_closure_field{};
-    cf4_closure_field.edge_field=zero_field;
-    for( auto& shifted:cf4_closure_field.real_gauss_fields )
-    {
-        shifted.resize(6*p.num_RealTimeSteps,false);
-        reset(shifted);
+        const RealType tau=k*p.delta_t;
+        cubic_field[layout.flat(contour::StaggeredSector::Matsubara,k,2)]=
+            0.1+0.2*tau-0.3*tau*tau+0.4*tau*tau*tau;
     }
-    const auto cf4_closure_trajectory=func::compute_contour_trajectory(
-        cf4_closure_pspace,cf4_closure_field,varying_mean_time);
-    failures+=require(frobenius(evolved_density(
-        cf4_closure_trajectory,IDENTITY,p.num_RealTimeSteps)-IDENTITY)
-        <RealType{1e-11},"Gauss-node CF4 preserves equal-field contour closure");
-
-    auto cf4_imaginary_field=cf4_closure_field;
-    for( size_t k=0;k<p.num_TimePoints;++k )
-    {
-        const RealType tau=static_cast<RealType>(k)*p.delta_t;
-        const RealType value=RealType{0.1}+RealType{0.2}*tau
-            -RealType{0.3}*tau*tau+RealType{0.4}*tau*tau*tau;
-        cf4_imaginary_field.edge_field[
-            layout.flat(contour::Branch::Matsubara,k,2)]=value;
-    }
-    const auto cf4_imaginary_trajectory=func::compute_contour_trajectory(
-        cf4_closure_pspace,cf4_imaginary_field,mean_time);
-    const RealType integrated_field=RealType{0.1}*p.beta
-        +RealType{0.1}*p.beta*p.beta
-        -RealType{0.1}*p.beta*p.beta*p.beta
-        +RealType{0.1}*p.beta*p.beta*p.beta*p.beta;
-    const RealType expected_cf4_Z=RealType{2.}*std::cosh(
-        (p.beta*hz+integrated_field)/RealType{2.});
-    failures+=require(std::abs(cf4_imaginary_trajectory.partition_function
-                              -expected_cf4_Z)<RealType{2e-12},
-                      "Matsubara CF4 integrates a cubic commuting field exactly");
+    const auto cubic_trajectory=func::compute_contour_trajectory(p,cubic_field,mean_time);
+    const RealType integrated=0.1*p.beta+0.1*p.beta*p.beta
+        -0.1*std::pow(p.beta,3)+0.1*std::pow(p.beta,4);
+    failures+=require(std::abs(cubic_trajectory.partition_function
+        -2*std::cosh((p.beta*hz+integrated)/2))<2e-12,
+        "Matsubara preparation integrates a cubic commuting field exactly");
 
     const size_t t_index=3;
     const auto [forward_t,backward_t]=cumulative_branch_propagators(
@@ -371,7 +261,7 @@ int main()
     for( size_t k=0;k<p.num_TimePoints;++k )
     {
         const RealType value=RealType{0.1}*static_cast<RealType>(k+1);
-        imaginary_edge_field[layout.flat(contour::Branch::Matsubara,k,2)]=value;
+        imaginary_edge_field[layout.flat(contour::StaggeredSector::Matsubara,k,2)]=value;
         trapezoidal_edge_field_sum+=(k==0||k==p.num_TimeSteps)
             ?RealType{0.5}*value:value;
     }
@@ -382,14 +272,13 @@ int main()
         p.beta*(hz+average_edge_field)/RealType{2.});
     failures+=require(std::abs(edge_trajectory.partition_function-expected_edge_Z)
                               <RealType{1e-12},
-                      "CFET4 uses distinct one-sided fields in the final imaginary interval");
+                      "Matsubara preparation uses distinct one-sided fields in the final imaginary interval");
 
     auto distinct_field=zero_field;
-    for( size_t n=0;n<p.num_RealTimePoints;++n )
-    {
-        distinct_field[layout.flat(contour::Branch::Forward,n,0)]=ComplexType{0.3,0.1};
-        distinct_field[layout.flat(contour::Branch::Backward,n,0)]=ComplexType{-0.2,0.05};
-    }
+    for(size_t n=0;n<p.num_RealTimeSteps;++n)
+        distinct_field[layout.flat(contour::StaggeredSector::Eta,n,0)]=ComplexType{0.05,0.075};
+    for(size_t n=0;n<=p.num_RealTimeSteps;++n)
+        distinct_field[layout.flat(contour::StaggeredSector::Nu,n,0)]=ComplexType{0.5,0.05};
     const auto distinct=func::compute_contour_trajectory(p,distinct_field,mean_time);
     const Operator closure=evolved_density(
         distinct,IDENTITY,p.num_RealTimePoints-1)-IDENTITY;
@@ -490,12 +379,12 @@ int main()
     covariance_pspace.JL=RealType{0.};
     const auto endpoint_covariance=func::self_consistent_equations(
         covariance_pspace,full,magnetization_Re,magnetization_Im);
-    const contour::ContourLayout endpoint_layout{
-        covariance_pspace.num_TimePoints,covariance_pspace.num_RealTimePoints};
-    const size_t zero_row=endpoint_layout.flat(contour::Branch::Matsubara,0,0);
+    const contour::StaggeredLayout endpoint_layout{
+        covariance_pspace.num_TimePoints,covariance_pspace.num_RealTimeSteps};
+    const size_t zero_row=endpoint_layout.flat(contour::StaggeredSector::Matsubara,0,0);
     const size_t beta_row=endpoint_layout.flat(
-        contour::Branch::Matsubara,covariance_pspace.num_TimeSteps,0);
-    const size_t real_column=endpoint_layout.flat(contour::Branch::Forward,1,1);
+        contour::StaggeredSector::Matsubara,covariance_pspace.num_TimeSteps,0);
+    const size_t real_column=endpoint_layout.flat(contour::StaggeredSector::Eta,1,1);
     failures+=require(std::abs(endpoint_covariance.covariance(
                                   zero_row,real_column)
                               -endpoint_covariance.covariance(
@@ -544,31 +433,24 @@ int main()
             "single-component harmonic bath leaves orthogonal fields zero");
     }
     const auto bath_field=func::prescribed_harmonic_bath_field(bath_pspace);
-    const contour::ContourLayout bath_layout{
-        bath_pspace.num_TimePoints,bath_pspace.num_RealTimePoints};
+    const contour::StaggeredLayout bath_layout{
+        bath_pspace.num_TimePoints,bath_pspace.num_RealTimeSteps};
     failures+=require(bath_field.covariance.rows()==bath_layout.dimension(),
-        "harmonic bath covariance uses the complete M,+,- layout");
+        "harmonic bath covariance uses the complete staggered layout");
     failures+=require(bath_field.covariance_symmetry_error<RealType{1e-14}
                      &&bath_field.branch_identity_error<RealType{1e-14},
         "harmonic bath covariance is complex symmetric before and after mirroring");
     for( const auto& mean:bath_field.mean_time )
         failures+=require(blaze::length(mean)<RealType{1e-15},
             "prescribed harmonic bath has zero stochastic-field mean");
-    const size_t plus_late=bath_layout.flat(contour::Branch::Forward,1,0);
-    const size_t plus_zero=bath_layout.flat(contour::Branch::Forward,0,0);
-    const size_t minus_late=bath_layout.flat(contour::Branch::Backward,1,0);
-    const size_t minus_zero=bath_layout.flat(contour::Branch::Backward,0,0);
-    const ComplexType bath_greater=contour::edge_value(
-        bath_primitive,1,0,0,bath_pspace.num_TimeSteps);
-    const ComplexType bath_lesser=contour::edge_value(bath_primitive,1,0,0,0);
-    failures+=require(std::abs(bath_field.covariance(plus_late,minus_zero)
-                              -bath_lesser)<RealType{1e-13},
-        "harmonic bath +- block is the lesser function");
-    failures+=require(std::abs(bath_field.covariance(minus_late,plus_zero)
-                              -bath_greater)<RealType{1e-13},
-        "harmonic bath -+ block is the greater function");
-    failures+=require(std::abs(bath_greater-bath_lesser)>RealType{1e-6},
-        "harmonic bath exercises a nonzero response covariance");
+    const size_t eta=bath_layout.flat(contour::StaggeredSector::Eta,1,0);
+    const size_t nu_past=bath_layout.flat(contour::StaggeredSector::Nu,0,0);
+    const size_t nu_future=bath_layout.flat(contour::StaggeredSector::Nu,2,0);
+    failures+=require(std::abs(bath_field.covariance(eta,nu_past))>1e-6,
+        "harmonic bath exercises a nonzero retarded response covariance");
+    failures+=require(bath_field.covariance(eta,nu_future)==ComplexType{}
+        &&bath_field.covariance(nu_past,nu_future)==ComplexType{},
+        "future response and response-response covariance are exactly zero");
 
     contour::CorrelationSet old_iteration{'A',2,1};
     contour::CorrelationSet raw_iteration{'A',2,1};

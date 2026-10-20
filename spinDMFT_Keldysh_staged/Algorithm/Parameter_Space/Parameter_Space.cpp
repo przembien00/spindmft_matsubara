@@ -138,10 +138,10 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "set the step width for the equidistant time discretization (time in units of hbar/JQ)"
     )(
     "realTimeSubsteps", bpo::value<std::string>()->default_value("1"),
-    "propagation substeps per measurement interval (default 1); cfet: 0 selects endpoint propagation; staggered-strang: positive values refine the joint field grid"
+    "positive Strang substeps per measurement interval (default 1); refines the joint field grid"
   )(
-    "realTimeEvolution", bpo::value<std::string>()->default_value("cfet"),
-    "real-time evolution: cfet (existing default) or staggered-strang (joint midpoint eta / boundary nu sampling; joint Takagi sampling)"
+    "realTimeEvolution", bpo::value<std::string>()->default_value("staggered-strang"),
+    "real-time evolution: staggered-strang (the only supported method)"
   )(
     "numRealTimeSteps", bpo::value<size_t>()->default_value(size_t{10}),
     "set the number of real-time steps on [0,Tmax]"
@@ -172,7 +172,7 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "number of contiguous blocks per core; pCN errors use a multi-scale batch-means plateau"
     )(
     "gaussianFactorization", bpo::value<std::string>()->default_value("dense"),
-    "complex pseudo-covariance factorization: dense, fft, or weighted-dense (independent sampling only)"
+    "complex pseudo-covariance factorization: dense (required by the staged solver)"
     )(
     "gaussianWeightM", bpo::value<RealType>()->default_value(RealType{1.}),
     "positive Matsubara noise weight for weighted-dense"
@@ -194,7 +194,7 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     )(
     // ...concerning the iteration
     "reliterror", bpo::value<RealType>()->default_value(RealType{5.0}),
-    "preparation: absolute residual threshold q*S*(S+1)/(3*sqrt(3*N)), N=total preparation samples; real time: maximum pointwise residual in standard-error units"
+    "preparation: absolute residual threshold q*S*(S+1)/(3*sqrt(3*N)), N=total preparation samples; real time: maximum pointwise residual in standard-error units; also sets the allowed imaginary origin magnetization in standard errors"
     )(
     "iterlimit", bpo::value<size_t>()->default_value(size_t{20}),
     "set the the maximum number of iterations of the self-consistency problem"
@@ -217,20 +217,11 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "covarianceTolerance", bpo::value<RealType>()->default_value(RealType{1e-10}),
     "maximum final covariance transpose-symmetry residual"
     )(
-    "branchIdentityTolerance", bpo::value<RealType>()->default_value(RealType{0.1}),
-    "maximum pre-mirroring branch transpose-identity residual"
-    )(
     "takagiTolerance", bpo::value<RealType>()->default_value(RealType{1e-8}),
     "maximum Autonne--Takagi reconstruction residual"
     )(
     "minimumPhaseMagnitude", bpo::value<RealType>()->default_value(RealType{1e-6}),
     "minimum resolved magnitude |sum Z_M|/sum |Z_M|"
-    )(
-    "denominatorConstancyTolerance", bpo::value<RealType>()->default_value(RealType{0.1}),
-    "maximum max_t |sum D(t)/sum Z_M-1| convergence diagnostic"
-    )(
-    "imagMagSigma", bpo::value<RealType>()->default_value(RealType{5.}),
-    "allowed imaginary magnetization in units of its jackknife standard error"
     )(
     // ...concerning the initially inserted correlations
     "initdcorr", bpo::value<std::string>()->default_value("imagtime"),
@@ -344,8 +335,8 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     num_RealTimeSteps  = vm["numRealTimeSteps"].as<size_t>();
     if( num_RealTimeSteps == 0 ) throw std::invalid_argument("numRealTimeSteps must be positive");
     real_time_evolution=vm["realTimeEvolution"].as<std::string>();
-    if(real_time_evolution!="cfet"&&real_time_evolution!="staggered-strang")
-        throw std::invalid_argument("realTimeEvolution must be cfet or staggered-strang");
+    if(real_time_evolution!="staggered-strang")
+        throw std::invalid_argument("realTimeEvolution must be staggered-strang; other evolution methods have been removed");
     const auto substeps_text=vm["realTimeSubsteps"].as<std::string>();
     if(substeps_text.empty()||substeps_text.find_first_not_of("0123456789")!=std::string::npos)
         throw std::invalid_argument("realTimeSubsteps must be a nonnegative integer");
@@ -361,7 +352,7 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
         ||real_time_substeps>(std::numeric_limits<size_t>::max()/6-1)/num_RealTimeSteps)
         throw std::invalid_argument("realTimeSubsteps field grid must fit size_t");
     num_RealTimePoints = num_RealTimeSteps + 1;
-    if(uses_staggered_strang()&&real_time_substeps==0)
+    if(real_time_substeps==0)
         throw std::invalid_argument("staggered-strang requires realTimeSubsteps >= 1");
     Tmax                = vm["Tmax"].as<RealType>();
     if( Tmax < RealType{0.} ) throw std::invalid_argument("Tmax must be non-negative");
@@ -414,9 +405,6 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
         throw std::invalid_argument("fftCrossFrequencyCutoff must be finite; use -1 to disable truncation");
     if(uses_staggered_strang()&&num_TimePoints<4)
         throw std::invalid_argument("staggered-strang Matsubara preparation requires numImagTimeSteps >= 3");
-    if( uses_cf4()&&(num_TimePoints<4||(!uses_staggered_strang()&&num_RealTimePoints<4)) )
-        throw std::invalid_argument(
-            "CF4 (realTimeSubsteps >= 1) requires at least three imaginary- and real-time steps; use realTimeSubsteps=0 for shorter grids" );
     spin_insertion_strategy=vm["spinInsertionStrategy"].as<std::string>();
     if( spin_insertion_strategy!="closed-contour"
         && spin_insertion_strategy!="prefix" )
@@ -438,17 +426,13 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     if( mixing_alpha<=RealType{0.} || mixing_alpha>RealType{1.} )
         throw std::invalid_argument("mixingAlpha must lie in (0,1]");
     covariance_tolerance    = vm["covarianceTolerance"].as<RealType>();
-    branch_identity_tolerance=vm["branchIdentityTolerance"].as<RealType>();
     takagi_tolerance        = vm["takagiTolerance"].as<RealType>();
     minimum_phase_magnitude = vm["minimumPhaseMagnitude"].as<RealType>();
-    denominator_constancy_tolerance=vm["denominatorConstancyTolerance"].as<RealType>();
-    imaginary_magnetization_sigma=vm["imagMagSigma"].as<RealType>();
     if( iteration_error_sigma_threshold<RealType{0.}
-        ||covariance_tolerance<RealType{0.} || branch_identity_tolerance<RealType{0.}
+        ||covariance_tolerance<RealType{0.}
         ||takagi_tolerance<RealType{0.} ||minimum_phase_magnitude<RealType{0.}
         ||minimum_phase_magnitude>RealType{1.}
-        ||denominator_constancy_tolerance<RealType{0.}
-        ||imaginary_magnetization_sigma<RealType{0.} )
+        )
         throw std::invalid_argument("Keldysh convergence and diagnostic tolerances must be non-negative and minimumPhaseMagnitude <= 1");
     init_diag_corr    = ph::DiagonalSpinCorrelation{ vm["initdcorr"].as<std::string>(), beta, vm["corrperiods"].as<RealType>() };
     init_nondiag_corr = ph::NonDiagonalSpinCorrelation{ vm["initndcorr"].as<std::string>(), beta, vm["corrperiods"].as<RealType>() };
@@ -594,7 +578,7 @@ std::string ParameterSpace::create_essentials_string() const
     if( gaussian_factorization=="fft" )
         ss << print::quantity_to_output_line( pre_colon_space, "fft_cross_frequency_cutoff", std::to_string(fft_cross_frequency_cutoff) );
     ss
-    << print::quantity_to_output_line( pre_colon_space, "propagator", uses_staggered_strang()?"staggered-strang":uses_cf4()?"gauss-cf4":"endpoint-cfet4" )
+    << print::quantity_to_output_line( pre_colon_space, "propagator", "staggered-strang" )
     << print::quantity_to_output_line( pre_colon_space, "iteration_error_sigma_threshold", print::remove_zeros(print::round_value_to_string(iteration_error_sigma_threshold,num_PrintDigits)) )
     << print::quantity_to_output_line( pre_colon_space, "information_text" , information_text );
     if(gaussian_factorization=="weighted-dense")

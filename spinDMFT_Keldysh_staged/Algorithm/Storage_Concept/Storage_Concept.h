@@ -39,7 +39,6 @@ class HDF5_Storage
                      const MagTen& magnetization_Im );
     void store_preparation(const ps::ParameterSpace& pspace,const rtd::RunTimeData& data,
         const CorrelationSet& frozen,const MagTen& re,const MagTen& im,
-        const CorrelationSet& raw,const MagTen& raw_re,const MagTen& raw_im,
         const spinDMFT::Functions::ComplexDynamicMatrix& covariance,
         const spinDMFT::Functions::ComplexDynamicMatrix& factor,
         const std::vector<RealType>& frozen_errors,bool real_started);

@@ -46,13 +46,18 @@ struct GaussianBlockFactors
     RealType error{};
 };
 
-static TakagiFactor canonical_takagi( const ComplexDynamicMatrix& Gamma );
+static TakagiFactor canonical_takagi( const ComplexDynamicMatrix& Gamma,
+    ComplexDynamicMatrix* reconstruction=nullptr );
 
 namespace
 {
 
+// Setup-only reconstructions, shared by identical blocks and released after
+// the physical-basis diagnostic. Never retain these in the sampling state.
+using FactorReconstructions=std::unordered_map<const TakagiFactor*,ComplexDynamicMatrix>;
 std::shared_ptr<GaussianBlockFactors> symmetry_factors(
-    const ComplexDynamicMatrix& covariance,bool canonical);
+    const ComplexDynamicMatrix& covariance,bool canonical,
+    FactorReconstructions* reconstructions=nullptr);
 
 // Pack a complex-by-real product as one real BLAS product. Adjacent rows
 // hold Re L and Im L; columns are the original independent real latent modes.
@@ -502,7 +507,8 @@ size_t one_sided_edge_reflection_index( const size_t point,
     return num_intervals-point;
 }
 
-TakagiFactor autonne_takagi( const ComplexDynamicMatrix& Gamma_input )
+static TakagiFactor autonne_takagi_impl( const ComplexDynamicMatrix& Gamma_input,
+    ComplexDynamicMatrix* reconstruction )
 {
     if( Gamma_input.rows()!=Gamma_input.columns() )
         throw std::invalid_argument("Autonne--Takagi factorization requires a square matrix");
@@ -548,17 +554,22 @@ TakagiFactor autonne_takagi( const ComplexDynamicMatrix& Gamma_input )
             result.L(i,column)=root*ComplexType{eigenvectors(ev,i),eigenvectors(ev,n+i)};
         ++column;
     }
-    const ComplexDynamicMatrix reconstructed=result.L*blaze::trans(result.L);
+    ComplexDynamicMatrix reconstructed=result.L*blaze::trans(result.L);
     const RealType denominator=frobenius_norm(Gamma_input);
     result.reconstruction_error=denominator>RealType{0.}
         ?frobenius_norm(Gamma_input-reconstructed)/denominator
         :frobenius_norm(reconstructed);
+    if(reconstruction)*reconstruction=std::move(reconstructed);
     return result;
 }
 
+TakagiFactor autonne_takagi( const ComplexDynamicMatrix& Gamma_input )
+{ return autonne_takagi_impl(Gamma_input,nullptr); }
+
 // Canonical factor used by the FFT frequency blocks. This is internal
 // machinery, not a separately selectable physical-grid sampler.
-static TakagiFactor canonical_takagi( const ComplexDynamicMatrix& Gamma_input )
+static TakagiFactor canonical_takagi( const ComplexDynamicMatrix& Gamma_input,
+    ComplexDynamicMatrix* reconstruction )
 {
     if( Gamma_input.rows()!=Gamma_input.columns() )
         throw std::invalid_argument("Canonical Takagi factorization requires a square matrix");
@@ -631,11 +642,12 @@ static TakagiFactor canonical_takagi( const ComplexDynamicMatrix& Gamma_input )
         begin=end;
     }
 
-    const ComplexDynamicMatrix reconstructed=result.L*blaze::trans(result.L);
+    ComplexDynamicMatrix reconstructed=result.L*blaze::trans(result.L);
     const RealType denominator=frobenius_norm(Gamma_input);
     result.reconstruction_error=denominator>RealType{0.}
         ?frobenius_norm(Gamma_input-reconstructed)/denominator
         :frobenius_norm(reconstructed);
+    if(reconstruction)*reconstruction=std::move(reconstructed);
     return result;
 }
 
@@ -664,7 +676,8 @@ JointComplexGaussianSampler::draw_contour_field(
 namespace
 {
 std::shared_ptr<GaussianBlockFactors> symmetry_factors(
-    const ComplexDynamicMatrix& covariance,const bool canonical )
+    const ComplexDynamicMatrix& covariance,const bool canonical,
+    FactorReconstructions* reconstructions )
 {
     const size_t n=covariance.rows();
     if( n!=covariance.columns()||transpose_symmetry_error(covariance)>symmetry_tolerance(n) )
@@ -700,8 +713,10 @@ std::shared_ptr<GaussianBlockFactors> symmetry_factors(
         if(identical<unique_factors.size())factor=unique_factors[identical];
         else
         {
-            factor=std::make_shared<TakagiFactor>(
-                canonical?canonical_takagi(block):autonne_takagi(block));
+            factor=std::make_shared<TakagiFactor>();
+            auto* reconstructed=reconstructions?&(*reconstructions)[factor.get()]:nullptr;
+            *factor=canonical?canonical_takagi(block,reconstructed)
+                             :autonne_takagi_impl(block,reconstructed);
             for(const auto sigma:factor->singular_values)sigma_max=std::max(sigma_max,sigma);
             unique_covariances.push_back(std::move(block));unique_factors.push_back(factor);
         }
@@ -726,11 +741,14 @@ std::shared_ptr<GaussianBlockFactors> symmetry_factors(
                 retained.push_back(factor.singular_values[j]);++column;
             }
             factor.L=std::move(L);factor.singular_values=std::move(retained);factor.numerical_rank=rank;
+            // Only a changed factor invalidates the reconstruction and its
+            // already-computed local residual. Preserve the global cutoff.
+            ComplexDynamicMatrix reconstructed=factor.L*blaze::trans(factor.L);
+            const auto& target=unique_covariances[k];
+            const RealType scale=frobenius_norm(target);
+            factor.reconstruction_error=scale>RealType{}?frobenius_norm(target-reconstructed)/scale:frobenius_norm(reconstructed);
+            if(reconstructions)(*reconstructions)[&factor]=std::move(reconstructed);
         }
-        const auto& target=unique_covariances[k];
-        const ComplexDynamicMatrix reconstructed=factor.L*blaze::trans(factor.L);
-        const RealType scale=frobenius_norm(target);
-        factor.reconstruction_error=scale>RealType{}?frobenius_norm(target-reconstructed)/scale:frobenius_norm(reconstructed);
     }
     RealType residual{},scale{};
     for(const auto& block:result->blocks)
@@ -859,11 +877,12 @@ DenseComplexGaussianSampler::DenseComplexGaussianSampler(
     ComplexDynamicMatrix scaled=covariance;
     for(size_t i=0;i<scaled.rows();++i)for(size_t j=0;j<scaled.columns();++j)
         scaled(i,j)*=m_weight_roots[i]*m_weight_roots[j];
-    m_factors=symmetry_factors(scaled,false);
+    FactorReconstructions reconstructions;
+    m_factors=symmetry_factors(scaled,false,&reconstructions);
     reset(scaled);
     for(const auto& block:m_factors->blocks)
     {
-        const ComplexDynamicMatrix reconstructed=block.factor->L*blaze::trans(block.factor->L);
+        const auto& reconstructed=reconstructions.at(block.factor.get());
         for(size_t i=0;i<block.rows.size();++i)for(size_t j=0;j<block.rows.size();++j)
             scaled(block.rows[i],block.rows[j])=reconstructed(i,j)
                 /(m_weight_roots[block.rows[i]]*m_weight_roots[block.rows[j]]);
@@ -986,15 +1005,15 @@ WeightedDenseComplexGaussianSampler::WeightedDenseComplexGaussianSampler(
     m_real_size=3*num_real_points;
     ComplexDynamicMatrix scaled=covariance;
     transform_weighted_covariance(scaled,m_matsubara_size,m_real_size,m_roots,false);
-    m_factors=symmetry_factors(scaled,false);
+    FactorReconstructions reconstructions;
+    m_factors=symmetry_factors(scaled,false,&reconstructions);
 
     // Measure rank-truncation and roundoff in the original physical basis.
     // Reconstruct blockwise, avoiding a second full physical factor in memory.
     reset(scaled);
     for(const auto& block:m_factors->blocks)
     {
-        const auto& L=block.factor->L;
-        const ComplexDynamicMatrix reconstructed=L*blaze::trans(L);
+        const auto& reconstructed=reconstructions.at(block.factor.get());
         for(size_t i=0;i<block.rows.size();++i)for(size_t j=0;j<block.rows.size();++j)
             scaled(block.rows[i],block.rows[j])=reconstructed(i,j);
     }

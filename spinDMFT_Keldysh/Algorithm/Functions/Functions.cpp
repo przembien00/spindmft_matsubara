@@ -5,11 +5,9 @@
 #include<limits>
 #include<stdexcept>
 
-#include<Physics/CFET.h>
 #include<Physics/Spin.h>
 #include<Standard_Algorithms/Numerics.h>
 
-namespace cfet = Physics::CFET;
 namespace num = Standard_Algorithms::Numerics;
 namespace sp = Physics::Spin;
 
@@ -17,7 +15,6 @@ namespace spinDMFT::Functions
 {
 namespace
 {
-
 Operator spin_scalar_product( const ComplexFieldVector& field )
 {
     return field[0]*S_X+field[1]*S_Y+field[2]*S_Z;
@@ -31,35 +28,6 @@ ComplexFieldVector total_field( const ps::ParameterSpace& pspace,
     for( size_t c=0;c<3;++c )
         result[c]+=ComplexType{mean[c]+pspace.B.m_h[c],RealType{0.}};
     return result;
-}
-
-Operator cfet4_step( const ps::ParameterSpace& pspace,
-                     const ComplexFieldVector& fluctuating_new,
-                     const FieldVector& mean_new,
-                     const ComplexFieldVector& fluctuating_old,
-                     const FieldVector& mean_old,
-                     const ComplexType& contour_step )
-{
-    const ComplexFieldVector field_new=total_field(
-        pspace,fluctuating_new,mean_new);
-    const ComplexFieldVector field_old=total_field(
-        pspace,fluctuating_old,mean_old);
-    std::array<Operator,3> exponentials{};
-    std::transform(cfet::BETA_LIST.cbegin(),cfet::BETA_LIST.cend(),
-                   exponentials.begin(),[&]( const cfet::BetaComponent& beta )
-    {
-        ComplexFieldVector weighted_field{};
-        for( size_t c=0;c<3;++c )
-            weighted_field[c]=beta[0]*field_new[c]+beta[1]*field_old[c];
-        if( pspace.num_HilbertSpaceDimension==2 && H_REST_IS_SCALAR )
-            return spin_half_field_exponential(
-                weighted_field,(beta[0]+beta[1])*H_REST_SCALAR,contour_step);
-        const Operator weighted_hamiltonian=
-            spin_scalar_product(weighted_field)+(beta[0]+beta[1])*H_REST;
-        return general_matrix_exponential(
-            contour_step*weighted_hamiltonian);
-    });
-    return exponentials[0]*exponentials[1]*exponentials[2];
 }
 
 Operator gauss_cfet4_step( const ps::ParameterSpace& pspace,
@@ -126,19 +94,6 @@ Vector cubic_interval_value( const std::vector<Vector>& values,
     return result;
 }
 
-RealType complex_matrix_symmetry_error( const ComplexDynamicMatrix& matrix )
-{
-    RealType numerator{},denominator{};
-    for( size_t i=0;i<matrix.rows();++i )
-        for( size_t j=0;j<matrix.columns();++j )
-        {
-            numerator+=std::norm(matrix(i,j)-matrix(j,i));
-            denominator+=std::norm(matrix(i,j));
-        }
-    return denominator>RealType{0.}?std::sqrt(numerator/denominator)
-                                   :std::sqrt(numerator);
-}
-
 ComplexType trace_product( const Operator& left, const Operator& right )
 {
     if( left.rows()!=left.columns() || right.rows()!=right.columns()
@@ -184,8 +139,6 @@ void mix_tensor( CorrTen& output, const CorrTen& old_values,
             output[p][i]=(RealType{1.}-alpha)*old_values[p][i]
                          +alpha*raw_values[p][i];
 }
-
-
 }
 
 Operator general_matrix_exponential( const Operator& A )
@@ -227,9 +180,12 @@ Operator general_matrix_exponential( const Operator& A )
     return result;
 }
 
-Operator spin_half_field_exponential(
+namespace
+{
+template<typename Matrix>
+Matrix spin_half_field_exponential_impl(
     const ComplexFieldVector& field, const ComplexType scalar,
-    const ComplexType contour_step )
+    const ComplexType contour_step, Matrix* inverse=nullptr )
 {
     // For S=sigma/2, write contour_step*H=a*I+w dot sigma.  Since
     // (w dot sigma)^2=(w dot w)I, with no complex conjugation, the exponential
@@ -255,11 +211,41 @@ Operator spin_half_field_exponential(
     const ComplexType prefactor=std::exp(contour_step*scalar);
     const ComplexType diagonal=std::cosh(q);
     const ComplexType imaginary_unit{0.,1.};
-    Operator result(2,2,ComplexType{});
+    Matrix result;
+    if constexpr(std::is_same_v<Matrix,Operator>) result.resize(2,2,false);
     result(0,0)=prefactor*(diagonal+sinhc*wz);
     result(0,1)=prefactor*sinhc*(wx-imaginary_unit*wy);
     result(1,0)=prefactor*sinhc*(wx+imaginary_unit*wy);
     result(1,1)=prefactor*(diagonal-sinhc*wz);
+    if(inverse)
+    {
+        // q^2, cosh(q), and sinh(q)/q are unchanged under step -> -step.
+        // Evaluate exp(-a) directly, avoiding division by an underflowed exp(a).
+        // These are complex inverses, with no conjugation of the fields.
+        const ComplexType inverse_prefactor=std::exp(-contour_step*scalar);
+        if constexpr(std::is_same_v<Matrix,Operator>) inverse->resize(2,2,false);
+        (*inverse)(0,0)=inverse_prefactor*(diagonal-sinhc*wz);
+        (*inverse)(0,1)=-inverse_prefactor*sinhc*(wx-imaginary_unit*wy);
+        (*inverse)(1,0)=-inverse_prefactor*sinhc*(wx+imaginary_unit*wy);
+        (*inverse)(1,1)=inverse_prefactor*(diagonal+sinhc*wz);
+    }
+    return result;
+}
+}
+
+Operator spin_half_field_exponential(
+    const ComplexFieldVector& field, const ComplexType scalar,
+    const ComplexType contour_step )
+{
+    return spin_half_field_exponential_impl<Operator>(field,scalar,contour_step);
+}
+
+std::pair<Operator,Operator> spin_half_field_exponential_pair(
+    const ComplexFieldVector& field, const ComplexType scalar,
+    const ComplexType contour_step )
+{
+    std::pair<Operator,Operator> result;
+    result.first=spin_half_field_exponential_impl(field,scalar,contour_step,&result.second);
     return result;
 }
 
@@ -429,7 +415,8 @@ namespace
 SelfConsistentField covariance_from_primitive( const ps::ParameterSpace& pspace,
     CorrelationSet primitive,const bool prescribed,const bool materialize )
 {
-    const contour::ContourLayout layout{pspace.num_TimePoints,pspace.num_RealTimePoints};
+    if(pspace.real_time_substeps==0)
+        throw std::invalid_argument("staggered Strang requires positive substeps");
     struct Term {size_t c,d;RealType coefficient;};
     std::array<std::vector<Term>,9> rotations;
     std::array<RealType,9> noise{};
@@ -451,18 +438,25 @@ SelfConsistentField covariance_from_primitive( const ps::ParameterSpace& pspace,
     auto values=std::make_shared<CorrelationSet>(std::move(primitive));
     // Capture owned values and rotation coefficients, never a ParameterSpace
     // reference: the source remains valid independently of its caller.
-    const auto raw=[values,layout,rotations,noise,scale](size_t row,size_t col)
+    const size_t q=pspace.real_time_steps_per_interval();
+    const contour::StaggeredLayout staggered_layout{pspace.num_TimePoints,pspace.num_RealTimeSteps*q};
+    const auto raw=[values,staggered_layout,q,rotations,noise,scale](size_t row,size_t col)
     {
-        const auto first=layout.decode(row),second=layout.decode(col);
+        const auto first=staggered_layout.decode(row),second=staggered_layout.decode(col);
         const size_t pair=3*first.component+second.component;
         ComplexType value{};
         for(const auto& term:rotations[pair])
-            value+=term.coefficient*contour::branch_correlation(*values,layout,
-                {first.branch,first.point,term.c},{second.branch,second.point,term.d});
-        return scale*value+ComplexType{noise[pair],RealType{}};
+            value+=term.coefficient*contour::staggered_correlation(*values,
+                {first.sector,first.point,term.c},{second.sector,second.point,term.d},q);
+        // Static classical noise is common precession noise. It has no
+        // response or response--Matsubara block.
+        const bool response=first.sector==contour::StaggeredSector::Nu
+            ||second.sector==contour::StaggeredSector::Nu;
+        return scale*value+ComplexType{response?RealType{}:noise[pair],RealType{}};
     };
     SelfConsistentField result;
-    const size_t n=layout.dimension();
+
+    const size_t n=staggered_layout.dimension();
     if(materialize)result.covariance.resize(n,n,false);
     RealType difference{},norm{};
     // Diagnose the original unsymmetrized kernel while filling only the
@@ -485,6 +479,29 @@ SelfConsistentField covariance_from_primitive( const ps::ParameterSpace& pspace,
     {return i<=j?raw(i,j):raw(j,i);});
     return result;
 }
+}
+
+std::unique_ptr<JointComplexGaussianSampler> make_contour_gaussian_sampler(
+    const ps::ParameterSpace& pspace,const SelfConsistentField& field)
+{
+    const contour::StaggeredLayout layout{pspace.num_TimePoints,
+        pspace.num_RealTimeSteps*pspace.real_time_steps_per_interval()};
+    if(field.covariance.rows()!=layout.dimension())
+        throw std::invalid_argument("staggered sampling requires its joint dense covariance");
+    if(pspace.gaussian_factorization=="dense")
+        return std::make_unique<DenseComplexGaussianSampler>(field.covariance);
+    if(pspace.gaussian_factorization!="weighted-dense")
+        throw std::invalid_argument("staggered sampling requires dense or weighted-dense factorization");
+    std::vector<RealType> weights(layout.dimension());
+    for(size_t i=0;i<weights.size();++i)
+    {
+        const auto sector=layout.decode(i).sector;
+        // Existing kappa weight applies to nu/2, even on this unequal grid.
+        weights[i]=sector==contour::StaggeredSector::Matsubara?pspace.gaussian_noise_weights[0]
+            :sector==contour::StaggeredSector::Eta?pspace.gaussian_noise_weights[1]
+            :pspace.gaussian_noise_weights[2]/RealType{4.};
+    }
+    return std::make_unique<DenseComplexGaussianSampler>(field.covariance,weights);
 }
 
 SelfConsistentField self_consistent_equations(
@@ -570,19 +587,23 @@ ContourTrajectory compute_contour_trajectory(
 {
     ContourTrajectory result;
     TrajectoryWorkspace workspace;
-    build_contour_trajectory(pspace,field_sample,mean_field_time,result,workspace);
+    build_contour_trajectory(pspace,field_sample,mean_field_time,result,workspace,false);
     return result;
 }
 
 void build_contour_trajectory( const ps::ParameterSpace& pspace,
     const JointComplexGaussianSampler::ContourFieldSample& field_sample,
     const MeanFieldTrajectory& mean_field_time, ContourTrajectory& result,
-    TrajectoryWorkspace& workspace, const bool imaginary_only )
+    TrajectoryWorkspace& workspace, const bool imaginary_only, const FinalTraceMode final_trace )
 {
+    if(pspace.real_time_substeps==0)
+        throw std::invalid_argument("staggered Strang requires positive substeps");
     const contour::ContourLayout layout{
         pspace.num_TimePoints,pspace.num_RealTimePoints};
+    const contour::StaggeredLayout staggered_layout{pspace.num_TimePoints,
+        pspace.num_RealTimeSteps*pspace.real_time_steps_per_interval()};
     const auto& joint_field=field_sample.edge_field;
-    if( joint_field.size()!=layout.dimension() )
+    if( joint_field.size()!=staggered_layout.dimension() )
         throw std::invalid_argument("joint Keldysh field has the wrong dimension");
     if( mean_field_time.size()!=pspace.num_RealTimePoints )
         throw std::invalid_argument("mean-field trajectory has the wrong real-time grid");
@@ -590,62 +611,27 @@ void build_contour_trajectory( const ps::ParameterSpace& pspace,
     if(pspace.num_RealTimeSteps==0||pspace.num_RealTimeSteps>=std::numeric_limits<size_t>::max()/6
         ||q>(std::numeric_limits<size_t>::max()/6-1)/pspace.num_RealTimeSteps)
         throw std::invalid_argument("invalid real-time substep grid");
-    if(q>1)
-    {
-        if(pspace.gaussian_factorization!="fft"&&pspace.gaussian_factorization!="dense"
-            &&pspace.gaussian_factorization!="weighted-dense")
-            throw std::invalid_argument("real-time substeps require dense, weighted-dense, or FFT sampling");
-        if(pspace.gaussian_factorization=="fft"&&!field_sample.has_real_gauss_fields())
-            throw std::invalid_argument("FFT substepping requires sampled Gauss-node fields");
-    }
-    if( pspace.uses_cf4()
-        &&(field_sample.real_gauss_fields[0].size()!=0
-           ||field_sample.real_gauss_fields[1].size()!=0) )
-    {
-        const size_t expected=6*pspace.num_RealTimeSteps*q;
-        if( field_sample.real_gauss_fields[0].size()!=expected
-            ||field_sample.real_gauss_fields[1].size()!=expected )
-            throw std::invalid_argument(
-                "CF4 trajectory received malformed Gauss-node real-field grids");
-    }
-
+    if((field_sample.real_gauss_fields[0].size()!=0
+        ||field_sample.real_gauss_fields[1].size()!=0))
+        throw std::invalid_argument("staggered Strang must sample its fields directly, without Gauss-node field interpolation");
     auto& imaginary_fields=workspace.imaginary_fields;
-    auto& forward_fields=workspace.forward_fields;
-    auto& backward_fields=workspace.backward_fields;
     imaginary_fields.resize(pspace.num_TimePoints);
-    forward_fields.resize(pspace.num_RealTimePoints);
-    backward_fields.resize(pspace.num_RealTimePoints);
     for( size_t k=0;k<pspace.num_TimePoints;++k )
         for( size_t c=0;c<3;++c )
             imaginary_fields[k][c]=joint_field[layout.flat(contour::Branch::Matsubara,k,c)];
-    for( size_t t=0;t<forward_fields.size();++t )
-        for( size_t c=0;c<3;++c )
-        {
-            forward_fields[t][c]=joint_field[layout.flat(contour::Branch::Forward,t,c)];
-            backward_fields[t][c]=joint_field[layout.flat(contour::Branch::Backward,t,c)];
-        }
-
     auto& imaginary_steps=workspace.imaginary_steps;
     imaginary_steps.resize(pspace.num_TimeSteps);
     for( size_t k=0;k<pspace.num_TimeSteps;++k )
     {
-        if( pspace.uses_cf4() )
-        {
-            const RealType offset=std::sqrt(RealType{3.})/RealType{6.};
-            const auto early=cubic_interval_value(
-                imaginary_fields,k,RealType{0.5}-offset);
-            const auto late=cubic_interval_value(
-                imaginary_fields,k,RealType{0.5}+offset);
-            imaginary_steps[k]=gauss_cfet4_step(
-                pspace,early,mean_field_time.front(),
-                late,mean_field_time.front(),
-                ComplexType{-pspace.delta_t,RealType{0.}});
-        }
-        else
-            imaginary_steps[k]=cfet4_step(
-                pspace,imaginary_fields[k+1],mean_field_time.front(),
-                imaginary_fields[k],mean_field_time.front(),
-                ComplexType{-pspace.delta_t,RealType{0.}});
+        const RealType offset=std::sqrt(RealType{3.})/RealType{6.};
+        const auto early=cubic_interval_value(
+            imaginary_fields,k,RealType{0.5}-offset);
+        const auto late=cubic_interval_value(
+            imaginary_fields,k,RealType{0.5}+offset);
+        imaginary_steps[k]=gauss_cfet4_step(
+            pspace,early,mean_field_time.front(),
+            late,mean_field_time.front(),
+            ComplexType{-pspace.delta_t,RealType{0.}});
     }
     auto& prefix=workspace.prefix;
     prefix.resize(pspace.num_TimeSteps+1); prefix.front()=IDENTITY;
@@ -655,18 +641,17 @@ void build_contour_trajectory( const ps::ParameterSpace& pspace,
     result.partition_function=blaze::trace(result.imaginary_density_operator);
 
     if( !imaginary_only )
-        complete_contour_trajectory(pspace,field_sample,mean_field_time,result,workspace);
+        complete_contour_trajectory(pspace,field_sample,mean_field_time,result,workspace,final_trace);
 }
 
 void complete_contour_trajectory( const ps::ParameterSpace& pspace,
     const JointComplexGaussianSampler::ContourFieldSample& field_sample,
     const MeanFieldTrajectory& mean_field_time, ContourTrajectory& result,
-    TrajectoryWorkspace& workspace )
+    TrajectoryWorkspace& workspace,
+    const FinalTraceMode final_trace )
 {
     const auto& prefix=workspace.prefix;
     const auto& imaginary_steps=workspace.imaginary_steps;
-    const auto& forward_fields=workspace.forward_fields;
-    const auto& backward_fields=workspace.backward_fields;
     auto& suffix=workspace.suffix;
     suffix.resize(pspace.num_TimeSteps+1); suffix.back()=IDENTITY;
     for( size_t k=pspace.num_TimeSteps;k-- >0; )
@@ -685,6 +670,30 @@ void complete_contour_trajectory( const ps::ParameterSpace& pspace,
     result.forward_steps.front()=IDENTITY; result.backward_steps.front()=IDENTITY;
     const size_t q=pspace.real_time_steps_per_interval();
     const RealType h=pspace.delta_real_t/static_cast<RealType>(q);
+    const contour::StaggeredLayout staggered_layout{pspace.num_TimePoints,pspace.num_RealTimeSteps*q};
+    const auto staggered_field=[&](contour::StaggeredSector sector,size_t point)
+    {
+        ComplexFieldVector field{};
+        for(size_t c=0;c<3;++c)field[c]=field_sample.edge_field[staggered_layout.flat(sector,point,c)];
+        return field;
+    };
+    const auto exponential=[&](const ComplexFieldVector& field,ComplexType step,bool rest)
+    {
+        if(pspace.num_HilbertSpaceDimension==2&&(!rest||H_REST_IS_SCALAR))
+            return spin_half_field_exponential(field,rest?H_REST_SCALAR:ComplexType{},step);
+        Operator H=spin_scalar_product(field);
+        if(rest)H+=H_REST;
+        return general_matrix_exponential(step*H);
+    };
+    const bool fixed_strang=pspace.num_HilbertSpaceDimension==2&&H_REST_IS_SCALAR;
+    Operator response_left;
+    SpinHalfOperator fixed_response_left;
+    const auto nu=staggered_field(contour::StaggeredSector::Nu,0);
+    if(fixed_strang)
+        fixed_response_left=spin_half_field_exponential_impl<SpinHalfOperator>(
+            nu,ComplexType{},ComplexType{0.,-h/4});
+    else response_left=exponential(nu,ComplexType{0.,-h/4},false);
+
     for( size_t t=1;t<pspace.num_RealTimePoints;++t )
     {
         const size_t interval=t-1;
@@ -692,55 +701,37 @@ void complete_contour_trajectory( const ps::ParameterSpace& pspace,
         {
             const size_t micro=interval*q+j;
             Operator forward_step,backward_step;
-            if( pspace.uses_cf4() )
+
+            const RealType midpoint=(RealType(j)+RealType{0.5})/RealType(q);
+            // The deterministic mean is smooth; interpolate it, never
+            // the sampled stochastic fields. Short grids use a linear midpoint.
+            const FieldVector mean=mean_field_time.size()>=4
+                ?cubic_interval_value(mean_field_time,interval,midpoint)
+                :FieldVector((RealType{1.}-midpoint)*mean_field_time[interval]
+                             +midpoint*mean_field_time[interval+1]);
+            const auto eta=total_field(pspace,staggered_field(contour::StaggeredSector::Eta,micro),mean);
+            const auto nu=staggered_field(contour::StaggeredSector::Nu,micro+1);
+            if(fixed_strang)
             {
-                const RealType offset=std::sqrt(RealType{3.})/RealType{6.};
-                const RealType early=(static_cast<RealType>(j)+RealType{0.5}-offset)
-                                    /static_cast<RealType>(q);
-                const RealType late=(static_cast<RealType>(j)+RealType{0.5}+offset)
-                                   /static_cast<RealType>(q);
-                const FieldVector mean_early=cubic_interval_value(mean_field_time,interval,early);
-                const FieldVector mean_late=cubic_interval_value(mean_field_time,interval,late);
-                ComplexFieldVector forward_early{},forward_late{};
-                ComplexFieldVector backward_early{},backward_late{};
-                if( field_sample.has_real_gauss_fields() )
-                {
-                    for( size_t c=0;c<3;++c )
-                    {
-                        forward_early[c]=field_sample.real_gauss_fields[0][6*micro+c];
-                        forward_late[c]=field_sample.real_gauss_fields[1][6*micro+c];
-                        backward_early[c]=field_sample.real_gauss_fields[0][6*micro+3+c];
-                        backward_late[c]=field_sample.real_gauss_fields[1][6*micro+3+c];
-                    }
-                }
-                else
-                {
-                    // Evaluate the same native-edge cubic at each substep's nodes;
-                    // refining propagation does not introduce new random fields.
-                    forward_early=cubic_interval_value(forward_fields,interval,early);
-                    forward_late=cubic_interval_value(forward_fields,interval,late);
-                    backward_early=cubic_interval_value(backward_fields,interval,early);
-                    backward_late=cubic_interval_value(backward_fields,interval,late);
-                }
-                forward_step=gauss_cfet4_step(
-                    pspace,forward_early,mean_early,forward_late,mean_late,
-                    ComplexType{RealType{0.},-h});
-                // Reverse both nodes and contour sign on the backward branch.
-                backward_step=gauss_cfet4_step(
-                    pspace,backward_late,mean_late,backward_early,mean_early,
-                    ComplexType{RealType{0.},+h});
+                SpinHalfOperator Pinv;
+                const auto P=spin_half_field_exponential_impl<SpinHalfOperator>(
+                    eta,H_REST_SCALAR,ComplexType{0.,-h},&Pinv);
+                const auto right=spin_half_field_exponential_impl<SpinHalfOperator>(
+                    nu,ComplexType{},ComplexType{0.,-h/4});
+                forward_step=right*P*fixed_response_left;
+                backward_step=fixed_response_left*Pinv*right;
+                fixed_response_left=right;
             }
             else
             {
-                forward_step=cfet4_step(
-                    pspace,forward_fields[t],mean_field_time[t],
-                    forward_fields[t-1],mean_field_time[t-1],
-                    ComplexType{RealType{0.},-h});
-                backward_step=cfet4_step(
-                    pspace,backward_fields[t-1],mean_field_time[t-1],
-                    backward_fields[t],mean_field_time[t],
-                    ComplexType{RealType{0.},+h});
+                const Operator P=exponential(eta,ComplexType{0.,-h},true);
+                const Operator Pinv=exponential(eta,ComplexType{0.,h},true);
+                const Operator right=exponential(nu,ComplexType{0.,-h/4},false);
+                forward_step=right*P*response_left;
+                backward_step=response_left*Pinv*right;
+                response_left=right;
             }
+
             // Store only the composed native interval; measurements stay on its edges.
             if(j==0)
             {
@@ -753,6 +744,13 @@ void complete_contour_trajectory( const ps::ParameterSpace& pspace,
                 result.backward_steps[t]=result.backward_steps[t]*backward_step;
             }
         }
+    }
+    if(final_trace==FinalTraceMode::Skip)
+    {
+        // Do not leave a previous sample's trace in a reused trajectory.
+        result.final_closed_contour_trace=ComplexType{
+            std::numeric_limits<RealType>::quiet_NaN(),RealType{}};
+        return;
     }
     Operator final_density=result.imaginary_density_operator;
     for( size_t t=1;t<pspace.num_RealTimePoints;++t )
@@ -879,32 +877,6 @@ void compute_contour_correlations( rtd::RunTimeData& rtdata,
     MeasurementWorkspace workspace;
     measure_contour_observables(rtdata,trajectory,sample,workspace,insertion_strategy);
     rtdata.accumulate_sample(sample,observable_normalization);
-}
-
-CorrTen imaginary_time_slice( const contour::ContourCorrelation& correlations )
-{
-    const char symmetry=correlations.front().get_symmetry();
-    CorrTen result{symmetry,correlations.front()[0].size()};
-    result.iterate([&](Corr& values,const auto& direction)
-    {
-        values=correlations.front()(
-            static_cast<uint>(direction[1]),static_cast<uint>(direction[0]));
-    });
-    return result;
-}
-
-CorrTen real_time_slice( const contour::ContourCorrelation& correlations )
-{
-    const char symmetry=correlations.front().get_symmetry();
-    const size_t beta_index=correlations.front()[0].size()-1;
-    CorrTen result{symmetry,correlations.size()};
-    result.iterate([&](Corr& values,const auto& direction)
-    {
-        for( size_t t=0;t<correlations.size();++t )
-            values[t]=correlations[t](static_cast<uint>(direction[0]),
-                                      static_cast<uint>(direction[1]))[beta_index];
-    });
-    return result;
 }
 
 RealType max_contour_difference( const CorrelationSet& old_values,
@@ -1074,5 +1046,4 @@ IterationResidual iteration_residual(
         }
     return result;
 }
-
 }

@@ -59,16 +59,23 @@ def main():
 
         def check_metadata(f, path):
             p = f['parameters'].attrs
+            for removed in ('convergence_rule', 'factor_scope', 'frozen_state_kind', 'frozen_sampling_scope', 'uncertainty_scope'):
+                assert removed not in f['preparation'].attrs
+            for part in ('Re', 'Im'):
+                values = f['preparation'][part + '_correlation']
+                assert values.ndim == 2
+                for suffix in ('_sample_stds', '_tau_int'):
+                    assert f['preparation'][part + '_correlation' + suffix].shape == values.shape
+            assert f['results/Re_correlation'].ndim == 3
             assert 'jointMpcn_absZ__' in path.name
             assert text(p['sampling_strategy']) == 'pcn'
             assert text(p['joint_matsubara_pcn']) == 'yes'
             assert 'conditional_sampling' not in p
             assert 'null space' in text(p['real_residual_sampling'])
-            assert 'auxiliary marginal may change' in text(f['preparation'].attrs['frozen_sampling_scope'])
             assert '|Z_M|' in text(p['pcn_sampling_weight'])
             assert 'Matsubara' in text(p['pcn_updated_coordinates'])
             assert 'including rejection' in text(p['real_residual_sampling'])
-            assert 'sum[Z_M/|Z_M|]' in text(p['normalization_strategy'])
+            assert 'normalization_strategy' not in p
             assert text(f['preparation'].attrs['sampling_strategy']) == 'pcn'
             for g in [f['preparation'], f['runtimedata']]:
                 rates = g.attrs['mh_acceptance_rates']
@@ -84,7 +91,7 @@ def main():
         with h5py.File(alias) as f:
             check_metadata(f, alias)
 
-        for evolution, substeps, spin in [('cfet', 0, '1/2'), ('cfet', 3, '1/2'),
+        for evolution, substeps, spin in [('staggered-strang', 3, '1/2'),
                                           ('staggered-strang', 2, '1/2'),
                                           ('staggered-strang', 1, '1')]:
             path = run('zero_' + evolution + '_' + str(substeps) + '_' + spin.replace('/', 'o'),
@@ -109,7 +116,7 @@ def main():
         harmonic = ['--bath=harmonic', '--bathComponent=z', '--bathCoupling=0.25',
                     '--cstype=D', '--numSamplesPerCore=8192',
                     '--preparationSamplesPerCore=4096', '--numBlocks=32']
-        for evolution in ['cfet', 'staggered-strang']:
+        for evolution in ['staggered-strang']:
             opts = [*harmonic, '--realTimeEvolution=' + evolution]
             pcn = run('harmonic_pcn_' + evolution, opts)
             direct = run('harmonic_direct_' + evolution, [*opts, '--jointMatsubaraPCN=false', '--samplingStrategy=independent'])
@@ -128,9 +135,8 @@ def main():
                 m = read_complex(new['results'], 'magnetization')[:, 2]
                 errors = new['runtimedata/Re_magnetization_sample_stds'][..., 2]
                 assert np.all(np.abs(m.real - exact_m) < 6 * errors + 2e-3)
-                A = read_complex(new['preparation'], 'covariance')
-                F = read_complex(new['preparation'], 'factor')
-                np.testing.assert_allclose(F @ F.T, A, atol=1e-11, rtol=1e-10)
+                assert not any(key in new['preparation'] for key in
+                               ('Re_factor', 'Im_factor', 'Re_covariance', 'Im_covariance'))
 
         path = run('selfconsistent', ['--beta=0.3', '--JQ=1', '--mixingAlpha=1',
                    '--numSamplesPerCore=2048', '--preparationSamplesPerCore=4096', '--numBlocks=32'])

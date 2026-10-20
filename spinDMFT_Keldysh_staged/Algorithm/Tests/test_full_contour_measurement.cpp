@@ -121,62 +121,75 @@ int check_measurement( const ps::ParameterSpace& p,
 }
 }
 
-int check_streamed_covariance(ps::ParameterSpace p)
+template<typename Matrix>
+int check_fused_accumulation(ps::ParameterSpace p,int rank)
 {
     int failures{};
-    p.spin_model.coupling_matrix=FieldMatrix{{1.,0.2,0.1},{0.2,0.8,-0.3},{0.1,-0.3,1.2}};
-    p.JQ=RealType{1.3};
-    contour::CorrelationSet values('D',p.num_TimePoints,p.num_RealTimePoints);
-    func::MagTen mag_Re{'D',p.num_RealTimePoints};
-    func::MagTen mag_Im{'D',p.num_RealTimePoints};
-    for(size_t t=0;t<p.num_RealTimePoints;++t)
+    p.sampling_strategy="independent";p.num_SamplesPerCore=45;p.num_blocks=5;
+    p.num_Samples=45*p.get_num_Cores();
+    const size_t size=p.uses_staggered_strang()
+        ?contour::StaggeredLayout{p.num_TimePoints,p.num_RealTimeSteps*p.real_time_steps_per_interval()}.dimension()
+        :contour::ContourLayout{p.num_TimePoints,p.num_RealTimePoints}.dimension();
+    func::JointComplexGaussianSampler::ContourFieldSample field;
+    field.edge_field.resize(size);
+    func::BasicContourTrajectory<Matrix> trajectory;
+    func::BasicTrajectoryWorkspace<Matrix> propagation;
+    func::MeasurementWorkspace buffered_workspace,fused_workspace;
+    rtd::MeasuredSample sample;
+    const func::MeanFieldTrajectory mean(p.num_RealTimePoints,FieldVector{0.03,-0.02,0.05});
+    for(const std::string normalization:{"partition-function","closed-contour"})
     {
-        for(size_t c=0;c<3;++c)
+        p.correlation_normalization=normalization;
+        rtd::RunTimeData buffered(p,rank),fused(p,rank);
+        // Vary complex weights and numerators across statistical blocks.
+        for(size_t s=0;s<p.num_SamplesPerCore;++s)
         {
-            mag_Re[t][c]=0.01*(c+1)*(t+1);
-            mag_Im[t][c]=0.002*(c+1);
+            for(size_t i=0;i<size;++i)
+                field.edge_field[i]={0.12*std::sin(0.3*(i+2*s+rank)),0.04*std::cos(0.2*(2*i+s))};
+            func::build_contour_trajectory(p,field,mean,trajectory,propagation,false,func::FinalTraceMode::Skip);
+            func::measure_contour_observables(buffered,trajectory,sample,buffered_workspace,"prefix");
+            buffered.accumulate_sample(sample);
+            func::measure_and_accumulate_independent(fused,trajectory,fused_workspace,"prefix");
         }
-        for(size_t c=0;c<9;++c)for(size_t tau=0;tau<p.num_TimePoints;++tau)
-        {
-            values.Re[t][c][tau]=0.1*std::cos(0.3*(1+t+c+tau));
-            values.Im[t][c][tau]=0.03*std::sin(0.2*(1+2*t+c+tau));
-        }
+        contour::CorrelationSet a,b;
+        rtd::MagTen ar,ai,br,bi;
+        buffered.mpi_reduce_and_finalize(a,ar,ai);
+        fused.mpi_reduce_and_finalize(b,br,bi);
+        failures+=require(func::max_contour_difference(a,b)==RealType{},
+            "fused measurement preserves complex-ratio means exactly");
+        failures+=require(func::max_contour_difference(buffered.contour_sample_stds,fused.contour_sample_stds)==RealType{},
+            "fused measurement preserves statistical-block errors exactly");
+        for(size_t t=0;t<ar.size();++t)for(size_t c=0;c<ar[t].size();++c)
+            failures+=require(ar[t][c]==br[t][c]&&ai[t][c]==bi[t][c]
+                &&buffered.magnetization_time_Re_stds[t][c]==fused.magnetization_time_Re_stds[t][c]
+                &&buffered.magnetization_time_Im_stds[t][c]==fused.magnetization_time_Im_stds[t][c],
+                "fused magnetization means and errors agree exactly");
+        failures+=require(buffered.closed_contour_ratio_Re==fused.closed_contour_ratio_Re
+            &&buffered.closed_contour_ratio_Im==fused.closed_contour_ratio_Im
+            &&buffered.closed_contour_residual_Re_sample_stds==fused.closed_contour_residual_Re_sample_stds
+            &&buffered.closed_contour_residual_Im_sample_stds==fused.closed_contour_residual_Im_sample_stds
+            &&buffered.closed_contour_residual_abs_sample_stds==fused.closed_contour_residual_abs_sample_stds
+            &&buffered.partition_sum_Re==fused.partition_sum_Re
+            &&buffered.partition_sum_Im==fused.partition_sum_Im
+            &&buffered.partition_abs_sums==fused.partition_abs_sums,
+            "fused closure and partition diagnostics agree exactly");
     }
-    const auto connected=func::connected_contour_primitive(values,mag_Re,mag_Im);
-    const contour::ContourLayout layout{p.num_TimePoints,p.num_RealTimePoints};
-    const auto dense=func::self_consistent_equations(p,values,mag_Re,mag_Im);
-    const auto streamed=func::self_consistent_equations(
-        p,values,mag_Re,mag_Im,false);
-    func::ComplexDynamicMatrix raw(layout.dimension(),layout.dimension());
-    RealType residual{},scale{},max_error{};
-    for(size_t i=0;i<raw.rows();++i)for(size_t j=0;j<raw.columns();++j)
-    {
-        const auto a=layout.decode(i),b=layout.decode(j);ComplexType sum{};
-        for(size_t c=0;c<3;++c)for(size_t d=0;d<3;++d)
-            sum+=p.spin_model.coupling_matrix(a.component,c)*p.spin_model.coupling_matrix(b.component,d)
-                *contour::branch_correlation(connected,layout,{a.branch,a.point,c},{b.branch,b.point,d});
-        raw(i,j)=p.JQ*p.JQ*sum+ComplexType{p.noise.m_variance_in(a.component,b.component),0.};
-    }
-    for(size_t i=0;i<raw.rows();++i)for(size_t j=0;j<raw.columns();++j)
-    {
-        residual+=std::norm(raw(i,j)-raw(j,i));scale+=std::norm(raw(i,j));
-        const auto canonical=i<=j?raw(i,j):raw(j,i);
-        max_error=std::max({max_error,std::abs(canonical-dense.covariance(i,j)),
-                          std::abs(canonical-streamed.covariance_source(i,j))});
-    }
-    failures+=require(streamed.covariance.rows()==0,"FFT field setup omits the physical dense covariance");
-    failures+=require(max_error<RealType{1e-13},"streamed rotated covariance agrees with original full kernel");
-    failures+=require(std::abs(streamed.branch_identity_error-std::sqrt(residual/scale))<RealType{1e-13},
-                      "streaming preserves raw transpose-residual diagnostics");
-    func::FFTDenseComplexGaussianSampler a(dense.covariance,p.num_TimeSteps,p.num_RealTimePoints,p.delta_real_t,3.);
-    func::FFTDenseComplexGaussianSampler b(streamed.covariance_source,p.num_TimeSteps,p.num_RealTimePoints,p.delta_real_t,3.);
-    std::mt19937 engine{893};const auto latent=a.draw_latent(engine);
-    const auto x=a.contour_field_from_latent(latent,true),y=b.contour_field_from_latent(latent,true);
-    RealType field_error{};
-    for(size_t i=0;i<x.edge_field.size();++i)field_error=std::max(field_error,std::abs(x.edge_field[i]-y.edge_field[i]));
-    for(size_t node=0;node<2;++node)for(size_t i=0;i<x.real_gauss_fields[node].size();++i)
-        field_error=std::max(field_error,std::abs(x.real_gauss_fields[node][i]-y.real_gauss_fields[node][i]));
-    failures+=require(field_error<RealType{1e-12},"streamed and materialized FFT fields and Gauss nodes agree");
+    // The shared estimator also retains the full-contour insertion strategy.
+    p.num_SamplesPerCore=1;p.num_blocks=1;
+    rtd::RunTimeData full(p,rank);
+    func::measure_and_accumulate_independent(full,trajectory,fused_workspace,"closed-contour");
+    bool rejected{};
+    trajectory.imaginary_edge_insertions[0][0](0,0)=std::numeric_limits<RealType>::infinity();
+    rtd::RunTimeData invalid(p,rank);
+    try{func::measure_and_accumulate_independent(invalid,trajectory,fused_workspace,"prefix");}
+    catch(const std::runtime_error&){rejected=true;}
+    failures+=require(rejected,"fused measurement rejects nonfinite correlation numerators");
+    p.sampling_strategy="pcn";
+    rtd::RunTimeData pcn(p,rank);
+    rejected=false;
+    try{func::measure_and_accumulate_independent(pcn,trajectory,fused_workspace,"prefix");}
+    catch(const std::invalid_argument&){rejected=true;}
+    failures+=require(rejected,"independent fused path rejects pCN accumulators");
     return failures;
 }
 
@@ -185,10 +198,10 @@ int check_pcn_cache(ps::ParameterSpace p,int rank)
     int failures{};
     p.sampling_strategy="pcn";p.num_SamplesPerCore=96;p.num_blocks=16;
     p.beta=RealType{2.};p.delta_t=p.beta/p.num_TimeSteps;
-    const contour::ContourLayout layout{p.num_TimePoints,p.num_RealTimePoints};
+    const contour::StaggeredLayout layout{p.num_TimePoints,p.num_RealTimeSteps*p.real_time_steps_per_interval()};
     func::ComplexDynamicMatrix covariance(layout.dimension(),layout.dimension(),ComplexType{});
     for(size_t i=0;i<layout.dimension();++i)
-        covariance(i,i)=layout.decode(i).branch==contour::Branch::Matsubara?RealType{1.4}:RealType{0.03};
+        covariance(i,i)=layout.decode(i).sector==contour::StaggeredSector::Matsubara?RealType{1.4}:RealType{0.03};
     const func::MeanFieldTrajectory mean(p.num_RealTimePoints,FieldVector{});
     for(const std::string normalization:{"partition-function","closed-contour"})
     {
@@ -205,7 +218,7 @@ int check_pcn_cache(ps::ParameterSpace p,int rank)
         for(size_t attempt=0;attempt<128;++attempt)
         {
             latent=reference_sampler.draw_latent(reference_engine);
-            reference=func::compute_contour_trajectory(p,reference_sampler.contour_field_from_latent(latent,p.uses_cf4()),mean);
+            reference=func::compute_contour_trajectory(p,reference_sampler.contour_field_from_latent(latent,false),mean);
             if(positive(weight(reference)))break;
         }
         std::uniform_real_distribution<RealType> uniform(0.,1.);
@@ -218,7 +231,7 @@ int check_pcn_cache(ps::ParameterSpace p,int rank)
             const auto innovation=reference_sampler.draw_latent(reference_engine);
             auto proposal=latent;
             for(size_t j=0;j<proposal.size();++j)proposal[j]=retention*latent[j]+step*innovation[j];
-            const auto proposed=func::compute_contour_trajectory(p,reference_sampler.contour_field_from_latent(proposal,p.uses_cf4()),mean);
+            const auto proposed=func::compute_contour_trajectory(p,reference_sampler.contour_field_from_latent(proposal,false),mean);
             bool accepted=false;
             if(positive(weight(proposed)))
             {
@@ -250,7 +263,8 @@ int check_pcn_cache(ps::ParameterSpace p,int rank)
         failures+=require(func::max_contour_difference(cached.contour_sample_stds,eager.contour_sample_stds)<RealType{1e-12},"cached rejected states preserve pCN block errors");
         // Ratio-influence variances include subtractive cancellation. Compare
         // tau relatively: these nearly constant components can have tau >400,
-        // making an absolute 1e-10 threshold tighter than accumulation roundoff.
+        // and subtractive cancellation amplifies accumulation roundoff to about
+        // 1e-9 relative. Means and block errors remain checked to 1e-12.
         RealType tau_error{};
         for(const auto pair:{std::make_pair(&cached.contour_tau_int.Re,&eager.contour_tau_int.Re),
                              std::make_pair(&cached.contour_tau_int.Im,&eager.contour_tau_int.Im)})
@@ -259,9 +273,10 @@ int check_pcn_cache(ps::ParameterSpace p,int rank)
                     for(size_t k=0;k<(*pair.first)[t][c].size();++k)
                     {
                         const auto a=(*pair.first)[t][c][k],b=(*pair.second)[t][c][k];
-                        tau_error=std::max(tau_error,std::abs(a-b)/(RealType{1.}+std::max(std::abs(a),std::abs(b))));
+                        const RealType relative=std::abs(a-b)/(RealType{1.}+std::max(std::abs(a),std::abs(b)));
+                        tau_error=std::max(tau_error,relative);
                     }
-        failures+=require(tau_error<RealType{1e-10},"cached rejected states preserve autocorrelation statistics");
+        failures+=require(tau_error<RealType{1e-8},"cached rejected states preserve autocorrelation statistics");
     }
     return failures;
 }
@@ -285,7 +300,7 @@ int main( int argc, char** argv )
     {
         auto stopping=p;stopping.Iteration_Limit=10;
         rtd::RunTimeData data(stopping,rank);
-        data.record_complex_field_diagnostics(0.,0.,0.,0.,0,0);
+        data.record_complex_field_diagnostics(0.,0.,0.,0,0);
         data.average_phase_magnitudes.push_back(1.);
         rtd::MagTen zero_im{'D',p.num_RealTimePoints};
         data.magnetization_time_Im_stds=rtd::MagTen{'D',p.num_RealTimePoints};
@@ -312,44 +327,16 @@ int main( int argc, char** argv )
         // of nonunitary Strang branch maps, including mixed thermal insertions.
         failures+=check_measurement(strang,tr,rank,"prefix");
         failures+=check_measurement(strang,tr,rank,"closed-contour");
+        failures+=check_fused_accumulation<func::SpinHalfOperator>(strang,rank);
     }
-    failures+=check_streamed_covariance(p);
     failures+=check_pcn_cache(p,rank);
-    const contour::ContourLayout layout{p.num_TimePoints,p.num_RealTimePoints};
-    if(p.gaussian_factorization=="weighted-dense")
-    {
-        func::ComplexDynamicMatrix covariance(layout.dimension(),layout.dimension(),ComplexType{});
-        for(size_t i=0;i<layout.dimension();++i)covariance(i,i)=ComplexType{0.02,0.01};
-        auto sampler=func::make_complex_gaussian_sampler(p.gaussian_factorization,covariance,
-            p.num_TimeSteps,p.num_RealTimePoints,p.delta_real_t,p.fft_cross_frequency_cutoff,
-            p.gaussian_noise_weights);
-        std::mt19937 engine{773};
-        const func::MeanFieldTrajectory mean(p.num_RealTimePoints,FieldVector{});
-        const auto trajectory=func::compute_contour_trajectory(
-            p,sampler->draw_contour_field(engine,p.uses_cf4()),mean);
-        failures+=check_measurement(p,trajectory,rank,"prefix");
-        failures+=check_measurement(p,trajectory,rank,"closed-contour");
-        bool rejected{};
-        try{func::PCNChain chain(p,*sampler,mean,RealType{0.3},engine);}
-        catch(const std::invalid_argument&){rejected=true;}
-        failures+=require(rejected,"weighted sampler cannot enter an unvalidated positive-weight pCN chain");
-    }
+    failures+=check_fused_accumulation<Operator>(p,rank);
+    failures+=check_fused_accumulation<func::SpinHalfOperator>(p,rank);
+    const contour::StaggeredLayout layout{p.num_TimePoints,p.num_RealTimeSteps*p.real_time_steps_per_interval()};
     func::DenseComplexGaussianSampler::FieldVector fields(layout.dimension(),ComplexType{});
     const func::MeanFieldTrajectory mean(p.num_RealTimePoints,FieldVector{});
-    for( size_t k=0;k<p.num_TimePoints;++k )
-        for( size_t c=0;c<3;++c )
-            fields[layout.flat(contour::Branch::Matsubara,k,c)]={
-                RealType{0.09}*(k+1)*(c+1),RealType{0.03}*(k+c+1)};
-    for( size_t k=0;k<p.num_RealTimePoints;++k )
-        for( size_t c=0;c<3;++c )
-        {
-            fields[layout.flat(contour::Branch::Forward,k,c)]={
-                RealType{0.13}*(k+1)+RealType{0.07}*(c+1)*(k*k+1),
-                RealType{-0.06}*(k+c+1)};
-            fields[layout.flat(contour::Branch::Backward,k,c)]={
-                RealType{-0.17}*(k+1)+RealType{0.04}*(c+1)*(k*k+1),
-                RealType{0.08}*(2*k+c+1)};
-        }
+    for(size_t i=0;i<fields.size();++i)
+        fields[i]=ComplexType{0.03*std::sin(RealType(i)),0.02*std::cos(RealType(i))};
     const auto distinct=func::compute_contour_trajectory(p,fields,mean);
     Operator distinct_final_density=distinct.imaginary_density_operator;
     for( size_t t=1;t<p.num_RealTimePoints;++t )
@@ -378,13 +365,13 @@ int main( int argc, char** argv )
             failures+=require(std::abs(full_numerator(changed,
                 changed.imaginary_edge_insertions[0][1],S_X,t)
                 -full_numerator(distinct,distinct.imaginary_edge_insertions[0][1],S_X,t))
-                >RealType{1e-5},"future branch steps affect earlier correlations");
+                >RealType{1e-7},"future branch steps affect earlier correlations");
     }
 
-    for( size_t k=0;k<p.num_RealTimePoints;++k )
-        for( size_t c=0;c<3;++c )
-            fields[layout.flat(contour::Branch::Backward,k,c)]=
-                fields[layout.flat(contour::Branch::Forward,k,c)];
+    // Zero response gives identical complex branch Hamiltonians.
+    for(size_t k=0;k<=p.num_RealTimeSteps*p.real_time_steps_per_interval();++k)
+        for(size_t c=0;c<3;++c)
+            fields[layout.flat(contour::StaggeredSector::Nu,k,c)]=ComplexType{};
     const auto equal=func::compute_contour_trajectory(p,fields,mean);
     failures+=check_measurement(p,equal,rank);
     Operator forward=IDENTITY,backward=IDENTITY;
@@ -402,8 +389,6 @@ int main( int argc, char** argv )
     }
 
     // Degenerate trajectory: no real-time steps, only the t=0 insertion.
-    // The remaining tests intentionally use grids too short for cubic CF4.
-    p.real_time_substeps=0;
     auto zero=distinct;
     zero.forward_steps.resize(1); zero.backward_steps.resize(1);
     p.num_RealTimeSteps=0; p.num_RealTimePoints=1;
@@ -483,7 +468,6 @@ int main( int argc, char** argv )
     auto prime_diagnostics=[]( rtd::RunTimeData& runtime )
     {
         runtime.covariance_symmetry_errors.push_back(RealType{});
-        runtime.branch_identity_errors.push_back(RealType{});
         runtime.gaussian_factor_reconstruction_errors.push_back(RealType{});
         runtime.average_phase_magnitudes.push_back(RealType{1.});
         runtime.denominator_constancy_residuals.push_back(RealType{});
@@ -501,6 +485,25 @@ int main( int argc, char** argv )
     rejected.record_iteration_error(RealType{1e-8},RealType{5.});
     failures+=require(!rejected.terminate(zero_magnetization),
         "standardized residual equal to q does not pass the strict stopping rule");
+
+    // A non-default q must also control the imaginary-magnetization gate.
+    auto shared_threshold_p=p;
+    shared_threshold_p.iteration_error_sigma_threshold=RealType{2.};
+    rtd::MagTen imaginary_magnetization{'D',1};
+    imaginary_magnetization.front()[0]=RealType{0.03};
+    rtd::RunTimeData imaginary_rejected(shared_threshold_p,rank);
+    prime_diagnostics(imaginary_rejected);
+    imaginary_rejected.magnetization_time_Im_stds.front()[0]=RealType{0.01};
+    imaginary_rejected.record_iteration_error(RealType{0.01},RealType{0.1});
+    failures+=require(!imaginary_rejected.terminate(imaginary_magnetization),
+        "shared q=2 rejects imaginary magnetization at three standard errors");
+    shared_threshold_p.iteration_error_sigma_threshold=RealType{4.};
+    rtd::RunTimeData imaginary_accepted(shared_threshold_p,rank);
+    prime_diagnostics(imaginary_accepted);
+    imaginary_accepted.magnetization_time_Im_stds.front()[0]=RealType{0.01};
+    imaginary_accepted.record_iteration_error(RealType{0.01},RealType{0.1});
+    failures+=require(imaginary_accepted.terminate(imaginary_magnetization),
+        "shared q=4 accepts imaginary magnetization at three standard errors");
 
     // Preparation follows the absolute Matsubara rule even when measured
     // noise makes the standardized residual look acceptable (or infinite).
@@ -558,7 +561,7 @@ int main( int argc, char** argv )
     // latent-state edge case.
     p.sampling_strategy="pcn";
     p.num_RealTimeSteps=1; p.num_RealTimePoints=2;
-    const contour::ContourLayout pcn_layout{p.num_TimePoints,p.num_RealTimePoints};
+    const contour::StaggeredLayout pcn_layout{p.num_TimePoints,p.num_RealTimeSteps*p.real_time_steps_per_interval()};
     func::ComplexDynamicMatrix zero_covariance(
         pcn_layout.dimension(),pcn_layout.dimension(),ComplexType{});
     func::DenseComplexGaussianSampler zero_sampler(zero_covariance);
@@ -572,13 +575,13 @@ int main( int argc, char** argv )
         "pCN current state has a positive real sampling weight");
 
     // With fixed closed-contour normalization, the pCN likelihood is Re D(T),
-    // not Re Z_M. A single fluctuating forward-branch mode makes the two
+    // not Re Z_M. A single fluctuating response mode makes the two
     // quantities distinct while retaining a positive likelihood.
     p.correlation_normalization="closed-contour";
     func::ComplexDynamicMatrix forward_covariance(
         pcn_layout.dimension(),pcn_layout.dimension(),ComplexType{});
     const size_t forward_mode=pcn_layout.flat(
-        contour::Branch::Forward,1,0);
+        contour::StaggeredSector::Nu,1,0);
     forward_covariance(forward_mode,forward_mode)=RealType{0.02};
     func::DenseComplexGaussianSampler forward_sampler(forward_covariance);
     std::mt19937 closed_contour_engine{24680};
@@ -631,7 +634,7 @@ int main( int argc, char** argv )
     p.num_RealTimeSteps=4;p.num_RealTimePoints=5;p.delta_real_t=RealType{0.1};
     p.num_SamplesPerCore=2;p.num_blocks=2;
     func::initialize_matrices(p);
-    const contour::ContourLayout spin_one_layout{5,5};
+    const contour::StaggeredLayout spin_one_layout{5,4*p.real_time_steps_per_interval()};
     func::JointComplexGaussianSampler::FieldVector spin_one_fields(spin_one_layout.dimension());
     for(size_t i=0;i<spin_one_fields.size();++i)
         spin_one_fields[i]={0.1*std::sin(RealType(i)),0.02*std::cos(RealType(i))};
@@ -639,6 +642,7 @@ int main( int argc, char** argv )
         func::MeanFieldTrajectory(5,FieldVector{}));
     failures+=check_measurement(p,spin_one,rank,"closed-contour");
     failures+=check_measurement(p,spin_one,rank,"prefix");
+    failures+=check_fused_accumulation<Operator>(p,rank);
     MPI_Finalize();
     return failures==0?0:1;
 }

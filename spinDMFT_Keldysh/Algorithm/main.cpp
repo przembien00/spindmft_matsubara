@@ -60,15 +60,7 @@ int main( const int argC, char* const argV[] )
             my_pspace,my_correlations,
             my_magnetization_Re,my_magnetization_Im,
             my_pspace.gaussian_factorization!="fft");
-    auto sampler=my_pspace.gaussian_factorization=="fft"
-        ?func::make_complex_gaussian_sampler(field.covariance_source,
-            my_pspace.num_TimeSteps,my_pspace.num_RealTimePoints,
-            my_pspace.delta_real_t,my_pspace.fft_cross_frequency_cutoff,my_pspace.real_time_substeps)
-        :func::make_complex_gaussian_sampler(
-        my_pspace.gaussian_factorization,field.covariance,
-        my_pspace.num_TimeSteps,my_pspace.num_RealTimePoints,
-        my_pspace.delta_real_t,my_pspace.fft_cross_frequency_cutoff,
-        my_pspace.gaussian_noise_weights );
+    auto sampler=func::make_contour_gaussian_sampler(my_pspace,field);
     my_rtdata.record_complex_field_diagnostics(
         field.covariance_symmetry_error, field.branch_identity_error,
         sampler->reconstruction_error(),
@@ -119,11 +111,12 @@ int main( const int argC, char* const argV[] )
       for(size_t first=0;first<my_pspace.num_SamplesPerCore;first+=batch_size)
       {
         const size_t count=std::min(batch_size,my_pspace.num_SamplesPerCore-first);
-        const auto fields=sampler->draw_contour_batch(engine,count,my_pspace.uses_cf4());
+        const auto fields=sampler->draw_contour_batch(engine,count,false);
         for(const auto& field_sample:fields)
         {
           func::build_contour_trajectory(my_pspace,field_sample,field.mean_time,
-                                        trajectory,trajectory_workspace);
+                                        trajectory,trajectory_workspace,false,
+                                        func::FinalTraceMode::Skip);
           func::measure_contour_observables(my_rtdata,trajectory,measured_sample,
               measurement_workspace,my_pspace.spin_insertion_strategy);
           my_rtdata.accumulate_sample(measured_sample);

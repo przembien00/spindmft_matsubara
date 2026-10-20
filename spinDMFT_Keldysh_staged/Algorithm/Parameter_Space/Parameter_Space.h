@@ -64,10 +64,10 @@ class ParameterSpace
   RealType delta_t{};
   size_t num_RealTimeSteps{};
   size_t real_time_substeps{1};
-  std::string real_time_evolution{"cfet"};
+  std::string real_time_evolution{"staggered-strang"};
   // Preparation has no real-time intervals and keeps its Matsubara maps.
   bool uses_staggered_strang() const
-  { return real_time_evolution=="staggered-strang" && num_RealTimeSteps>0; }
+  { return num_RealTimeSteps>0; }
   size_t num_RealTimePoints{};
   RealType delta_real_t{};
   RealType Tmax{};
@@ -86,9 +86,8 @@ class ParameterSpace
   std::string gaussian_factorization{"dense"};
   std::array<RealType,3> gaussian_noise_weights{RealType{1.},RealType{2.},RealType{8.}};
   RealType fft_cross_frequency_cutoff{RealType{-1.}};
-  bool uses_cf4() const { return real_time_substeps>0; }
   size_t real_time_steps_per_interval() const
-  { return uses_cf4()?real_time_substeps:size_t{1}; }
+  { return real_time_substeps; }
   std::string spin_insertion_strategy{"closed-contour"};
   std::string correlation_normalization{"partition-function"};
 
@@ -99,11 +98,8 @@ class ParameterSpace
   RealType mixing_alpha{RealType{1.}};
   bool constant_magnetization_time{false};
   RealType covariance_tolerance{RealType{1e-10}};
-  RealType branch_identity_tolerance{RealType{0.1}};
   RealType takagi_tolerance{RealType{1e-8}};
   RealType minimum_phase_magnitude{RealType{1e-6}};
-  RealType denominator_constancy_tolerance{RealType{0.1}};
-  RealType imaginary_magnetization_sigma{RealType{5.}};
   
   // ...concerning the initial correlations
   ph::DiagonalSpinCorrelation init_diag_corr{};

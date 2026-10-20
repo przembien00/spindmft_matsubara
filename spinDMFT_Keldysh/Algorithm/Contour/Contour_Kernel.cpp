@@ -1,6 +1,7 @@
 #include"Contour_Kernel.h"
 
 #include<algorithm>
+#include<cmath>
 #include<stdexcept>
 
 namespace spinDMFT::Contour
@@ -113,6 +114,64 @@ ComplexType branch_correlation( const CorrelationSet& correlations,
     if( first.branch==Branch::Forward && second.branch==Branch::Backward )
         return lesser;
     return greater; // -+
+}
+
+ComplexType interpolated_edge_value(const CorrelationSet& correlations,
+    RealType x,size_t a,size_t b,size_t tau)
+{
+    validate_primitive(correlations);
+    const size_t n=correlations.Re.size();
+    if(!std::isfinite(x)||x<RealType{}||x>RealType(n-1))
+        throw std::out_of_range("staggered kernel time is outside the primitive grid");
+    const size_t interval=static_cast<size_t>(std::floor(x));
+    if(x==RealType(interval))return edge_value(correlations,interval,a,b,tau);
+    const size_t count=std::min(size_t{4},n);
+    const size_t first=std::min(interval==0?0:interval-1,n-count);
+    ComplexType result{};
+    for(size_t j=0;j<count;++j)
+    {
+        RealType weight{1.};
+        for(size_t k=0;k<count;++k)if(k!=j)
+            weight*=(x-RealType(first+k))/(RealType(j)-RealType(k));
+        result+=weight*edge_value(correlations,first+j,a,b,tau);
+    }
+    return result;
+}
+
+ComplexType staggered_correlation(const CorrelationSet& correlations,
+    const StaggeredIndex& first,const StaggeredIndex& second,size_t q)
+{
+    if(q==0)throw std::invalid_argument("staggered covariance needs positive substeps");
+    using Sector=StaggeredSector;
+    const auto f=first.sector,s=second.sector;
+    if(f==Sector::Nu)
+        return s==Sector::Eta?staggered_correlation(correlations,second,first,q):ComplexType{};
+    if(s==Sector::Nu)
+    {
+        if(f!=Sector::Eta || second.point>first.point)return ComplexType{};
+        const RealType lag=(RealType(first.point-second.point)+RealType{0.5})/RealType(q);
+        const size_t beta=correlations.Re.front()[0].size()-1;
+        return interpolated_edge_value(correlations,lag,first.component,second.component,beta)
+              -interpolated_edge_value(correlations,lag,first.component,second.component,0);
+    }
+    if(f==Sector::Matsubara&&s==Sector::Matsubara)
+    {
+        const ContourLayout layout{correlations.Re.front()[0].size(),correlations.Re.size()};
+        return branch_correlation(correlations,layout,
+            {Branch::Matsubara,first.point,first.component},
+            {Branch::Matsubara,second.point,second.component});
+    }
+    if(f==Sector::Matsubara)return staggered_correlation(correlations,second,first,q);
+    if(s==Sector::Matsubara)
+        return interpolated_edge_value(correlations,(RealType(first.point)+RealType{0.5})/RealType(q),
+            first.component,second.component,second.point);
+    // N_ab(t,s)=1/2(C^>+C^<); negative lags exchange the spin indices.
+    if(first.point<second.point || (first.point==second.point&&first.component>second.component))
+        return staggered_correlation(correlations,second,first,q);
+    const RealType lag=RealType(first.point-second.point)/RealType(q);
+    const size_t beta=correlations.Re.front()[0].size()-1;
+    return RealType{0.5}*(interpolated_edge_value(correlations,lag,first.component,second.component,beta)
+                        +interpolated_edge_value(correlations,lag,first.component,second.component,0));
 }
 
 }

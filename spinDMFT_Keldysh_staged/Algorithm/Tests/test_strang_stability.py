@@ -51,7 +51,7 @@ def main():
             assert np.isfinite(re).all() and np.isfinite(im).all()
             assert maximum < 0.5, "the reported long-time correlation explosion returned"
             assert np.max(f["preparation"].attrs["frozen_MM_residuals"]) < 1e-12
-            assert b"sqrt(2)*eta,nu/sqrt(2)" in f["parameters"].attrs["staggered_gaussian_basis"]
+            assert "staggered_gaussian_basis" not in f["parameters"].attrs
             assert f["runtimedata"].attrs["absolute_iteration_errors"][-1] < 0.5
             report = {"fixed_output": str(files[0]), "max_abs_correlation": maximum,
                       "real_iterations": int(f["runtimedata"].attrs["num_Iterations"])}

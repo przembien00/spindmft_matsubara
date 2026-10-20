@@ -1,7 +1,9 @@
 #pragma once
 
 #include<complex>
+#include<cmath>
 #include<array>
+#include<stdexcept>
 #include<string>
 #include<vector>
 
@@ -53,7 +55,6 @@ class RunTimeData
     std::vector<RealType> closed_contour_residual_abs_sample_stds{};
 
     std::vector<RealType> covariance_symmetry_errors{};
-    std::vector<RealType> branch_identity_errors{};
     std::vector<RealType> gaussian_factor_reconstruction_errors{};
     std::vector<RealType> gaussian_covariance_approximation_errors{};
     std::vector<unsigned int> gaussian_factor_latent_dimensions{};
@@ -88,6 +89,29 @@ class RunTimeData
     void end_sample();
     void accumulate_sample( const MeasuredSample& sample, RealType normalization=RealType{1.} );
 
+    // Independent measurement writes directly into total and block sums.
+    // Keep the contraction inlined into this loop, with no numerator buffer.
+    void begin_independent_sample(ComplexType Z);
+    template<typename Evaluate>
+    void accumulate_independent_correlation_row(size_t t,size_t c,const Evaluate& evaluate)
+    {
+        if(t>=m_num_real_points||c>=m_corr_directions.size())
+            throw std::invalid_argument("independent correlation row exceeds accumulator");
+        RealType* total_re=m_total.correlations.Re[t][c].data();
+        RealType* total_im=m_total.correlations.Im[t][c].data();
+        RealType* block_re=m_blocks[m_current_block].correlations.Re[t][c].data();
+        RealType* block_im=m_blocks[m_current_block].correlations.Im[t][c].data();
+        for(size_t tau=0;tau<m_num_imaginary_edge_points;++tau)
+        {
+            const ComplexType value=evaluate(tau);
+            const RealType re=std::real(value),im=std::imag(value);
+            if(!std::isfinite(re)||!std::isfinite(im))
+                throw std::runtime_error("non-finite edge contour-correlation numerator");
+            total_re[tau]+=re; total_im[tau]+=im;
+            block_re[tau]+=re; block_im[tau]+=im;
+        }
+    }
+
     size_t num_magnetization_components() const { return m_mag_directions.size(); }
     size_t magnetization_direction( size_t c ) const { return m_mag_directions[c]; }
     size_t num_correlation_components() const { return m_corr_directions.size(); }
@@ -96,7 +120,6 @@ class RunTimeData
     size_t num_imaginary_edge_points() const { return m_num_imaginary_edge_points; }
 
     void record_complex_field_diagnostics( RealType covariance_symmetry_error,
-                                           RealType branch_identity_error,
                                            RealType factor_reconstruction_error,
                                            RealType covariance_approximation_error,
                                            size_t latent_dimension,
@@ -159,11 +182,8 @@ class RunTimeData
     RealType m_real_time_residual_scale{};
     size_t m_iteration_limit{};
     RealType m_covariance_tolerance{};
-    RealType m_branch_identity_tolerance{};
     RealType m_takagi_tolerance{};
     RealType m_minimum_phase_magnitude{};
-    RealType m_denominator_constancy_tolerance{};
-    RealType m_imaginary_magnetization_sigma{};
     RealType m_partition_imaginary_tolerance{};
     std::vector<IndexPair> m_corr_directions{};
     std::vector<size_t> m_mag_directions{};

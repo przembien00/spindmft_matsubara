@@ -23,7 +23,6 @@ class ParameterSpace
 {
  private:
   // PRIVATE MEMBERS
-  int my_rank{};
   int world_size{};
 
  public:
@@ -65,14 +64,13 @@ class ParameterSpace
   RealType delta_t{};
   size_t num_RealTimeSteps{};
   size_t real_time_substeps{1};
+  std::string real_time_evolution{"staggered-strang"};
   size_t num_RealTimePoints{};
   RealType delta_real_t{};
   RealType Tmax{};
 
   // ...concerning the statistics
   size_t num_SamplesPerCore{};
-  size_t num_SamplesPerSet{};
-  size_t num_SetsPerCore{};
   size_t num_Samples{};
   std::string seed{};
 
@@ -82,12 +80,11 @@ class ParameterSpace
   size_t mh_burn_in{size_t{100}};
   RealType partition_imaginary_tolerance{RealType{1e-8}};
   size_t num_blocks{};
-  std::string gaussian_factorization{"fft"};
+  std::string gaussian_factorization{"dense"};
   std::array<RealType,3> gaussian_noise_weights{RealType{1.},RealType{2.},RealType{8.}};
   RealType fft_cross_frequency_cutoff{RealType{-1.}};
-  bool uses_cf4() const { return real_time_substeps>0; }
   size_t real_time_steps_per_interval() const
-  { return uses_cf4()?real_time_substeps:size_t{1}; }
+  { return real_time_substeps; }
   std::string spin_insertion_strategy{"closed-contour"};
   std::string correlation_normalization{"partition-function"};
 
@@ -111,7 +108,6 @@ class ParameterSpace
   size_t old_num_TimePoints{};
   RealType old_delta_t{};
   std::string initial_correlations_src_file{};
-  std::string initial_correlations_src_directory{};
   std::vector<RealType> initial_correlations_linearized{};
   std::vector<RealType> initial_correlations_imag_linearized{};
   std::vector<RealType> initial_magnetization_linearized{};

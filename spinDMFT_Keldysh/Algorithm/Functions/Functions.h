@@ -39,6 +39,9 @@ struct SelfConsistentField
     RealType branch_identity_error{};
 };
 
+std::unique_ptr<JointComplexGaussianSampler> make_contour_gaussian_sampler(
+    const ps::ParameterSpace& pspace,const SelfConsistentField& field);
+
 void initialize_matrices( const ps::ParameterSpace& pspace );
 
 std::pair<MagTen,MagTen> generate_initial_magnetization(
@@ -56,7 +59,8 @@ CorrelationSet connected_contour_primitive(
     const MagTen& magnetization_Re,
     const MagTen& magnetization_Im );
 
-// Build E[V V^T] for [V_M(tau_k),V_+(t_n),V_-(t_n)], k=0,...,N_tau,
+// Build E[V V^T] for [V_M,eta_midpoint,nu_boundary],
+// with distinct Matsubara endpoints and directly sampled Strang fields.
 // retaining distinct 0+ and beta- Matsubara variables.
 // The covariance is
 // complex symmetric (unconjugated), and its branch blocks are reconstructed
@@ -92,20 +96,26 @@ struct ContourTrajectory
 
 struct TrajectoryWorkspace
 {
-    std::vector<ComplexFieldVector> imaginary_fields,forward_fields,backward_fields;
+    std::vector<ComplexFieldVector> imaginary_fields;
     std::vector<Operator> imaginary_steps,prefix,suffix;
 };
+
+// Measurement computes the full closure trajectory itself. Independent
+// sampling can skip this separate final trace; closed-contour pCN needs it.
+enum class FinalTraceMode { Compute, Skip };
 
 // An imaginary-only preparation is sufficient for partition-function pCN
 // acceptance. Completion reuses those Matsubara maps after acceptance.
 void build_contour_trajectory( const ps::ParameterSpace& pspace,
     const JointComplexGaussianSampler::ContourFieldSample& field,
     const MeanFieldTrajectory& mean, ContourTrajectory& result,
-    TrajectoryWorkspace& workspace, bool imaginary_only=false );
+    TrajectoryWorkspace& workspace, bool imaginary_only=false,
+    FinalTraceMode final_trace=FinalTraceMode::Compute );
 void complete_contour_trajectory( const ps::ParameterSpace& pspace,
     const JointComplexGaussianSampler::ContourFieldSample& field,
     const MeanFieldTrajectory& mean, ContourTrajectory& result,
-    TrajectoryWorkspace& workspace );
+    TrajectoryWorkspace& workspace,
+    FinalTraceMode final_trace=FinalTraceMode::Compute );
 
 Operator general_matrix_exponential( const Operator& matrix );
 
@@ -113,6 +123,11 @@ Operator general_matrix_exponential( const Operator& matrix );
 // H=scalar*I+field dot S, S=sigma/2.  The complex dot product entering the
 // Pauli identity is unconjugated, so this also covers non-Hermitian fields.
 Operator spin_half_field_exponential(
+    const ComplexFieldVector& field, ComplexType scalar,
+    ComplexType contour_step );
+
+// exp(step*H) and exp(-step*H), sharing the Pauli exponential coefficients.
+std::pair<Operator,Operator> spin_half_field_exponential_pair(
     const ComplexFieldVector& field, ComplexType scalar,
     ComplexType contour_step );
 
@@ -150,11 +165,6 @@ void compute_contour_correlations( rtd::RunTimeData& rtdata,
                                    const ContourTrajectory& trajectory,
                                    RealType observable_normalization=RealType{1.},
                                    const std::string& insertion_strategy="closed-contour" );
-
-// Pure correlations are boundary views of the contour tensor, not independent traces:
-// G_imag^{ab}(tau)=C^{ba}(0,tau), G_real^{ab}(t)=C^{ab}(t,beta).
-CorrTen imaginary_time_slice( const contour::ContourCorrelation& correlations );
-CorrTen real_time_slice( const contour::ContourCorrelation& correlations );
 
 RealType max_contour_difference( const CorrelationSet& old_correlations,
                                  const CorrelationSet& new_correlations );
