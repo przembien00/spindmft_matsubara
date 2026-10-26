@@ -65,7 +65,6 @@ class ParameterSpace
   size_t num_RealTimeSteps{};
   size_t real_time_substeps{1};
   std::string real_time_evolution{"staggered-strang"};
-  // Preparation has no real-time intervals and keeps its Matsubara maps.
   bool uses_staggered_strang() const
   { return num_RealTimeSteps>0; }
   size_t num_RealTimePoints{};
@@ -81,21 +80,15 @@ class ParameterSpace
   std::string sampling_strategy{"independent"};
   RealType mh_step_size{RealType{0.3}};
   size_t mh_burn_in{size_t{100}};
-  RealType partition_imaginary_tolerance{RealType{1e-8}};
   size_t num_blocks{};
-  std::string gaussian_factorization{"dense"};
-  std::array<RealType,3> gaussian_noise_weights{RealType{1.},RealType{2.},RealType{8.}};
-  RealType fft_cross_frequency_cutoff{RealType{-1.}};
   size_t real_time_steps_per_interval() const
   { return real_time_substeps; }
-  std::string spin_insertion_strategy{"closed-contour"};
-  std::string correlation_normalization{"partition-function"};
 
   // ...concerning the iteration 
   RealType iteration_error_sigma_threshold{RealType{5.}};
   size_t Iteration_Limit{};
-  size_t preparation_samples{}, preparation_iteration_limit{};
-  RealType mixing_alpha{RealType{1.}};
+  size_t num_PreparationSamplesPerCore{}, num_PreparationSamples{};
+  size_t Preparation_Iteration_Limit{};
   bool constant_magnetization_time{false};
   RealType covariance_tolerance{RealType{1e-10}};
   RealType takagi_tolerance{RealType{1e-8}};

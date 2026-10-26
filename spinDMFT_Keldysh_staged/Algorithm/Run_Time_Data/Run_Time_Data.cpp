@@ -1,4 +1,5 @@
 #include"Run_Time_Data.h"
+#include"../Functions/Functions.h"
 
 #include<algorithm>
 #include<array>
@@ -43,76 +44,86 @@ bool finite( ComplexType value )
 RunTimeData::ComplexBlockSums::ComplexBlockSums(
     char symmetry, size_t num_imaginary_edge_points, size_t num_real_points )
     : correlations(symmetry,num_imaginary_edge_points,num_real_points),
-      mag_Re(symmetry,num_real_points),
-      mag_Im(symmetry,num_real_points),
-      closure(num_real_points,ComplexType{}),
-      closure_abs(num_real_points,RealType{})
+      magnetization(symmetry,num_real_points),
+      closure(num_real_points,ComplexType{})
 {}
 
-RunTimeData::RunTimeData( const ps::ParameterSpace& pspace, int my_rank,
-                          bool matsubara_preparation )
-    : contour_sample_stds(pspace.correlation_symmetry_type,pspace.num_TimePoints,
-                          pspace.num_RealTimePoints),
-      contour_tau_int(pspace.correlation_symmetry_type,pspace.num_TimePoints,
-                      pspace.num_RealTimePoints),
+RunTimeData::RunTimeData(const ps::ParameterSpace& pspace,int my_rank)
+    : m_real_time_points(pspace.num_RealTimePoints),
+      m_real_samples_per_core(pspace.num_SamplesPerCore),
+      m_real_iteration_limit(pspace.Iteration_Limit),
+      m_preparation_samples_per_core(pspace.num_PreparationSamplesPerCore),
+      m_preparation_iteration_limit(pspace.Preparation_Iteration_Limit),
+      m_requested_num_blocks(pspace.num_blocks),
       m_my_rank(my_rank),m_num_print_digits(pspace.num_PrintDigits),
       m_symmetry(pspace.correlation_symmetry_type),
       m_num_imaginary_edge_points(pspace.num_TimePoints),
-      m_num_real_points(pspace.num_RealTimePoints),
-      m_num_samples_per_core(pspace.num_SamplesPerCore),
       m_num_cores(pspace.get_num_Cores()),m_seed(pspace.seed),
       m_self_consistency(pspace.self_consistency),
       m_harmonic_bath(pspace.uses_harmonic_bath()),
       m_pcn(pspace.sampling_strategy=="pcn"),
-      m_modulus_pcn(pspace.sampling_strategy=="pcn"),
-      m_fft(pspace.gaussian_factorization=="fft"),
-      m_closed_contour_observable_normalization(
-          pspace.correlation_normalization=="closed-contour"),
-      m_matsubara_preparation(matsubara_preparation),
-      m_matsubara_iteration_error_threshold(
-          pspace.iteration_error_sigma_threshold
-          /std::sqrt(RealType{3.}*static_cast<RealType>(pspace.num_Samples))
-          *pspace.spin_float*(pspace.spin_float+RealType{1.})/RealType{3.}),
+      m_matsubara_iteration_error_threshold(pspace.num_PreparationSamples>0
+          ?pspace.iteration_error_sigma_threshold
+            /std::sqrt(RealType{3.}*static_cast<RealType>(pspace.num_PreparationSamples))
+            *pspace.spin_float*(pspace.spin_float+RealType{1.})/RealType{3.}
+          :RealType{}),
       m_iteration_error_sigma_threshold(pspace.iteration_error_sigma_threshold),
       m_real_time_residual_scale(std::max(pspace.spin_float,pspace.spin_float*pspace.spin_float)),
-      m_iteration_limit(pspace.Iteration_Limit),
       m_covariance_tolerance(pspace.covariance_tolerance),
       m_takagi_tolerance(pspace.takagi_tolerance),
       m_minimum_phase_magnitude(pspace.minimum_phase_magnitude),
-      m_partition_imaginary_tolerance(pspace.partition_imaginary_tolerance),
       m_corr_directions(CorrTen{pspace.correlation_symmetry_type,
                                 pspace.num_TimePoints}.get_direction_pairs()),
       m_mag_directions(mag::determine_magnetization_directions(
-          pspace.correlation_symmetry_type)),
-      m_total(pspace.correlation_symmetry_type,pspace.num_TimePoints,
-              pspace.num_RealTimePoints),
-      m_sample_squares(pspace.correlation_symmetry_type,pspace.num_TimePoints,
-                       pspace.num_RealTimePoints),
-      m_current_sample(pspace.correlation_symmetry_type,pspace.num_TimePoints,
-                       pspace.num_RealTimePoints)
+          pspace.correlation_symmetry_type))
 {
-    if( m_num_samples_per_core==0 )
-        throw std::invalid_argument("numSamplesPerCore must be positive");
-    m_num_blocks=std::min(std::max<size_t>(1,pspace.num_blocks),m_num_samples_per_core);
-    while( m_num_blocks>1 && m_num_samples_per_core%m_num_blocks!=0 )
-        --m_num_blocks;
-    m_samples_per_block=m_num_samples_per_core/m_num_blocks;
-    begin_iteration_accumulation();
 }
 
-void RunTimeData::begin_iteration_accumulation()
+void RunTimeData::configure_iteration(bool matsubara_preparation)
 {
+    m_matsubara_preparation=matsubara_preparation;
+    m_num_real_points=matsubara_preparation?size_t{1}:m_real_time_points;
+    m_num_samples_per_core=matsubara_preparation
+        ?m_preparation_samples_per_core:m_real_samples_per_core;
+    m_iteration_limit=matsubara_preparation?m_preparation_iteration_limit:m_real_iteration_limit;
+    if(m_num_samples_per_core==0)
+        throw std::invalid_argument("samples per core must be positive for each loop");
+    m_num_blocks=std::min(std::max<size_t>(1,m_requested_num_blocks),m_num_samples_per_core);
+    while(m_num_blocks>1&&m_num_samples_per_core%m_num_blocks!=0)--m_num_blocks;
+    m_samples_per_block=m_num_samples_per_core/m_num_blocks;
+    auto& statistics=loop();
+    statistics.num_blocks=m_num_blocks;
+    statistics.samples_per_block=m_samples_per_block;
+    if(statistics.contour_sample_stds.Re.empty())
+    {
+        statistics.contour_sample_stds=CorrelationSet{
+            m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
+        statistics.contour_tau_int=CorrelationSet{
+            m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
+    }
     m_samples_seen=0; m_current_block=0;
-    m_total=ComplexBlockSums{m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
-    m_sample_squares=CorrelationSet{
-        m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
-    m_current_sample=CorrelationSet{
-        m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
+    m_total=TotalSampleSums{};
+    m_total.closure.assign(m_num_real_points,ComplexType{});
+    m_correlations=nullptr;m_magnetization=nullptr;
+    if(m_pcn)
+        m_sample_squares=CorrelationSet{
+            m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
+    m_current_sample=CorrelationSet{};
     m_partition_second_moments={};
-    if(m_modulus_pcn)m_ratio_cross_moments.assign(
+    if(m_pcn)m_ratio_cross_moments.assign(
         m_num_real_points*m_corr_directions.size()*m_num_imaginary_edge_points,{});
     m_blocks.assign(m_num_blocks,ComplexBlockSums{
         m_symmetry,m_num_imaginary_edge_points,m_num_real_points});
+}
+
+void RunTimeData::begin_iteration_accumulation(CorrelationSet& correlations,
+    Magnetization& magnetization,bool matsubara_preparation)
+{
+    configure_iteration(matsubara_preparation);
+    correlations=CorrelationSet{m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
+    magnetization=Magnetization{m_symmetry,m_num_real_points};
+    m_correlations=&correlations;
+    m_magnetization=&magnetization;
 }
 
 void RunTimeData::begin_independent_sample(ComplexType Z)
@@ -123,6 +134,8 @@ void RunTimeData::begin_independent_sample(ComplexType Z)
 
 void RunTimeData::begin_sample( ComplexType Z, RealType observable_normalization )
 {
+    if(!m_correlations||!m_magnetization)
+        throw std::logic_error("begin accumulation into caller-owned observables before sampling");
     if( m_samples_seen>=m_num_samples_per_core )
         throw std::runtime_error("too many independent samples accumulated in one iteration");
     if( !finite(Z)||!std::isfinite(observable_normalization) )
@@ -138,7 +151,7 @@ void RunTimeData::begin_sample( ComplexType Z, RealType observable_normalization
     Z*=observable_normalization;
     if(!finite(Z))throw std::runtime_error("reweighted partition function is nonfinite");
     m_current_partition=Z;
-    if(m_modulus_pcn)
+    if(m_pcn)
     {
         const RealType re=std::real(Z),im=std::imag(Z);
         m_partition_second_moments[0]+=re*re;
@@ -149,7 +162,6 @@ void RunTimeData::begin_sample( ComplexType Z, RealType observable_normalization
     m_total.partition_abs_sq+=std::norm(Z);
     auto& block=m_blocks[m_current_block];
     block.partition+=Z; block.partition_abs+=std::abs(Z);
-    block.partition_abs_sq+=std::norm(Z);
 }
 
 void RunTimeData::accumulate_closed_contour_trace( size_t t, ComplexType value )
@@ -158,8 +170,6 @@ void RunTimeData::accumulate_closed_contour_trace( size_t t, ComplexType value )
         throw std::runtime_error("invalid closed-contour trace");
     value*=m_current_observable_normalization;
     m_total.closure[t]+=value; m_blocks[m_current_block].closure[t]+=value;
-    m_total.closure_abs[t]+=std::abs(value);
-    m_blocks[m_current_block].closure_abs[t]+=std::abs(value);
 }
 
 void RunTimeData::accumulate_magnetization( size_t t, size_t c,
@@ -168,10 +178,10 @@ void RunTimeData::accumulate_magnetization( size_t t, size_t c,
     if( t>=m_num_real_points||c>=m_mag_directions.size()||!finite(numerator) )
         throw std::runtime_error("invalid complex magnetization numerator");
     numerator*=m_current_observable_normalization;
-    m_total.mag_Re[t][c]+=std::real(numerator);
-    m_total.mag_Im[t][c]+=std::imag(numerator);
-    m_blocks[m_current_block].mag_Re[t][c]+=std::real(numerator);
-    m_blocks[m_current_block].mag_Im[t][c]+=std::imag(numerator);
+    m_magnetization->Re[t][c]+=std::real(numerator);
+    m_magnetization->Im[t][c]+=std::imag(numerator);
+    m_blocks[m_current_block].magnetization.Re[t][c]+=std::real(numerator);
+    m_blocks[m_current_block].magnetization.Im[t][c]+=std::imag(numerator);
 }
 
 void RunTimeData::accumulate_edge_correlation(
@@ -181,12 +191,15 @@ void RunTimeData::accumulate_edge_correlation(
         throw std::runtime_error("non-finite edge contour-correlation numerator");
     numerator*=m_current_observable_normalization;
     const RealType re=std::real(numerator),im=std::imag(numerator);
-    m_total.correlations.Re[t][p][tau]+=re;
-    m_total.correlations.Im[t][p][tau]+=im;
+    m_correlations->Re[t][p][tau]+=re;
+    m_correlations->Im[t][p][tau]+=im;
     m_blocks[m_current_block].correlations.Re[t][p][tau]+=re;
     m_blocks[m_current_block].correlations.Im[t][p][tau]+=im;
     if( m_pcn )
     {
+        if(m_current_sample.Re.empty())
+            m_current_sample=CorrelationSet{
+                m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
         m_current_sample.Re[t][p][tau]+=re;
         m_current_sample.Im[t][p][tau]+=im;
     }
@@ -194,7 +207,7 @@ void RunTimeData::accumulate_edge_correlation(
 
 void RunTimeData::end_sample()
 {
-    if( m_pcn )
+    if( m_pcn && !m_current_sample.Re.empty() )
         for( size_t t=0;t<m_num_real_points;++t )
             for( size_t p=0;p<m_corr_directions.size();++p )
                 for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau )
@@ -203,7 +216,7 @@ void RunTimeData::end_sample()
                     const RealType im=m_current_sample.Im[t][p][tau];
                     m_sample_squares.Re[t][p][tau]+=re*re;
                     m_sample_squares.Im[t][p][tau]+=im*im;
-                    if(m_modulus_pcn)accumulate_ratio_cross_moments(
+                    accumulate_ratio_cross_moments(
                         (t*m_corr_directions.size()+p)*m_num_imaginary_edge_points+tau,re,im);
                     m_current_sample.Re[t][p][tau]=RealType{};
                     m_current_sample.Im[t][p][tau]=RealType{};
@@ -219,7 +232,7 @@ void RunTimeData::accumulate_ratio_cross_moments(size_t flat,RealType re,RealTyp
     moments[3]+=im*zr;moments[4]+=im*zi;
 }
 
-void RunTimeData::accumulate_sample( const MeasuredSample& sample,
+void RunTimeData::accumulate_sample( const spinDMFT::Functions::MeasuredSample& sample,
                                       const RealType normalization )
 {
     const size_t nt=m_num_real_points,nc=m_corr_directions.size();
@@ -237,8 +250,8 @@ void RunTimeData::accumulate_sample( const MeasuredSample& sample,
             accumulate_magnetization(t,c,sample.magnetization[t*nm+c]);
         for( size_t c=0;c<nc;++c )
         {
-            RealType* total_re=m_total.correlations.Re[t][c].data();
-            RealType* total_im=m_total.correlations.Im[t][c].data();
+            RealType* total_re=m_correlations->Re[t][c].data();
+            RealType* total_im=m_correlations->Im[t][c].data();
             RealType* block_re=block.correlations.Re[t][c].data();
             RealType* block_im=block.correlations.Im[t][c].data();
             RealType* square_re=m_pcn?m_sample_squares.Re[t][c].data():nullptr;
@@ -257,7 +270,7 @@ void RunTimeData::accumulate_sample( const MeasuredSample& sample,
                 {
                     square_re[tau]+=re*re;
                     square_im[tau]+=im*im;
-                    if(m_modulus_pcn)accumulate_ratio_cross_moments(index,re,im);
+                    accumulate_ratio_cross_moments(index,re,im);
                 }
             }
         }
@@ -276,39 +289,34 @@ void RunTimeData::record_complex_field_diagnostics(
     RealType approximation_error,size_t latent_dimension,
     size_t largest_factorization_dimension )
 {
-    covariance_symmetry_errors.push_back(symmetry_error);
-    gaussian_factor_reconstruction_errors.push_back(factor_error);
-    gaussian_covariance_approximation_errors.push_back(approximation_error);
-    gaussian_factor_latent_dimensions.push_back(
+    loop().covariance_symmetry_errors.push_back(symmetry_error);
+    loop().gaussian_factor_reconstruction_errors.push_back(factor_error);
+    loop().gaussian_covariance_approximation_errors.push_back(approximation_error);
+    loop().gaussian_factor_latent_dimensions.push_back(
         static_cast<unsigned int>(latent_dimension));
-    gaussian_largest_factorization_dimensions.push_back(
+    loop().gaussian_largest_factorization_dimensions.push_back(
         static_cast<unsigned int>(largest_factorization_dimension));
 }
 
 void RunTimeData::record_pcn_diagnostics(
     const size_t accepted,const size_t proposed,
-    const size_t rejected_nonpositive,
-    const RealType maximum_relative_imaginary_sampling_weight )
+    const size_t rejected_zero_weight )
 {
     std::array<RealType,3> local{
         static_cast<RealType>(accepted),static_cast<RealType>(proposed),
-        static_cast<RealType>(rejected_nonpositive)};
+        static_cast<RealType>(rejected_zero_weight)};
     std::array<RealType,3> global{};
     MPI_Allreduce(local.data(),global.data(),static_cast<int>(global.size()),
                   mpi_real_type(),MPI_SUM,MPI_COMM_WORLD);
-    RealType global_imaginary{};
-    MPI_Allreduce(&maximum_relative_imaginary_sampling_weight,&global_imaginary,1,
-                  mpi_real_type(),MPI_MAX,MPI_COMM_WORLD);
-    mh_acceptance_rates.push_back(global[1]>RealType{}?global[0]/global[1]:RealType{});
-    mh_nonpositive_rejection_rates.push_back(
+    loop().mh_acceptance_rates.push_back(global[1]>RealType{}?global[0]/global[1]:RealType{});
+    loop().mh_nonpositive_rejection_rates.push_back(
         global[1]>RealType{}?global[2]/global[1]:RealType{});
-    maximum_relative_imaginary_sampling_weights.push_back(global_imaginary);
 }
 
-void RunTimeData::mpi_reduce_and_finalize(
-    CorrelationSet& correlations,MagTen& magnetization_Re,
-    MagTen& magnetization_Im )
+void RunTimeData::mpi_reduce_and_normalize()
 {
+    if(!m_correlations||!m_magnetization)
+        throw std::logic_error("no observable sums are bound for MPI reduction");
     if( m_samples_seen!=m_num_samples_per_core )
         throw std::runtime_error("the production sweep did not accumulate the requested samples");
     const size_t corr_count=m_num_real_points*m_corr_directions.size()
@@ -318,10 +326,10 @@ void RunTimeData::mpi_reduce_and_finalize(
     // Reduce every iteration total in one contiguous collective.  The previous
     // nested-tensor implementation issued O(N_t*N_components) Allreduces.
     const size_t square_count=m_pcn?2*corr_count:0;
-    const size_t cross_count=m_modulus_pcn?3+5*corr_count:0;
+    const size_t cross_count=m_pcn?3+5*corr_count:0;
     std::vector<RealType> totals(
         4+2*(corr_count+mag_count+m_num_real_points)
-          +m_num_real_points+square_count+cross_count);
+          +square_count+cross_count);
     size_t total_offset{};
     totals[total_offset++]=std::real(m_total.partition);
     totals[total_offset++]=std::imag(m_total.partition);
@@ -331,22 +339,20 @@ void RunTimeData::mpi_reduce_and_finalize(
         for( size_t p=0;p<m_corr_directions.size();++p )
             for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau )
             {
-                totals[total_offset++]=m_total.correlations.Re[t][p][tau];
-                totals[total_offset++]=m_total.correlations.Im[t][p][tau];
+                totals[total_offset++]=m_correlations->Re[t][p][tau];
+                totals[total_offset++]=m_correlations->Im[t][p][tau];
             }
     for( size_t t=0;t<m_num_real_points;++t )
         for( size_t c=0;c<m_mag_directions.size();++c )
         {
-            totals[total_offset++]=m_total.mag_Re[t][c];
-            totals[total_offset++]=m_total.mag_Im[t][c];
+            totals[total_offset++]=m_magnetization->Re[t][c];
+            totals[total_offset++]=m_magnetization->Im[t][c];
         }
     for( const ComplexType value:m_total.closure )
     {
         totals[total_offset++]=std::real(value);
         totals[total_offset++]=std::imag(value);
     }
-    for( const RealType value:m_total.closure_abs )
-        totals[total_offset++]=value;
     if( m_pcn )
         for( size_t t=0;t<m_num_real_points;++t )
             for( size_t p=0;p<m_corr_directions.size();++p )
@@ -355,7 +361,7 @@ void RunTimeData::mpi_reduce_and_finalize(
                     totals[total_offset++]=m_sample_squares.Re[t][p][tau];
                     totals[total_offset++]=m_sample_squares.Im[t][p][tau];
                 }
-    if(m_modulus_pcn)
+    if(m_pcn)
     {
         for(const auto value:m_partition_second_moments)totals[total_offset++]=value;
         for(const auto& moments:m_ratio_cross_moments)
@@ -374,22 +380,20 @@ void RunTimeData::mpi_reduce_and_finalize(
         for( size_t p=0;p<m_corr_directions.size();++p )
             for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau )
             {
-                m_total.correlations.Re[t][p][tau]=totals[total_offset++];
-                m_total.correlations.Im[t][p][tau]=totals[total_offset++];
+                m_correlations->Re[t][p][tau]=totals[total_offset++];
+                m_correlations->Im[t][p][tau]=totals[total_offset++];
             }
     for( size_t t=0;t<m_num_real_points;++t )
         for( size_t c=0;c<m_mag_directions.size();++c )
         {
-            m_total.mag_Re[t][c]=totals[total_offset++];
-            m_total.mag_Im[t][c]=totals[total_offset++];
+            m_magnetization->Re[t][c]=totals[total_offset++];
+            m_magnetization->Im[t][c]=totals[total_offset++];
         }
     for( auto& value:m_total.closure )
     {
         value={totals[total_offset],totals[total_offset+1]};
         total_offset+=2;
     }
-    for( auto& value:m_total.closure_abs )
-        value=totals[total_offset++];
     if( m_pcn )
         for( size_t t=0;t<m_num_real_points;++t )
             for( size_t p=0;p<m_corr_directions.size();++p )
@@ -398,7 +402,7 @@ void RunTimeData::mpi_reduce_and_finalize(
                     m_sample_squares.Re[t][p][tau]=totals[total_offset++];
                     m_sample_squares.Im[t][p][tau]=totals[total_offset++];
                 }
-    if(m_modulus_pcn)
+    if(m_pcn)
     {
         for(auto& value:m_partition_second_moments)value=totals[total_offset++];
         for(auto& moments:m_ratio_cross_moments)
@@ -406,19 +410,13 @@ void RunTimeData::mpi_reduce_and_finalize(
     }
     if( total_offset!=totals.size() )
         throw std::logic_error("internal unpacked-total size mismatch");
-    if( (!m_pcn||m_modulus_pcn)&&!denominator_resolved(m_total.partition,m_total.partition_abs) )
+    if( !denominator_resolved(m_total.partition,m_total.partition_abs) )
         throw std::runtime_error("the complex Z_M sum is statistically/numerically unresolved");
-    if( m_closed_contour_observable_normalization
-        &&!denominator_resolved(
-            m_total.closure.back(),m_total.closure_abs.back()) )
-        throw std::runtime_error(
-            "the final closed-contour D(T) sum is statistically/numerically unresolved");
-
-    partition_sum_Re.push_back(std::real(m_total.partition));
-    partition_sum_Im.push_back(std::imag(m_total.partition));
-    partition_abs_sums.push_back(m_total.partition_abs);
-    average_phase_magnitudes.push_back(std::abs(m_total.partition)/m_total.partition_abs);
-    effective_sample_sizes.push_back(m_total.partition_abs_sq>RealType{0.}
+    loop().partition_sum_Re.push_back(std::real(m_total.partition));
+    loop().partition_sum_Im.push_back(std::imag(m_total.partition));
+    loop().partition_abs_sums.push_back(m_total.partition_abs);
+    loop().average_phase_magnitudes.push_back(std::abs(m_total.partition)/m_total.partition_abs);
+    loop().effective_sample_sizes.push_back(m_total.partition_abs_sq>RealType{0.}
         ?std::norm(m_total.partition)/m_total.partition_abs_sq:RealType{0.});
 
     const RealType global_sample_count=static_cast<RealType>(
@@ -428,72 +426,41 @@ void RunTimeData::mpi_reduce_and_finalize(
         return exact_complex_ratio(
             numerator,m_total.partition,m_total.partition_abs);
     };
-    auto observable_estimate=[&]( const ComplexType numerator )
-    {
-        return m_closed_contour_observable_normalization
-            ?exact_complex_ratio(
-                numerator,m_total.closure.back(),m_total.closure_abs.back())
-            :estimate(numerator);
-    };
-
-    correlations=CorrelationSet{m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
-    for( size_t t=0;t<m_num_real_points;++t )
-        for( size_t p=0;p<m_corr_directions.size();++p )
-        {
-            for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau )
-            {
-                const auto ratio=observable_estimate(
-                    edge_value(m_total.correlations,t,p,tau));
-                correlations.Re[t][p][tau]=std::real(ratio);
-                correlations.Im[t][p][tau]=std::imag(ratio);
-            }
-        }
-
-    magnetization_Re=MagTen{m_symmetry,m_num_real_points};
-    magnetization_Im=MagTen{m_symmetry,m_num_real_points};
-    magnetization_time_Re_stds=MagTen{m_symmetry,m_num_real_points};
-    magnetization_time_Im_stds=MagTen{m_symmetry,m_num_real_points};
-    for( size_t t=0;t<m_num_real_points;++t )
-        for( size_t c=0;c<m_mag_directions.size();++c )
-        {
-            const ComplexType numerator{m_total.mag_Re[t][c],m_total.mag_Im[t][c]};
-            const auto ratio=observable_estimate(numerator);
-            magnetization_Re[t][c]=std::real(ratio);
-            magnetization_Im[t][c]=std::imag(ratio);
-        }
-    closed_contour_ratio_Re.resize(m_num_real_points);
-    closed_contour_ratio_Im.resize(m_num_real_points);
+    loop().magnetization_time_stds=Magnetization{m_symmetry,m_num_real_points};
+    loop().closed_contour_ratio_Re.resize(m_num_real_points);
+    loop().closed_contour_ratio_Im.resize(m_num_real_points);
     RealType closure_residual{};
     for( size_t t=0;t<m_num_real_points;++t )
     {
         const auto ratio=estimate(m_total.closure[t]);
-        closed_contour_ratio_Re[t]=std::real(ratio);
-        closed_contour_ratio_Im[t]=std::imag(ratio);
+        loop().closed_contour_ratio_Re[t]=std::real(ratio);
+        loop().closed_contour_ratio_Im[t]=std::imag(ratio);
         closure_residual=std::max(closure_residual,std::abs(ratio-ComplexType{1.,0.}));
     }
-    denominator_constancy_residuals.push_back(closure_residual);
+    loop().denominator_constancy_residuals.push_back(closure_residual);
 
-    contour_sample_stds=CorrelationSet{
+    loop().contour_sample_stds=CorrelationSet{
         m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
-    auto& standard_errors=contour_sample_stds;
-    closed_contour_residual_Re_sample_stds.assign(m_num_real_points,RealType{});
-    closed_contour_residual_Im_sample_stds.assign(m_num_real_points,RealType{});
-    closed_contour_residual_abs_sample_stds.assign(m_num_real_points,RealType{});
+    auto& standard_errors=loop().contour_sample_stds;
+    loop().closed_contour_residual_Re_sample_stds.assign(m_num_real_points,RealType{});
+    loop().closed_contour_residual_Im_sample_stds.assign(m_num_real_points,RealType{});
+    loop().closed_contour_residual_abs_sample_stds.assign(m_num_real_points,RealType{});
 
     const size_t pooled=m_num_blocks*m_num_cores;
     if( pooled<2 )
     {
         if( m_pcn )
         {
-            blocking_curve_block_lengths.assign(
+            loop().blocking_curve_block_lengths.assign(
                 1,static_cast<RealType>(m_samples_per_block));
-            blocking_curve_mean_errors.assign(1,RealType{});
-            blocking_curve_max_errors.assign(1,RealType{});
-            maximum_tau_int.push_back(RealType{});
-            block_length_to_tau_ratios.push_back(
+            loop().blocking_curve_mean_errors.assign(1,RealType{});
+            loop().blocking_curve_max_errors.assign(1,RealType{});
+            loop().maximum_tau_int.push_back(RealType{});
+            loop().block_length_to_tau_ratios.push_back(
                 std::numeric_limits<RealType>::infinity());
-            effective_sample_sizes.back()=global_sample_count;
+            loop().effective_sample_sizes.back()=global_sample_count;
         }
+        normalize_observables();
         return;
     }
 
@@ -504,22 +471,22 @@ void RunTimeData::mpi_reduce_and_finalize(
         // retain the largest standard error among scales with at least eight
         // pooled batches.  A still-rising stored blocking curve signals that
         // the production chain is too short for a resolved error estimate.
-        constexpr size_t moment_stride=4;
+        constexpr size_t moment_stride=2;
         constexpr size_t minimum_pooled_batches=8;
         const size_t corr_base=0;
         const size_t mag_base=corr_count;
         const size_t closure_base=mag_base+mag_count;
         const size_t quantity_count=closure_base+m_num_real_points;
-        blocking_curve_block_lengths.clear();
-        blocking_curve_mean_errors.clear();
-        blocking_curve_max_errors.clear();
+        loop().blocking_curve_block_lengths.clear();
+        loop().blocking_curve_mean_errors.clear();
+        loop().blocking_curve_max_errors.clear();
 
         auto add_value=[]( std::vector<RealType>& moments,
                            const size_t quantity,const ComplexType value )
         {
             const size_t q=moment_stride*quantity;
             moments[q]+=std::real(value);
-            moments[q+2]+=std::imag(value);
+            moments[q+1]+=std::imag(value);
         };
         auto component_error=[]( const RealType centered_square_sum,
                                  const RealType count )
@@ -534,33 +501,19 @@ void RunTimeData::mpi_reduce_and_finalize(
             const size_t local_groups=m_num_blocks/merge;
             const size_t global_groups=local_groups*m_num_cores;
             std::vector<RealType> moments(moment_stride*quantity_count,RealType{});
-            auto group_partition_estimate=[&](
-                const ComplexType numerator,const size_t first )
-            {
-                ComplexType denominator{};
-                RealType denominator_abs{};
-                for( size_t b=0;b<merge;++b )
+            std::vector<ComplexType> group_partitions(local_groups);
+            std::vector<RealType> group_absolute_weights(local_groups,RealType{});
+            for(size_t group=0;group<local_groups;++group)
+                for(size_t b=0;b<merge;++b)
                 {
-                    denominator+=m_blocks[first+b].partition;
-                    denominator_abs+=m_blocks[first+b].partition_abs;
+                    const auto& block=m_blocks[group*merge+b];
+                    group_partitions[group]+=block.partition;
+                    group_absolute_weights[group]+=block.partition_abs;
                 }
-                return exact_complex_ratio(
-                    numerator,denominator,denominator_abs);
-            };
-            auto group_observable_estimate=[&](
-                const ComplexType numerator,const size_t first )
+            const auto group_partition_estimate=[&](ComplexType numerator,size_t group)
             {
-                if( !m_closed_contour_observable_normalization )
-                    return group_partition_estimate(numerator,first);
-                ComplexType denominator{};
-                RealType denominator_abs{};
-                for( size_t b=0;b<merge;++b )
-                {
-                    denominator+=m_blocks[first+b].closure.back();
-                    denominator_abs+=m_blocks[first+b].closure_abs.back();
-                }
-                return exact_complex_ratio(
-                    numerator,denominator,denominator_abs);
+                return exact_complex_ratio(numerator,group_partitions[group],
+                    group_absolute_weights[group]);
             };
             for( size_t group=0;group<local_groups;++group )
             {
@@ -575,7 +528,7 @@ void RunTimeData::mpi_reduce_and_finalize(
                                 sum+=edge_value(
                                     m_blocks[first+b].correlations,t,p,tau);
                             add_value(moments,corr_base+flat,
-                                      group_observable_estimate(sum,first));
+                                      group_partition_estimate(sum,group));
                         }
                 for( size_t t=0;t<m_num_real_points;++t )
                     for( size_t c=0;c<m_mag_directions.size();++c )
@@ -583,13 +536,13 @@ void RunTimeData::mpi_reduce_and_finalize(
                         RealType re{},im{};
                         for( size_t b=0;b<merge;++b )
                         {
-                            re+=m_blocks[first+b].mag_Re[t][c];
-                            im+=m_blocks[first+b].mag_Im[t][c];
+                            re+=m_blocks[first+b].magnetization.Re[t][c];
+                            im+=m_blocks[first+b].magnetization.Im[t][c];
                         }
                         const size_t flat_mag=t*m_mag_directions.size()+c;
                         add_value(moments,mag_base+flat_mag,
-                            group_observable_estimate(
-                                ComplexType{re,im},first));
+                            group_partition_estimate(
+                                ComplexType{re,im},group));
                     }
                 for( size_t t=0;t<m_num_real_points;++t )
                 {
@@ -597,7 +550,7 @@ void RunTimeData::mpi_reduce_and_finalize(
                     for( size_t b=0;b<merge;++b )
                         sum+=m_blocks[first+b].closure[t];
                     add_value(moments,closure_base+t,
-                              group_partition_estimate(sum,first));
+                              group_partition_estimate(sum,group));
                 }
             }
             mpi_sum_buffer(moments);
@@ -615,9 +568,9 @@ void RunTimeData::mpi_reduce_and_finalize(
             {
                 const size_t q=moment_stride*quantity;
                 const RealType delta_re=std::real(value)-moments[q]/count;
-                const RealType delta_im=std::imag(value)-moments[q+2]/count;
-                centered_moments[q+1]+=delta_re*delta_re;
-                centered_moments[q+3]+=delta_im*delta_im;
+                const RealType delta_im=std::imag(value)-moments[q+1]/count;
+                centered_moments[q]+=delta_re*delta_re;
+                centered_moments[q+1]+=delta_im*delta_im;
             };
             for( size_t group=0;group<local_groups;++group )
             {
@@ -634,7 +587,7 @@ void RunTimeData::mpi_reduce_and_finalize(
                                     m_blocks[first+b].correlations,t,p,tau);
                             add_centered_value(
                                 corr_base+flat,
-                                group_observable_estimate(sum,first));
+                                group_partition_estimate(sum,group));
                         }
                 for( size_t t=0;t<m_num_real_points;++t )
                     for( size_t c=0;c<m_mag_directions.size();++c )
@@ -642,13 +595,13 @@ void RunTimeData::mpi_reduce_and_finalize(
                         RealType re{},im{};
                         for( size_t b=0;b<merge;++b )
                         {
-                            re+=m_blocks[first+b].mag_Re[t][c];
-                            im+=m_blocks[first+b].mag_Im[t][c];
+                            re+=m_blocks[first+b].magnetization.Re[t][c];
+                            im+=m_blocks[first+b].magnetization.Im[t][c];
                         }
                         add_centered_value(
                             mag_base+t*m_mag_directions.size()+c,
-                            group_observable_estimate(
-                                ComplexType{re,im},first));
+                            group_partition_estimate(
+                                ComplexType{re,im},group));
                     }
                 for( size_t t=0;t<m_num_real_points;++t )
                 {
@@ -656,7 +609,7 @@ void RunTimeData::mpi_reduce_and_finalize(
                     for( size_t b=0;b<merge;++b )
                         sum+=m_blocks[first+b].closure[t];
                     add_centered_value(
-                        closure_base+t,group_partition_estimate(sum,first));
+                        closure_base+t,group_partition_estimate(sum,group));
                 }
             }
             mpi_sum_buffer(centered_moments);
@@ -664,8 +617,8 @@ void RunTimeData::mpi_reduce_and_finalize(
             {
                 const size_t q=moment_stride*quantity;
                 return std::array<RealType,2>{
-                    component_error(centered_moments[q+1],count),
-                    component_error(centered_moments[q+3],count)};
+                    component_error(centered_moments[q],count),
+                    component_error(centered_moments[q+1],count)};
             };
             const bool use_for_report=merge==1||global_groups>=minimum_pooled_batches;
             RealType curve_sum{},curve_max{}; size_t curve_count{};
@@ -697,82 +650,66 @@ void RunTimeData::mpi_reduce_and_finalize(
                     {
                         const auto value=errors(
                             mag_base+t*m_mag_directions.size()+c);
-                        magnetization_time_Re_stds[t][c]=std::max(
-                            magnetization_time_Re_stds[t][c],value[0]);
-                        magnetization_time_Im_stds[t][c]=std::max(
-                            magnetization_time_Im_stds[t][c],value[1]);
+                        loop().magnetization_time_stds.Re[t][c]=std::max(
+                            loop().magnetization_time_stds.Re[t][c],value[0]);
+                        loop().magnetization_time_stds.Im[t][c]=std::max(
+                            loop().magnetization_time_stds.Im[t][c],value[1]);
                     }
                 for( size_t t=0;t<m_num_real_points;++t )
                 {
                     const auto value=errors(closure_base+t);
-                    closed_contour_residual_Re_sample_stds[t]=std::max(
-                        closed_contour_residual_Re_sample_stds[t],value[0]);
-                    closed_contour_residual_Im_sample_stds[t]=std::max(
-                        closed_contour_residual_Im_sample_stds[t],value[1]);
-                    closed_contour_residual_abs_sample_stds[t]=std::hypot(
-                        closed_contour_residual_Re_sample_stds[t],
-                        closed_contour_residual_Im_sample_stds[t]);
+                    loop().closed_contour_residual_Re_sample_stds[t]=std::max(
+                        loop().closed_contour_residual_Re_sample_stds[t],value[0]);
+                    loop().closed_contour_residual_Im_sample_stds[t]=std::max(
+                        loop().closed_contour_residual_Im_sample_stds[t],value[1]);
+                    loop().closed_contour_residual_abs_sample_stds[t]=std::hypot(
+                        loop().closed_contour_residual_Re_sample_stds[t],
+                        loop().closed_contour_residual_Im_sample_stds[t]);
                 }
             }
-            blocking_curve_block_lengths.push_back(static_cast<RealType>(
+            loop().blocking_curve_block_lengths.push_back(static_cast<RealType>(
                 merge*m_samples_per_block));
-            blocking_curve_mean_errors.push_back(
+            loop().blocking_curve_mean_errors.push_back(
                 curve_count?curve_sum/static_cast<RealType>(curve_count):RealType{});
-            blocking_curve_max_errors.push_back(curve_max);
+            loop().blocking_curve_max_errors.push_back(curve_max);
         }
 
-        contour_tau_int=CorrelationSet{
+        loop().contour_tau_int=CorrelationSet{
             m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
         RealType largest_tau{};
         for( size_t t=0;t<m_num_real_points;++t )
             for( size_t p=0;p<m_corr_directions.size();++p )
                 for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau )
                 {
-                    // These squares contain individually reweighted
-                    // numerators, so center them on that arithmetic mean. The
-                    // blocking error above uses the paired complex ratios.
-                    const RealType mean_re=
-                        m_total.correlations.Re[t][p][tau]/global_sample_count;
-                    const RealType mean_im=
-                        m_total.correlations.Im[t][p][tau]/global_sample_count;
-                    RealType var_re=std::max(RealType{},
-                        m_sample_squares.Re[t][p][tau]/global_sample_count
-                        -mean_re*mean_re);
-                    RealType var_im=std::max(RealType{},
-                        m_sample_squares.Im[t][p][tau]/global_sample_count
-                        -mean_im*mean_im);
-                    if(m_modulus_pcn)
+                    // The ratio influence includes fluctuations of the
+                    // complex phase denominator. Numerator variance alone
+                    // is not invariant to likelihood normalization and
+                    // gives incorrect tau/ESS for phase reweighting.
+                    const size_t flat=(t*m_corr_directions.size()+p)*m_num_imaginary_edge_points+tau;
+                    const auto& cross=m_ratio_cross_moments[flat];
+                    const ComplexType inv=global_sample_count/m_total.partition;
+                    const ComplexType g=estimate(edge_value(*m_correlations,t,p,tau));
+                    const ComplexType gi=g*inv;
+                    const std::array<std::array<RealType,4>,4> second{{
+                        {{m_sample_squares.Re[t][p][tau],cross[0],cross[1],cross[2]}},
+                        {{cross[0],m_sample_squares.Im[t][p][tau],cross[3],cross[4]}},
+                        {{cross[1],cross[3],m_partition_second_moments[0],m_partition_second_moments[2]}},
+                        {{cross[2],cross[4],m_partition_second_moments[2],m_partition_second_moments[1]}}
+                    }};
+                    const auto influence_variance=[&](const std::array<RealType,4>& coefficients)
                     {
-                        // The ratio influence includes fluctuations of the
-                        // complex phase denominator. Numerator variance alone
-                        // is not invariant to likelihood normalization and
-                        // gives incorrect tau/ESS for phase reweighting.
-                        const size_t flat=(t*m_corr_directions.size()+p)*m_num_imaginary_edge_points+tau;
-                        const auto& cross=m_ratio_cross_moments[flat];
-                        const ComplexType inv=global_sample_count/m_total.partition;
-                        const ComplexType g=edge_value(correlations,t,p,tau);
-                        const ComplexType gi=g*inv;
-                        const std::array<std::array<RealType,4>,4> second{{
-                            {{m_sample_squares.Re[t][p][tau],cross[0],cross[1],cross[2]}},
-                            {{cross[0],m_sample_squares.Im[t][p][tau],cross[3],cross[4]}},
-                            {{cross[1],cross[3],m_partition_second_moments[0],m_partition_second_moments[2]}},
-                            {{cross[2],cross[4],m_partition_second_moments[2],m_partition_second_moments[1]}}
-                        }};
-                        const auto influence_variance=[&](const std::array<RealType,4>& coefficients)
+                        long double variance{},scale{};
+                        for(size_t i=0;i<4;++i)for(size_t j=0;j<4;++j)
                         {
-                            long double variance{},scale{};
-                            for(size_t i=0;i<4;++i)for(size_t j=0;j<4;++j)
-                            {
-                                const long double term=static_cast<long double>(coefficients[i])
-                                    *coefficients[j]*second[i][j]/global_sample_count;
-                                variance+=term;scale+=std::abs(term);
-                            }
-                            if(variance<=100*std::numeric_limits<RealType>::epsilon()*scale)return RealType{};
-                            return static_cast<RealType>(variance);
-                        };
-                        var_re=influence_variance({std::real(inv),-std::imag(inv),-std::real(gi),std::imag(gi)});
-                        var_im=influence_variance({std::imag(inv),std::real(inv),-std::imag(gi),-std::real(gi)});
-                    }
+                            const long double term=static_cast<long double>(coefficients[i])
+                                *coefficients[j]*second[i][j]/global_sample_count;
+                            variance+=term;scale+=std::abs(term);
+                        }
+                        if(variance<=100*std::numeric_limits<RealType>::epsilon()*scale)return RealType{};
+                        return static_cast<RealType>(variance);
+                    };
+                    const RealType var_re=influence_variance({std::real(inv),-std::imag(inv),-std::real(gi),std::imag(gi)});
+                    const RealType var_im=influence_variance({std::imag(inv),std::real(inv),-std::imag(gi),-std::real(gi)});
                     const RealType tau_re=var_re>RealType{}
                         ?RealType{0.5}*standard_errors.Re[t][p][tau]
                          *standard_errors.Re[t][p][tau]*global_sample_count/var_re
@@ -781,17 +718,18 @@ void RunTimeData::mpi_reduce_and_finalize(
                         ?RealType{0.5}*standard_errors.Im[t][p][tau]
                          *standard_errors.Im[t][p][tau]*global_sample_count/var_im
                         :RealType{};
-                    contour_tau_int.Re[t][p][tau]=tau_re;
-                    contour_tau_int.Im[t][p][tau]=tau_im;
+                    loop().contour_tau_int.Re[t][p][tau]=tau_re;
+                    loop().contour_tau_int.Im[t][p][tau]=tau_im;
                     largest_tau=std::max({largest_tau,tau_re,tau_im});
                 }
-        maximum_tau_int.push_back(largest_tau);
-        effective_sample_sizes.back()=largest_tau>RealType{}
+        loop().maximum_tau_int.push_back(largest_tau);
+        loop().effective_sample_sizes.back()=largest_tau>RealType{}
             ?global_sample_count/(RealType{2.}*largest_tau)
             :global_sample_count;
-        block_length_to_tau_ratios.push_back(largest_tau>RealType{}
+        loop().block_length_to_tau_ratios.push_back(largest_tau>RealType{}
             ?static_cast<RealType>(m_samples_per_block)/largest_tau
             :std::numeric_limits<RealType>::infinity());
+        normalize_observables();
         return;
     }
 
@@ -826,18 +764,6 @@ void RunTimeData::mpi_reduce_and_finalize(
             m_total.partition-block.partition,
             m_total.partition_abs-block.partition_abs);
     };
-    auto observable_block_ratio=[&](
-        const ComplexType total_numerator,
-        const ComplexType block_numerator,const ComplexBlockSums& block )
-    {
-        return m_closed_contour_observable_normalization
-            ?exact_complex_ratio(
-                total_numerator-block_numerator,
-                m_total.closure.back()-block.closure.back(),
-                m_total.closure_abs.back()-block.closure_abs.back())
-            :block_ratio(total_numerator,block_numerator,block);
-    };
-
     for( const auto& block:m_blocks )
     {
         size_t flat{};
@@ -846,11 +772,11 @@ void RunTimeData::mpi_reduce_and_finalize(
                 for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau,++flat )
                 {
                     const ComplexType total=edge_value(
-                        m_total.correlations,t,p,tau);
-                    const ComplexType replicate=observable_block_ratio(
+                        (*m_correlations),t,p,tau);
+                    const ComplexType replicate=block_ratio(
                         total,edge_value(block.correlations,t,p,tau),block);
                     add_moment(corr_base+flat,replicate,
-                        observable_estimate(total));
+                        estimate(total));
                 }
 
         for( size_t c=0;c<m_mag_directions.size();++c )
@@ -859,12 +785,12 @@ void RunTimeData::mpi_reduce_and_finalize(
             {
                 const size_t flat_mag=t*m_mag_directions.size()+c;
                 const ComplexType total{
-                    m_total.mag_Re[t][c],m_total.mag_Im[t][c]};
+                    m_magnetization->Re[t][c],m_magnetization->Im[t][c]};
                 const ComplexType block_value{
-                    block.mag_Re[t][c],block.mag_Im[t][c]};
-                const ComplexType current=observable_block_ratio(
+                    block.magnetization.Re[t][c],block.magnetization.Im[t][c]};
+                const ComplexType current=block_ratio(
                     total,block_value,block);
-                const ComplexType center=observable_estimate(total);
+                const ComplexType center=estimate(total);
                 add_moment(mag_base+flat_mag,current,center);
             }
         }
@@ -912,23 +838,48 @@ void RunTimeData::mpi_reduce_and_finalize(
         {
             const size_t flat_mag=t*m_mag_directions.size()+c;
             const auto mag_errors=errors(mag_base+flat_mag);
-            magnetization_time_Re_stds[t][c]=mag_errors[0];
-            magnetization_time_Im_stds[t][c]=mag_errors[1];
+            loop().magnetization_time_stds.Re[t][c]=mag_errors[0];
+            loop().magnetization_time_stds.Im[t][c]=mag_errors[1];
         }
     for( size_t t=0;t<m_num_real_points;++t )
     {
         const auto value=errors(closure_base+t);
-        closed_contour_residual_Re_sample_stds[t]=value[0];
-        closed_contour_residual_Im_sample_stds[t]=value[1];
-        closed_contour_residual_abs_sample_stds[t]=value[2];
+        loop().closed_contour_residual_Re_sample_stds[t]=value[0];
+        loop().closed_contour_residual_Im_sample_stds[t]=value[1];
+        loop().closed_contour_residual_abs_sample_stds[t]=value[2];
     }
+    normalize_observables();
+}
+
+void RunTimeData::normalize_observables()
+{
+    for(size_t t=0;t<m_num_real_points;++t)
+    {
+        for(size_t p=0;p<m_corr_directions.size();++p)
+            for(size_t tau=0;tau<m_num_imaginary_edge_points;++tau)
+            {
+                const ComplexType value=exact_complex_ratio(
+                    edge_value(*m_correlations,t,p,tau),m_total.partition,m_total.partition_abs);
+                m_correlations->Re[t][p][tau]=std::real(value);
+                m_correlations->Im[t][p][tau]=std::imag(value);
+            }
+        for(size_t c=0;c<m_mag_directions.size();++c)
+        {
+            const ComplexType value=exact_complex_ratio(
+                ComplexType{m_magnetization->Re[t][c],m_magnetization->Im[t][c]},
+                m_total.partition,m_total.partition_abs);
+            m_magnetization->Re[t][c]=std::real(value);
+            m_magnetization->Im[t][c]=std::imag(value);
+        }
+    }
+    m_correlations=nullptr;m_magnetization=nullptr;
 }
 
 void RunTimeData::record_iteration_error(
     RealType absolute_error,RealType standardized_error )
 {
-    absolute_iteration_errors.push_back(absolute_error);
-    standardized_iteration_errors.push_back(standardized_error);
+    loop().absolute_iteration_errors.push_back(absolute_error);
+    loop().standardized_iteration_errors.push_back(standardized_error);
 }
 
 void RunTimeData::record_matsubara_iteration_error(
@@ -938,7 +889,7 @@ void RunTimeData::record_matsubara_iteration_error(
 {
     // Match spinDMFT_cplx_field: maximum over component-wise mean absolute
     // correlation changes (Re/Im separately) and real magnetization changes.
-    // Evaluate the raw output before mixing; sampling errors do not set the gate.
+    // Sampling errors do not set the gate.
     RealType largest{};
     auto scan=[&]( const CorrTen& old_values, const CorrTen& raw_values )
     {
@@ -966,18 +917,15 @@ void RunTimeData::record_matsubara_iteration_error(
 
 bool RunTimeData::diagnostics_pass( const MagTen& magnetization_Im ) const
 {
-    if( covariance_symmetry_errors.empty()
-        ||gaussian_factor_reconstruction_errors.empty()||average_phase_magnitudes.empty() ) return false;
-    if( covariance_symmetry_errors.back()>m_covariance_tolerance
-        ||gaussian_factor_reconstruction_errors.back()>m_takagi_tolerance
-        ||average_phase_magnitudes.back()<m_minimum_phase_magnitude ) return false;
-    // if( m_pcn&&(maximum_relative_imaginary_sampling_weights.empty()
-    //     ||maximum_relative_imaginary_sampling_weights.back()
-    //       >m_partition_imaginary_tolerance) ) return false;
+    if( loop().covariance_symmetry_errors.empty()
+        ||loop().gaussian_factor_reconstruction_errors.empty()||loop().average_phase_magnitudes.empty() ) return false;
+    if( loop().covariance_symmetry_errors.back()>m_covariance_tolerance
+        ||loop().gaussian_factor_reconstruction_errors.back()>m_takagi_tolerance
+        ||loop().average_phase_magnitudes.back()<m_minimum_phase_magnitude ) return false;
     for( size_t c=0;c<m_mag_directions.size();++c )
         if( std::abs(magnetization_Im.front()[c])>
             m_iteration_error_sigma_threshold*
-            magnetization_time_Im_stds.front()[c] ) return false;
+            loop().magnetization_time_stds.Im.front()[c] ) return false;
     return true;
 }
 
@@ -989,9 +937,9 @@ void RunTimeData::finalize_iteration_step()
           <<print::quantity_to_output_line(36,m_harmonic_bath
              ?"initial-guess difference (unused)":m_matsubara_preparation
                  ?"raw Matsubara absolute residual":"raw complex fixed-point residual",
-             print::round_value_to_string(absolute_iteration_errors.back(),m_num_print_digits))
+             print::round_value_to_string(loop().absolute_iteration_errors.back(),m_num_print_digits))
           <<print::quantity_to_output_line(36,"largest standardized residual",
-             print::round_value_to_string(standardized_iteration_errors.back(),m_num_print_digits))
+             print::round_value_to_string(loop().standardized_iteration_errors.back(),m_num_print_digits))
           <<print::quantity_to_output_line(36,m_matsubara_preparation
              ?"absolute Matsubara threshold":"standardized residual threshold",
              print::round_value_to_string(m_matsubara_preparation
@@ -999,55 +947,51 @@ void RunTimeData::finalize_iteration_step()
                  m_num_print_digits))
           <<print::quantity_to_output_line(36,m_pcn
              ?"sampled-Z phase magnitude":"average phase magnitude",
-             print::round_value_to_string(average_phase_magnitudes.back(),m_num_print_digits))
+             print::round_value_to_string(loop().average_phase_magnitudes.back(),m_num_print_digits))
           <<print::quantity_to_output_line(36,m_pcn
              ?"minimum autocorrelation N_eff":"complex-weight N_eff",
-             print::round_value_to_string(effective_sample_sizes.back(),m_num_print_digits));
-        if( m_fft )
-            std::cout<<print::quantity_to_output_line(36,"Gaussian covariance truncation",
-                 print::round_value_to_string(
-                     gaussian_covariance_approximation_errors.back(),m_num_print_digits));
+             print::round_value_to_string(loop().effective_sample_sizes.back(),m_num_print_digits));
         std::cout
           <<print::quantity_to_output_line(36,"largest Gaussian factor block",
-             std::to_string(gaussian_largest_factorization_dimensions.back()))
+             std::to_string(loop().gaussian_largest_factorization_dimensions.back()))
           <<print::quantity_to_output_line(36,"closed-contour trace residual",
-             print::round_value_to_string(denominator_constancy_residuals.back(),m_num_print_digits));
+             print::round_value_to_string(loop().denominator_constancy_residuals.back(),m_num_print_digits));
         if( m_pcn )
         {
             std::cout
               <<print::quantity_to_output_line(36,"MH acceptance rate",
-                 print::round_value_to_string(mh_acceptance_rates.back(),m_num_print_digits))
-              <<print::quantity_to_output_line(36,m_modulus_pcn?"zero-modulus rejection rate":"nonpositive-weight rejection rate",
+                 print::round_value_to_string(loop().mh_acceptance_rates.back(),m_num_print_digits))
+              <<print::quantity_to_output_line(36,"zero-modulus rejection rate",
                  print::round_value_to_string(
-                     mh_nonpositive_rejection_rates.back(),m_num_print_digits));
+                     loop().mh_nonpositive_rejection_rates.back(),m_num_print_digits));
         }
     }
-    ++num_Iterations;
+    ++loop().num_Iterations;
 }
 
 bool RunTimeData::terminate( const MagTen& magnetization_Im )
 {
     if( !m_self_consistency )
     {
-        termination=m_harmonic_bath
+        loop().termination=m_harmonic_bath
             ?"prescribed harmonic bath":"no self consistency";
         return true;
     }
     const bool fixed_point_converged=m_matsubara_preparation
-        ?absolute_iteration_errors.back()<m_matsubara_iteration_error_threshold
+        ?loop().absolute_iteration_errors.back()<m_matsubara_iteration_error_threshold
         // An exploding Monte Carlo variance can make any update look small
         // in sigma units. Also require a sub-spin-scale absolute update.
-        :standardized_iteration_errors.back()<m_iteration_error_sigma_threshold
-            &&absolute_iteration_errors.back()<m_real_time_residual_scale;
+        :loop().standardized_iteration_errors.back()<m_iteration_error_sigma_threshold
+            &&loop().absolute_iteration_errors.back()<m_real_time_residual_scale;
     if( fixed_point_converged&&diagnostics_pass(magnetization_Im) )
     {
         print::print_R0(m_my_rank,"\033[1;32mTerminating: fixed point and contour diagnostics converged.\033[0m\n");
-        termination="by convergence"; return true;
+        loop().termination="by convergence"; return true;
     }
-    if( num_Iterations>=m_iteration_limit )
+    if( loop().num_Iterations>=m_iteration_limit )
     {
         print::print_R0(m_my_rank,"\033[1;31mTerminating because the iteration limit was reached.\033[0m\n");
-        termination="by iteration limit"; return true;
+        loop().termination="by iteration limit"; return true;
     }
     return false;
 }

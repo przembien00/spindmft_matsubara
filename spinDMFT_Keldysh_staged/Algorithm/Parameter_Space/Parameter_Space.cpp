@@ -134,9 +134,6 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "numImagTimeSteps", bpo::value<size_t>()->default_value(size_t{5}),
     "set the number of imaginary-time steps on [0,beta]"
     )(
-    "dt", bpo::value<RealType>()->default_value(RealType{0.1}),
-    "set the step width for the equidistant time discretization (time in units of hbar/JQ)"
-    )(
     "realTimeSubsteps", bpo::value<std::string>()->default_value("1"),
     "positive Strang substeps per measurement interval (default 1); refines the joint field grid"
   )(
@@ -165,32 +162,8 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "mhBurnIn", bpo::value<size_t>()->default_value(size_t{100}),
     "pCN burn-in steps per MPI chain after every bath/self-consistency update"
     )(
-    "partitionImagTolerance", bpo::value<RealType>()->default_value(RealType{1e-8}),
-    "inherited Re-weight pCN diagnostic tolerance; staged |Z_M| pCN uses average phase diagnostics instead"
-    )(
     "numBlocks", bpo::value<size_t>()->default_value(size_t{32}),
     "number of contiguous blocks per core; pCN errors use a multi-scale batch-means plateau"
-    )(
-    "gaussianFactorization", bpo::value<std::string>()->default_value("dense"),
-    "complex pseudo-covariance factorization: dense (required by the staged solver)"
-    )(
-    "gaussianWeightM", bpo::value<RealType>()->default_value(RealType{1.}),
-    "positive Matsubara noise weight for weighted-dense"
-    )(
-    "gaussianWeightEta", bpo::value<RealType>()->default_value(RealType{2.}),
-    "positive eta=(V_++V_-)/2 noise weight for weighted-dense"
-    )(
-    "gaussianWeightKappa", bpo::value<RealType>()->default_value(RealType{8.}),
-    "positive kappa=(V_+-V_-)/2 noise weight for weighted-dense; (M,eta,kappa)=(1,2,2) recovers canonical dense"
-    )(
-    "fftCrossFrequencyCutoff", bpo::value<RealType>()->default_value(RealType{-1.}),
-    "for gaussianFactorization=fft, retain dense Matsubara-real coupling for |omega| up to this cutoff; a negative value disables truncation"
-    )(
-    "spinInsertionStrategy", bpo::value<std::string>()->default_value("prefix"),
-    "real-time spin insertion: closed-contour uses B_-(T,0) U_+(t,T) S U_+(t,0); prefix uses U_+(0,t) S B_-(t,0)"
-    )(
-    "correlationNormalization", bpo::value<std::string>()->default_value("partition-function"),
-    "correlation and magnetization denominator: partition-function uses Z_M; closed-contour uses the fixed final D(T)=Tr[U_+(T,0) rho_M B_-(T,0)] at every time"
     )(
     // ...concerning the iteration
     "reliterror", bpo::value<RealType>()->default_value(RealType{5.0}),
@@ -208,9 +181,6 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "jointMatsubaraPCN", bpo::value<bool>()->default_value(false)->implicit_value(true),
     "pCN on the current joint Takagi Matsubara row space with |Z_M| weight; fresh null-space Gaussian draws after every step"
   )(
-    "mixingAlpha", bpo::value<RealType>()->default_value(RealType{1.}),
-    "mix the physical magnetization and edge-grid contour primitive with alpha in (0,1]"
-    )(
     "constantMagnetization",
     "project m_a(t) to m_a(0) in first- and second-moment self-consistency; retain the measured m_a(t) for output and diagnostics"
     )(
@@ -299,6 +269,8 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     if( bath!="selfconsistent" && bath!="harmonic" )
         throw std::invalid_argument("bath must be selfconsistent or harmonic");
     if( uses_harmonic_bath() ) self_consistency=false;
+    if(!self_consistency&&!uses_harmonic_bath())
+        throw std::invalid_argument("noselfcons cannot prepare a converged self-consistent Matsubara bath; use bath=harmonic for prescribed-bath validation");
     RealType Babs = vm["Babs"].as<RealType>();
     if( !vm.count("dontrescaleB") && !uses_harmonic_bath() )
     {
@@ -359,12 +331,13 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     delta_real_t        = Tmax / static_cast<RealType>(num_RealTimeSteps);
     // ...concerning the statistics
     num_SamplesPerCore      = vm["numSamplesPerCore"].as<size_t>();
-    num_Samples             = world_size * num_SamplesPerCore;
+    if(num_SamplesPerCore>std::numeric_limits<size_t>::max()/get_num_Cores())
+        throw std::invalid_argument("sample count overflows size_t");
+    num_Samples             = get_num_Cores() * num_SamplesPerCore;
     seed                    = vm["seed"].as<std::string>();
     sampling_strategy       = vm["samplingStrategy"].as<std::string>();
     mh_step_size            = vm["mhStepSize"].as<RealType>();
     mh_burn_in              = vm["mhBurnIn"].as<size_t>();
-    partition_imaginary_tolerance=vm["partitionImagTolerance"].as<RealType>();
     num_blocks              = vm["numBlocks"].as<size_t>();
     if( sampling_strategy!="pcn"&&sampling_strategy!="independent" )
         throw std::invalid_argument("samplingStrategy must be pcn or independent");
@@ -380,51 +353,19 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
 
     if( !std::isfinite(mh_step_size)||mh_step_size<=RealType{0.}||mh_step_size>RealType{1.} )
         throw std::invalid_argument("mhStepSize must lie in (0,1]");
-    if( partition_imaginary_tolerance<RealType{0.} )
-        throw std::invalid_argument("partitionImagTolerance must be non-negative");
-    gaussian_factorization  = vm["gaussianFactorization"].as<std::string>();
-    if( gaussian_factorization!="dense" && gaussian_factorization!="fft"
-        && gaussian_factorization!="weighted-dense" )
-        throw std::invalid_argument(
-            "gaussianFactorization must be dense, fft, or weighted-dense" );
-    const std::array<const char*,3> weight_options{
-        "gaussianWeightM","gaussianWeightEta","gaussianWeightKappa"};
-    for(size_t i=0;i<weight_options.size();++i)
-    {
-        gaussian_noise_weights[i]=vm[weight_options[i]].as<RealType>();
-        if(!std::isfinite(gaussian_noise_weights[i])||gaussian_noise_weights[i]<=RealType{})
-            throw std::invalid_argument("Gaussian noise weights must be finite and strictly positive");
-        if(gaussian_factorization!="weighted-dense"&&!vm[weight_options[i]].defaulted())
-            throw std::invalid_argument("gaussianWeight options require gaussianFactorization=weighted-dense");
-    }
-    if(gaussian_factorization=="weighted-dense"&&sampling_strategy!="independent")
-        throw std::invalid_argument(
-            "weighted-dense requires samplingStrategy=independent; pCN weight positivity is not established for this ensemble");
-    fft_cross_frequency_cutoff=vm["fftCrossFrequencyCutoff"].as<RealType>();
-    if(!std::isfinite(fft_cross_frequency_cutoff))
-        throw std::invalid_argument("fftCrossFrequencyCutoff must be finite; use -1 to disable truncation");
     if(uses_staggered_strang()&&num_TimePoints<4)
         throw std::invalid_argument("staggered-strang Matsubara preparation requires numImagTimeSteps >= 3");
-    spin_insertion_strategy=vm["spinInsertionStrategy"].as<std::string>();
-    if( spin_insertion_strategy!="closed-contour"
-        && spin_insertion_strategy!="prefix" )
-        throw std::invalid_argument(
-            "spinInsertionStrategy must be closed-contour or prefix" );
-    correlation_normalization=vm["correlationNormalization"].as<std::string>();
-    if( correlation_normalization!="partition-function"
-        && correlation_normalization!="closed-contour" )
-        throw std::invalid_argument(
-            "correlationNormalization must be partition-function or closed-contour" );
-
     // ...concerning the initially inserted correlations and the iteration 
-    preparation_samples=vm["preparationSamplesPerCore"].as<size_t>();
-    preparation_iteration_limit=vm["preparationIterlimit"].as<size_t>();
+    num_PreparationSamplesPerCore=vm["preparationSamplesPerCore"].as<size_t>();
+    Preparation_Iteration_Limit=vm["preparationIterlimit"].as<size_t>();
     iteration_error_sigma_threshold=vm["reliterror"].as<RealType>();
     Iteration_Limit         = vm["iterlimit"].as<size_t>();
-    mixing_alpha            = vm["mixingAlpha"].as<RealType>();
+    if(num_PreparationSamplesPerCore==0)num_PreparationSamplesPerCore=num_SamplesPerCore;
+    if(num_PreparationSamplesPerCore>std::numeric_limits<size_t>::max()/get_num_Cores())
+        throw std::invalid_argument("preparation sample count overflows size_t");
+    num_PreparationSamples=num_PreparationSamplesPerCore*get_num_Cores();
+    if(Preparation_Iteration_Limit==0)Preparation_Iteration_Limit=Iteration_Limit;
     constant_magnetization_time=vm.count("constantMagnetization")>0;
-    if( mixing_alpha<=RealType{0.} || mixing_alpha>RealType{1.} )
-        throw std::invalid_argument("mixingAlpha must lie in (0,1]");
     covariance_tolerance    = vm["covarianceTolerance"].as<RealType>();
     takagi_tolerance        = vm["takagiTolerance"].as<RealType>();
     minimum_phase_magnitude = vm["minimumPhaseMagnitude"].as<RealType>();
@@ -568,23 +509,16 @@ std::string ParameterSpace::create_essentials_string() const
     << print::quantity_to_output_line( pre_colon_space, "Tmax", print::remove_zeros(print::round_value_to_string(Tmax,num_PrintDigits)) )
     << print::quantity_to_output_line( pre_colon_space, "delta_real_t", print::remove_zeros(print::round_value_to_string(delta_real_t,num_PrintDigits)) )
     << print::quantity_to_output_line( pre_colon_space, "num_Samples"   , std::to_string(num_Samples) )
-    << print::quantity_to_output_line( pre_colon_space, "sampling_strategy", sampling_strategy )
-    << print::quantity_to_output_line( pre_colon_space, "gaussian_factorization", gaussian_factorization );
+    << print::quantity_to_output_line( pre_colon_space, "sampling_strategy", sampling_strategy );
     ss << print::quantity_to_output_line(pre_colon_space,"staged_field_sampling","full-contour Takagi");
     if( sampling_strategy=="pcn" )
         ss << print::quantity_to_output_line(pre_colon_space,"pcn_target","p0(a)|Z_M(L_M U a)|; fresh joint null-space draws")
            << print::quantity_to_output_line( pre_colon_space, "mh_step_size", print::remove_zeros(print::round_value_to_string(mh_step_size,num_PrintDigits)) )
            << print::quantity_to_output_line( pre_colon_space, "mh_burn_in", std::to_string(mh_burn_in) );
-    if( gaussian_factorization=="fft" )
-        ss << print::quantity_to_output_line( pre_colon_space, "fft_cross_frequency_cutoff", std::to_string(fft_cross_frequency_cutoff) );
     ss
     << print::quantity_to_output_line( pre_colon_space, "propagator", "staggered-strang" )
     << print::quantity_to_output_line( pre_colon_space, "iteration_error_sigma_threshold", print::remove_zeros(print::round_value_to_string(iteration_error_sigma_threshold,num_PrintDigits)) )
     << print::quantity_to_output_line( pre_colon_space, "information_text" , information_text );
-    if(gaussian_factorization=="weighted-dense")
-        ss << print::quantity_to_output_line(pre_colon_space,"Gaussian weights (M,eta,kappa)",
-            std::to_string(gaussian_noise_weights[0])+", "+std::to_string(gaussian_noise_weights[1])
-            +", "+std::to_string(gaussian_noise_weights[2]));
     return ss.str();
 }
 

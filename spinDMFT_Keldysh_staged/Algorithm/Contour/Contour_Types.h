@@ -4,8 +4,10 @@
 #include<limits>
 #include<stdexcept>
 #include<vector>
+#include<utility>
 #include<Observables/Correlations.h>
 #include<Observables/Tensors.h>
+#include<Observables/Magnetization.h>
 
 namespace spinDMFT::Contour
 {
@@ -141,6 +143,18 @@ class StaggeredLayout
     }
  private:
     size_t m_imaginary_points,m_intervals;
+};
+
+// Complex, symmetry-reduced first moments on the real-time grid.
+struct Magnetization
+{
+    using Tensor=Observables::Magnetization::MagnetizationTensor<
+        Observables::Magnetization::MagnetizationVector>;
+    Magnetization() = default;
+    Magnetization(char symmetry,size_t num_real_points)
+        : Re(symmetry,num_real_points),Im(symmetry,num_real_points) {}
+    Magnetization(Tensor re,Tensor im) : Re(std::move(re)),Im(std::move(im)) {}
+    Tensor Re{},Im{};
 };
 
 struct CorrelationSet

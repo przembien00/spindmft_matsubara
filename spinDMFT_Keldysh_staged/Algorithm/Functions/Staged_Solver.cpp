@@ -6,14 +6,12 @@ namespace spinDMFT::Functions
 {
 MatsubaraPCNChain::MatsubaraPCNChain(const ps::ParameterSpace& p,
     JointComplexGaussianSampler& sampler,const MeanFieldTrajectory& mean,std::mt19937& engine)
-    :m_preparation(p),m_sampler(sampler),m_engine(engine),m_step(p.mh_step_size)
+    :m_parameters(p),m_sampler(sampler),m_engine(engine),m_step(p.mh_step_size)
 {
     if(!std::isfinite(m_step)||m_step<=RealType{}||m_step>RealType{1.})
         throw std::invalid_argument("Matsubara pCN step size must lie in (0,1]");
     if(mean.empty()||sampler.size()!=3*p.num_TimePoints)
         throw std::invalid_argument("Matsubara pCN requires an imaginary-only sampler and mean");
-    m_preparation.num_RealTimeSteps=0;m_preparation.num_RealTimePoints=1;
-    m_preparation.Tmax=RealType{};
     m_mean={mean.front()};
     m_retention=std::sqrt(std::max(RealType{},RealType{1.}-m_step*m_step));
     for(size_t attempt=0;attempt<128;++attempt)
@@ -31,7 +29,7 @@ RealType MatsubaraPCNChain::evaluate(const LatentVector& x,ComplexType& partitio
     JointComplexGaussianSampler::ContourFieldSample field;
     field.edge_field.resize(M.size()+6);field.edge_field=ComplexType{};
     for(size_t i=0;i<M.size();++i)field.edge_field[i]=M[i];
-    build_contour_trajectory(m_preparation,field,m_mean,m_trajectory,m_workspace,true);
+    build_matsubara_trajectory(m_parameters,field,m_mean,m_trajectory,m_workspace,true);
     partition=m_trajectory.partition_function;
     const RealType w=std::abs(partition);
     if(!std::isfinite(std::real(partition))||!std::isfinite(std::imag(partition))||!std::isfinite(w))
@@ -78,15 +76,18 @@ std::unique_ptr<JointComplexGaussianSampler> make_staged_real_sampler(
     const auto weights=staggered_sampling_weights(p);
     if(!weights.empty()&&covariance.rows()!=weights.size())
         throw std::invalid_argument("staggered covariance does not match its sampling grid");
-    if(!weights.empty())return std::make_unique<DenseComplexGaussianSampler>(covariance,weights);
-    return std::make_unique<DenseComplexGaussianSampler>(covariance);
+    if(!weights.empty())return std::make_unique<DenseComplexGaussianSampler>(covariance,weights,p.takagi_tolerance);
+    return std::make_unique<DenseComplexGaussianSampler>(covariance,p.takagi_tolerance);
 }
 
 ComplexDynamicMatrix matsubara_block(const SelfConsistentField& field,size_t points)
 {
+    if(points>field.covariance.rows()/3
+        ||field.covariance.rows()!=field.covariance.columns())
+        throw std::invalid_argument("Matsubara block exceeds covariance dimensions");
     ComplexDynamicMatrix A(3*points,3*points);
     for(size_t i=0;i<A.rows();++i)for(size_t j=0;j<A.columns();++j)
-        A(i,j)=field.covariance_source(i,j);
+        A(i,j)=field.covariance(i,j);
     return A;
 }
 
@@ -95,58 +96,40 @@ void measure_matsubara_sample(const ps::ParameterSpace& p,
     JointComplexGaussianSampler& sampler,std::mt19937& engine,
     const MeanFieldTrajectory& mean,rtd::RunTimeData& data,
     BasicContourTrajectory<Matrix>& trajectory,BasicTrajectoryWorkspace<Matrix>& workspace,
-    rtd::MeasuredSample& sample,MeasurementWorkspace& measurement)
+    MeasuredSample& sample,MeasurementWorkspace& measurement)
 {
-    if(p.num_RealTimePoints!=1||p.num_RealTimeSteps!=0)
-        throw std::invalid_argument("Matsubara preparation must have only the real-time origin");
     const auto M=sampler.draw(engine);
     JointComplexGaussianSampler::ContourFieldSample field;
     field.edge_field.resize(M.size()+6);field.edge_field=ComplexType{};
     for(size_t i=0;i<M.size();++i)field.edge_field[i]=M[i];
-    build_contour_trajectory(p,field,mean,trajectory,workspace);
-    measure_contour_observables(data,trajectory,sample,measurement,"prefix");
+    build_matsubara_trajectory(p,field,mean,trajectory,workspace);
+    measure_contour_observables(data,trajectory,sample,measurement);
 }
 
 template void measure_matsubara_sample<Operator>(const ps::ParameterSpace&,
     JointComplexGaussianSampler&,std::mt19937&,const MeanFieldTrajectory&,rtd::RunTimeData&,
     BasicContourTrajectory<Operator>&,BasicTrajectoryWorkspace<Operator>&,
-    rtd::MeasuredSample&,MeasurementWorkspace&);
+    MeasuredSample&,MeasurementWorkspace&);
 template void measure_matsubara_sample<SpinHalfOperator>(const ps::ParameterSpace&,
     JointComplexGaussianSampler&,std::mt19937&,const MeanFieldTrajectory&,rtd::RunTimeData&,
     BasicContourTrajectory<SpinHalfOperator>&,BasicTrajectoryWorkspace<SpinHalfOperator>&,
-    rtd::MeasuredSample&,MeasurementWorkspace&);
+    MeasuredSample&,MeasurementWorkspace&);
 
-void freeze_origin(CorrelationSet& q,MagTen& re,MagTen& im,
-    const CorrelationSet& prepared,const MagTen& prepared_re,const MagTen& prepared_im)
+void freeze_origin(CorrelationSet& q,Magnetization& magnetization,
+    const CorrelationSet& prepared,const Magnetization& prepared_magnetization)
 {
     q.Re.front()=prepared.Re.front();q.Im.front()=prepared.Im.front();
-    re.front()=prepared_re.front();im.front()=prepared_im.front();
+    magnetization.Re.front()=prepared_magnetization.Re.front();magnetization.Im.front()=prepared_magnetization.Im.front();
 }
 
 void seed_from_preparation(const ps::ParameterSpace& p,
-    const CorrelationSet& prepared,const MagTen& prepared_re,const MagTen& prepared_im,
-    CorrelationSet& q,MagTen& re,MagTen& im)
+    const CorrelationSet& prepared,const Magnetization& prepared_magnetization,
+    CorrelationSet& q,Magnetization& magnetization)
 {
-    re=MagTen{p.correlation_symmetry_type,p.num_RealTimePoints};
-    im=MagTen{p.correlation_symmetry_type,p.num_RealTimePoints};
+    magnetization=Magnetization{p.correlation_symmetry_type,p.num_RealTimePoints};
     for(size_t t=0;t<p.num_RealTimePoints;++t)
-    {re[t]=prepared_re.front();im[t]=prepared_im.front();}
-    // Reuse the source solver's selected real-time seed envelope/transpose.
-    // Supplying the prepared t=0 primitive through the loader fields avoids
-    // discarding its nonzero imaginary/transverse components.
-    auto seed_parameters=p;
-    seed_parameters.load_initial_spin_correlations=true;
-    seed_parameters.old_num_TimePoints=p.num_TimePoints;
-    seed_parameters.old_delta_t=p.delta_t;
-    seed_parameters.initial_correlations_linearized.clear();
-    seed_parameters.initial_correlations_imag_linearized.clear();
-    for(size_t c=0;c<prepared.Re.front().size();++c)
-        for(size_t tau=0;tau<p.num_TimePoints;++tau)
-        {
-            seed_parameters.initial_correlations_linearized.push_back(prepared.Re.front()[c][tau]);
-            seed_parameters.initial_correlations_imag_linearized.push_back(prepared.Im.front()[c][tau]);
-        }
-    q=generate_initial_correlations(seed_parameters,re);
-    freeze_origin(q,re,im,prepared,prepared_re,prepared_im);
+    {magnetization.Re[t]=prepared_magnetization.Re.front();magnetization.Im[t]=prepared_magnetization.Im.front();}
+    q=generate_initial_correlations(p,magnetization.Re,&prepared);
+    freeze_origin(q,magnetization,prepared,prepared_magnetization);
 }
 }

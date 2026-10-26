@@ -30,7 +30,6 @@ namespace ps = spinDMFT::Parameter_Space;
 namespace rtd = spinDMFT::Run_Time_Data;
 
 #include"Functions/Functions.h"
-#include"Functions/PCN_Chain.h"
 namespace func = spinDMFT::Functions;
 using CorrelationSet = spinDMFT::Contour::CorrelationSet;
 

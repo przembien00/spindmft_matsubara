@@ -22,7 +22,7 @@ class MatsubaraPCNChain
     size_t rejected_zero_weight() const { return m_rejected_zero; }
  private:
     RealType evaluate(const LatentVector& x,ComplexType& partition);
-    ps::ParameterSpace m_preparation;
+    const ps::ParameterSpace& m_parameters;
     JointComplexGaussianSampler& m_sampler;
     MeanFieldTrajectory m_mean;
     std::mt19937& m_engine;
@@ -46,11 +46,11 @@ void measure_matsubara_sample(const ps::ParameterSpace& preparation,
     JointComplexGaussianSampler& sampler,std::mt19937& engine,
     const MeanFieldTrajectory& mean,rtd::RunTimeData& data,
     BasicContourTrajectory<Matrix>& trajectory,BasicTrajectoryWorkspace<Matrix>& workspace,
-    rtd::MeasuredSample& sample,MeasurementWorkspace& measurement);
+    MeasuredSample& sample,MeasurementWorkspace& measurement);
 // Replace feedback at the origin only; raw measured observables stay intact.
-void freeze_origin(CorrelationSet& correlations,MagTen& re,MagTen& im,
-    const CorrelationSet& prepared,const MagTen& prepared_re,const MagTen& prepared_im);
+void freeze_origin(CorrelationSet& correlations,Magnetization& magnetization,
+    const CorrelationSet& prepared,const Magnetization& prepared_magnetization);
 void seed_from_preparation(const ps::ParameterSpace& real_parameters,
-    const CorrelationSet& prepared,const MagTen& prepared_re,const MagTen& prepared_im,
-    CorrelationSet& correlations,MagTen& re,MagTen& im);
+    const CorrelationSet& prepared,const Magnetization& prepared_magnetization,
+    CorrelationSet& correlations,Magnetization& magnetization);
 }

@@ -47,7 +47,12 @@ def main():
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                     env=dict(os.environ), timeout=90)
             (work / 'run.log').write_text(result.stdout)
-            assert result.returncode == status, (name, result.returncode, result.stdout)
+            # Invalid inputs now propagate as uncaught exceptions; the abort
+            # status depends on whether the executable is launched through MPI.
+            if status == 1:
+                assert result.returncode != 0, (name, result.returncode, result.stdout)
+            else:
+                assert result.returncode == status, (name, result.returncode, result.stdout)
             if message:
                 assert message in result.stdout, result.stdout
             files = list(work.rglob('*.hdf5'))
@@ -60,6 +65,9 @@ def main():
             with h5py.File(files[0]) as f:
                 assert text(f['parameters'].attrs['joint_matsubara_pcn']) == 'no'
                 p = f['parameters'].attrs
+                assert 'partition_imaginary_tolerance' not in p
+                assert 'fft_cross_frequency_cutoff' not in p
+                assert 'fixed_point_mixing_alpha' not in p
                 assert 'closed_contour_diagnostic_definition' not in p
                 assert 'connected_correlation_strategy' not in p
                 for removed in ('contour_convention', 'covariance_construction',
@@ -72,6 +80,8 @@ def main():
                                 'staggered_field_layout',
                                 'staggered_covariance',
                                 'spin_insertion_strategy',
+                                'correlation_normalization',
+                                'magnetization_normalization',
                                 'solver',
                                 'sampling_count_unit',
                                 'results_kind',
@@ -83,6 +93,7 @@ def main():
                                 'normalization_strategy',
                                 'mean_field_strategy',
                                 'imaginary_field_grid',
+                                'gaussian_factorization',
                                 'gaussian_factorization_options',
                                 'gaussian_execution'):
                     assert removed not in p
@@ -90,6 +101,21 @@ def main():
                 assert isinstance(constant_magnetization, (bool, np.bool_))
                 assert bool(constant_magnetization) == ('--constantMagnetization' in options)
                 preparation = f['preparation']
+                requested = dict(option[2:].split('=', 1) for option in defaults + options
+                                 if option.startswith('--') and '=' in option)
+                real_samples = int(requested['numSamplesPerCore'])
+                real_limit = int(requested['iterlimit'])
+                prep_samples = int(requested.get('preparationSamplesPerCore', 0)) or real_samples
+                prep_limit = int(requested.get('preparationIterlimit', 0)) or real_limit
+                assert preparation.attrs['samples_per_core'] == prep_samples
+                assert preparation.attrs['iteration_limit'] == prep_limit
+                assert p['num_SamplesPerCore'] == real_samples
+                assert p['Iteration_Limit'] == real_limit
+                assert p['num_PreparationSamplesPerCore'] == prep_samples
+                assert p['num_PreparationSamples'] == prep_samples * args.mpi_ranks
+                assert p['Preparation_Iteration_Limit'] == prep_limit
+                assert p['num_RealTimeSteps'] == int(requested['numRealTimeSteps'])
+                assert p['Tmax'] == float(requested['Tmax'])
                 for removed in ('convergence_rule', 'factor_scope', 'frozen_state_kind', 'frozen_sampling_scope', 'uncertainty_scope'):
                     assert removed not in f['preparation'].attrs
                 for part in ('Re', 'Im'):
@@ -122,18 +148,20 @@ def main():
             options = ['--JQ=0', '--realTimeSubsteps=' + str(substeps),
                        '--numSamplesPerCore=' + str(zero_samples)]
             if substeps == 3:
-                options.append('--constantMagnetization')
+                options += ['--constantMagnetization', '--preparationSamplesPerCore=43',
+                            '--preparationIterlimit=4']
             path = run('zero_bath_cf' + str(substeps), options)
             with h5py.File(path) as f:
                 assert text(f['preparation'].attrs['termination']) == 'by convergence'
                 assert text(f['preparation'].attrs['real_time_started']) == 'yes'
-                threshold = 5 * 0.25 / np.sqrt(3 * zero_samples * args.mpi_ranks)
+                prep_samples = 43 if substeps == 3 else zero_samples
+                threshold = 5 * 0.25 / np.sqrt(3 * prep_samples * args.mpi_ranks)
                 np.testing.assert_allclose(
                     f['preparation'].attrs['absolute_iteration_error_threshold'], threshold,
                     atol=0, rtol=1e-14)
                 assert text(f['runtimedata'].attrs['termination']) == 'by convergence'
                 assert np.all(f['preparation'].attrs['frozen_MM_residuals'] == 0)
-                assert f['preparation'].attrs['preparation_latent_dimension'] == 0
+                assert 'preparation_latent_dimension' not in f['preparation'].attrs
                 assert not any(key in f['preparation'] for key in
                                ('Re_factor', 'Im_factor', 'Re_covariance', 'Im_covariance'))
                 m = read_complex(f['results'], 'magnetization')
@@ -167,17 +195,21 @@ def main():
             assert text(f['runtimedata'].attrs['termination']) == 'by iteration limit'
             assert 'NOT_CONVERGED' in str(failed)
 
-        for removed in ['--conditionalSampling', '--matsubaraGaugeScale=1',
+        for removed in ['--dt=0.1', '--partitionImagTolerance=1e-8', '--mixingAlpha=0.5', '--conditionalSampling', '--matsubaraGaugeScale=1',
                         '--denominatorConstancyTolerance=0.1', '--branchIdentityTolerance=0.1',
-                        '--imagMagSigma=5']:
+                        '--imagMagSigma=5', '--spinInsertionStrategy=prefix',
+                        '--spinInsertionStrategy=closed-contour',
+                        '--correlationNormalization=partition-function',
+                        '--correlationNormalization=closed-contour']:
             run('reject_removed_' + removed[2:].split('=')[0], [removed], 1, 'unrecognised option')
-        for option in ['--gaussianFactorization=fft',
-                       '--gaussianFactorization=weighted-dense',
-                       '--spinInsertionStrategy=closed-contour',
-                       '--correlationNormalization=closed-contour']:
-            run('reject_' + option[2:].replace('=', '_'), [option], 1, 'staged solver requires')
+        for option in ['--gaussianWeightM=1', '--gaussianWeightEta=2', '--gaussianWeightKappa=8']:
+            run('reject_' + option[2:].split('=')[0], [option], 1, 'unrecognised option')
+        for value in ['dense', 'fft', 'weighted-dense']:
+            run('reject_factorization_' + value, ['--gaussianFactorization=' + value],
+                1, 'unrecognised option')
         run('reject_noselfcons', ['--noselfcons'], 1, 'cannot prepare a converged')
-        run('reject_cutoff', ['--fftCrossFrequencyCutoff=2'], 1, 'does not support an FFT cutoff')
+        run('reject_cutoff', ['--fftCrossFrequencyCutoff=2'], 1, 'unrecognised option')
+        run('reject_cutoff_default', ['--fftCrossFrequencyCutoff=-1'], 1, 'unrecognised option')
         run('reject_cfet', ['--realTimeEvolution=cfet'], 1, 'other evolution methods have been removed')
         run('reject_evolution', ['--realTimeEvolution=unknown'], 1, 'realTimeEvolution must be')
         if args.evolution == 'staggered-strang':
@@ -205,7 +237,7 @@ def main():
                            ('Re_factor', 'Im_factor', 'Re_covariance', 'Im_covariance'))
             assert 'matsubara_gauge_scale' not in g.attrs
             assert 'conditional_sampling' not in f['parameters'].attrs
-            assert g.attrs['preparation_latent_dimension'] <= 3 * g['Re_correlation'].shape[-1]
+            assert 'preparation_latent_dimension' not in g.attrs
             assert np.max(g.attrs['frozen_MM_residuals']) < 1e-12
             assert g.attrs['samples_per_core'] == 4096
             assert text(g.attrs['termination']) == 'prescribed harmonic bath'
@@ -226,8 +258,7 @@ def main():
 
         path = run('selfconsistent_finite_field', ['--beta=0.5', '--JQ=1',
                    '--numSamplesPerCore=2048', '--preparationSamplesPerCore=4096',
-                   '--numBlocks=16', '--iterlimit=15', '--preparationIterlimit=15',
-                   '--mixingAlpha=0.7'])
+                   '--numBlocks=16', '--iterlimit=15', '--preparationIterlimit=15'])
         with h5py.File(path) as f:
             assert text(f['preparation'].attrs['termination']) == 'by convergence'
             assert text(f['runtimedata'].attrs['termination']) == 'by convergence'

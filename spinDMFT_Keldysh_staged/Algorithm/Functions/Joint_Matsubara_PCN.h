@@ -16,7 +16,6 @@ class JointMatsubaraSampler : public JointComplexGaussianSampler
     size_t size() const override { return m_factor.rows(); }
     size_t latent_dimension() const override { return m_basis.columns(); }
     RealType reconstruction_error() const override { return m_error; }
-    size_t residual_dimension() const { return m_basis.rows()-m_basis.columns(); }
     // Deterministic map exposed for covariance-level verification.
     LatentVector joint_latent(const LatentVector& a,const LatentVector& fresh) const;
     LatentVector draw_joint_latent(const LatentVector& a,std::mt19937& engine);

@@ -319,101 +319,6 @@ int main()
                              "zero pseudo-variance does not set sampled nu to zero" );
     }
     {
-        const std::array<size_t,5> expected{4,3,2,1,0};
-        for( size_t point=0;point<expected.size();++point )
-            failures+=require(func::one_sided_edge_reflection_index(
-                                  point,expected.size()-1)==expected[point],
-                              "one-sided reflection exchanges 0+ and beta-");
-    }
-    {
-        // The FFT path changes only representation: factorize and sample the
-        // doubled covariance blockwise in frequency space, inverse transform,
-        // and retain the original physical interval.
-        const auto covariance=make_doubled_frequency_covariance();
-        failures+=require(std::abs(covariance(0,6)-covariance(3,6))
-                                  >RealType{1e-8},
-                          "FFT test keeps beta- covariance distinct from 0+");
-        func::FFTDenseComplexGaussianSampler sampler(covariance,1,2,1.,-1.);
-        failures+=require(sampler.size()==covariance.rows(),"FFT sampler physical size");
-        failures+=require(sampler.reconstruction_error()<RealType{1e-11},
-                          "FFT doubled-grid reconstruction");
-        std::mt19937 engine{4189};
-        const auto empirical=empirical_pseudo_covariance(sampler,engine,150000);
-        failures+=require(relative_residual(empirical,covariance)<RealType{0.03},
-                          "FFT empirical physical pseudo-covariance");
-
-        auto factory=func::make_complex_gaussian_sampler("fft",covariance,1,2);
-        failures+=require(factory->size()==covariance.rows(),"FFT sampler factory");
-        failures+=require(factory->latent_dimension()>factory->size(),
-                          "FFT sampler keeps doubled-grid latent field");
-
-        func::FFTDenseComplexGaussianSampler truncated(covariance,1,2,1.,1.);
-        failures+=require(truncated.reconstruction_error()<RealType{1e-11},
-                          "FFT frequency-block reconstruction");
-        failures+=require(truncated.covariance_approximation_error()>RealType{0.},
-                          "FFT high-frequency cross covariance is discarded");
-        failures+=require(truncated.largest_factorization_dimension()<27,
-                          "FFT cutoff reduces the largest dense factorization");
-        failures+=require(truncated.draw(engine).size()==covariance.rows(),
-                          "truncated FFT sampler physical draw size");
-    }
-    {
-        // A rank-zero realization must stay zero on both shifted Gauss grids.
-        // This also checks the interval/branch/component layout.
-        constexpr size_t matsubara_intervals=3;
-        constexpr size_t real_points=5;
-        const size_t dimension=3*(matsubara_intervals+1)+6*real_points;
-        func::ComplexDynamicMatrix covariance(
-            dimension,dimension,ComplexType{});
-        func::DenseComplexGaussianSampler dense_sampler(covariance);
-        std::mt19937 dense_engine{7718};
-        const auto dense_sample=dense_sampler.contour_field_from_latent(
-            dense_sampler.draw_latent(dense_engine),true);
-        failures+=require(dense_sample.edge_field.size()==dimension
-                          &&!dense_sample.has_real_gauss_fields(),
-                          "dense CF4 sample retains edges for interpolation");
-
-        func::FFTDenseComplexGaussianSampler sampler(
-            covariance,matsubara_intervals,real_points,RealType{0.2},-1.);
-        std::mt19937 engine{7719};
-        const auto latent=sampler.draw_latent(engine);
-        const auto sample=sampler.contour_field_from_latent(latent,true);
-        failures+=require(sample.edge_field.size()==dimension,
-                          "CF4 FFT sample retains the edge field");
-        for( const auto& shifted:sample.real_gauss_fields )
-        {
-            failures+=require(shifted.size()==6*(real_points-1),
-                              "CF4 FFT sample has one value per real interval");
-            for( const auto value:shifted )
-                failures+=require(std::abs(value)==RealType{},
-                                  "zero FFT field remains zero on shifted grids");
-        }
-    }
-    {
-        // Every zero-rank frequency block must explicitly clear its persistent
-        // output buffer rather than retain data from an earlier draw.
-        func::ComplexDynamicMatrix zero(18,18,ComplexType{});
-        func::FFTDenseComplexGaussianSampler sampler(zero,1,2,1.,1.);
-        std::mt19937 engine{6619};
-        const auto field=sampler.draw(engine);
-        RealType norm{};
-        for( const auto value:field ) norm+=std::norm(value);
-        failures+=require(sampler.latent_dimension()==0,
-                          "zero FFT covariance has zero latent rank");
-        failures+=require(norm==RealType{0.},
-                          "zero FFT covariance produces zero field");
-    }
-    {
-        bool rejected{};
-        try
-        {
-            func::ComplexDynamicMatrix covariance(9,9,ComplexType{});
-            (void)func::make_complex_gaussian_sampler("unknown",covariance,1,1);
-        }
-        catch( const std::invalid_argument& ) { rejected=true; }
-        failures+=require(rejected,"unknown sampler algorithm is rejected");
-    }
-    {
         // Three identical disconnected sectors: reuse their factors, but
         // retain independent latent variables and the whole-matrix cutoff.
         func::ComplexDynamicMatrix covariance(9,9,ComplexType{});
@@ -423,9 +328,8 @@ int main()
         for(size_t c=0;c<3;++c)for(size_t i=0;i<3;++i)for(size_t j=0;j<3;++j)
             covariance(3*i+c,3*j+c)=block(i,j);
         const auto reference=func::autonne_takagi(covariance);
-        const std::string algorithm{"dense"};
         {
-            auto sampler=func::make_complex_gaussian_sampler(algorithm,covariance,0,0);
+            auto sampler=std::make_unique<func::DenseComplexGaussianSampler>(covariance);
             failures+=require(sampler->largest_factorization_dimension()==3,
                               "exact disconnected sectors use smaller factors");
             const auto L=sampler_factor(*sampler);
@@ -433,12 +337,12 @@ int main()
                               "symmetry blocks preserve pseudo-covariance");
             failures+=require(relative_residual(L*blaze::ctrans(L),hermitian_covariance(reference))<RealType{1e-12},
                               "symmetry blocks preserve the full real Gaussian ensemble");
-            auto single=func::make_complex_gaussian_sampler(algorithm,covariance,0,0);
-            auto batched=func::make_complex_gaussian_sampler(algorithm,covariance,0,0);
+            auto single=std::make_unique<func::DenseComplexGaussianSampler>(covariance);
+            auto batched=std::make_unique<func::DenseComplexGaussianSampler>(covariance);
             std::mt19937 single_engine{922},batch_engine{922};
             for(size_t count:{size_t{1},size_t{7},size_t{32},size_t{3}})
             {
-                const auto batch=batched->draw_contour_batch(batch_engine,count,true);
+                const auto batch=batched->draw_contour_batch(batch_engine,count);
                 for(const auto& sample:batch)
                 {
                     const auto value=single->draw(single_engine);
@@ -467,7 +371,7 @@ int main()
                           "global rank filtering preserves Hermitian covariance");
         func::DenseComplexGaussianSampler zero(func::ComplexDynamicMatrix(6,6,ComplexType{}));
         std::mt19937 engine{774};
-        for(const auto& field:zero.draw_contour_batch(engine,5,false))
+        for(const auto& field:zero.draw_contour_batch(engine,5))
             for(auto value:field.edge_field)
                 failures+=require(value==ComplexType{},"zero-rank batch produces zero fields");
     }
@@ -478,6 +382,17 @@ int main()
         func::ComplexDynamicMatrix covariance(6,6,ComplexType{});
         covariance(0,0)=RealType{1.};
         covariance(1,1)=covariance(2,2)=RealType{1e-13};
+        failures+=require(func::autonne_takagi(covariance).reconstruction_error<RealType{1e-8},
+            "Autonne--Takagi accepts reconstruction within its default tolerance");
+        bool factor_rejected=false;
+        try { (void)func::autonne_takagi(covariance,RealType{1e-14}); }
+        catch(const std::runtime_error& error)
+        {
+            factor_rejected=std::string(error.what())==
+                "Autonne--Takagi factor failed pseudo-covariance reconstruction";
+        }
+        failures+=require(factor_rejected,
+            "Autonne--Takagi rejects reconstruction beyond the requested tolerance");
         for(const bool zero:{false,true})
         {
             if(zero)reset(covariance);
@@ -494,47 +409,28 @@ int main()
         }
     }
     {
-        // FFT GEMM batches and GEMV single draws must represent the same
-        // joint fields, including shifted Gauss grids and RNG tails.
-        const auto covariance=make_doubled_frequency_covariance();
-        const RealType tolerance=RealType{2000.}*std::numeric_limits<RealType>::epsilon();
-        for(const RealType cutoff:{RealType{-1.},RealType{1.}})
-            for(const size_t q:{size_t{0},size_t{1},size_t{3}})
-                for(const bool zero:{false,true})
+        // Global rank truncation gives a controlled nonzero residual.
+        func::ComplexDynamicMatrix covariance(6,6,ComplexType{});
+        covariance(0,0)=RealType{1.};
+        covariance(1,1)=covariance(2,2)=RealType{1e-13};
+        for(const bool weighted:{false,true})
         {
-            auto gamma=covariance;
-            if(zero)reset(gamma);
-            func::FFTDenseComplexGaussianSampler single(gamma,1,2,1.,cutoff,q);
-            func::FFTDenseComplexGaussianSampler batched(gamma,1,2,1.,cutoff,q);
-            std::mt19937 single_engine{592},batch_engine{592};
-            const auto compare=[&](const auto& a,const auto& b)
+            bool rejected=false;
+            try
             {
-                failures+=require(a.size()==b.size(),"FFT batch field dimensions match single draws");
-                if(a.size()!=b.size())return;
-                for(size_t i=0;i<a.size();++i)
-                    failures+=require(std::abs(a[i]-b[i])<=tolerance*(RealType{1.}+std::abs(a[i])),
-                                      "FFT BLAS batch matches single draw");
-            };
-            for(const size_t count:{size_t{0},size_t{1},size_t{7},size_t{32},size_t{3},size_t{1}})
-            {
-                const auto batch=batched.draw_contour_batch(batch_engine,count,q>0);
-                failures+=require(batch.size()==count,"FFT batch retains requested sample count");
-                for(const auto& sample:batch)
-                {
-                    const auto reference=single.draw_contour_field(single_engine,q>0);
-                    compare(reference.edge_field,sample.edge_field);
-                    for(size_t node=0;node<2;++node)
-                        compare(reference.real_gauss_fields[node],sample.real_gauss_fields[node]);
-                    if(zero)for(const auto value:sample.edge_field)
-                        failures+=require(value==ComplexType{},"zero-rank FFT BLAS batch stays zero");
-                }
-                failures+=require(single_engine==batch_engine,"FFT batching preserves RNG sequence");
-                // Switch from batch to single and back on the same sampler.
-                const auto a=single.draw_contour_field(single_engine,q>0);
-                const auto b=batched.draw_contour_field(batch_engine,q>0);
-                compare(a.edge_field,b.edge_field);
-                for(size_t node=0;node<2;++node)compare(a.real_gauss_fields[node],b.real_gauss_fields[node]);
+                if(weighted)
+                    func::DenseComplexGaussianSampler sampler(covariance,
+                        std::vector<RealType>{2.,2.,2.,1.,0.5,1.},RealType{1e-14});
+                else
+                    func::DenseComplexGaussianSampler sampler(covariance,RealType{1e-14});
             }
+            catch(const std::runtime_error& error)
+            {
+                rejected=std::string(error.what())==
+                    "joint Gaussian factor failed pseudo-covariance reconstruction";
+            }
+            failures+=require(rejected,
+                "Takagi constructor enforces the requested physical reconstruction tolerance");
         }
     }
     return failures == 0 ? 0 : 1;

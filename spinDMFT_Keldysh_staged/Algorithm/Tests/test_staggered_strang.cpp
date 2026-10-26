@@ -23,7 +23,7 @@ ps::ParameterSpace parameters()
     p.JQ=1.3;p.JL=-0.4;
     p.beta=0.8;p.num_TimeSteps=4;p.num_TimePoints=5;p.delta_t=0.2;
     p.Tmax=1.2;p.num_RealTimeSteps=4;p.num_RealTimePoints=5;p.delta_real_t=0.3;
-    p.real_time_evolution="staggered-strang";p.gaussian_factorization="dense";
+    p.real_time_evolution="staggered-strang";
     return p;
 }
 ComplexType primitive_value(RealType t,size_t a,size_t b,size_t tau)
@@ -50,8 +50,22 @@ void check_covariance()
         re[t]=Observables::Magnetization::MagnetizationVector{'D',FieldVector{0.1,0.02,0.03}};
         im[t]=Observables::Magnetization::MagnetizationVector{'D',FieldVector{0.01,0.,-0.01}};
     }
-    const auto connected=f::connected_contour_primitive(primitive,re,im);
-    const auto field=f::self_consistent_equations(p,primitive,re,im);
+    const auto connected=f::connected_contour_primitive(primitive, spinDMFT::Contour::Magnetization{re,im});
+    const auto field=f::self_consistent_equations(p, primitive, spinDMFT::Contour::Magnetization{re,im});
+    c::CorrelationSet preparation{'D',p.num_TimePoints,1};
+    preparation.Re.front()=primitive.Re.front();
+    preparation.Im.front()=primitive.Im.front();
+    c::Magnetization preparation_mean{'D',1};
+    preparation_mean.Re.front()=re.front();
+    preparation_mean.Im.front()=im.front();
+    const auto prepared=f::self_consistent_equations(p,preparation,preparation_mean);
+    const size_t nm=3*p.num_TimePoints;
+    require(prepared.covariance.rows()==nm&&prepared.covariance.columns()==nm,
+        "preparation constructs only the Matsubara covariance");
+    require(prepared.mean_time.size()==1,"preparation mean has only the origin");
+    for(size_t i=0;i<nm;++i)for(size_t j=0;j<nm;++j)
+        require(prepared.covariance(i,j)==field.covariance(i,j),
+            "direct preparation covariance equals the joint Matsubara block");
     const c::StaggeredLayout layout{p.num_TimePoints,p.num_RealTimeSteps*p.real_time_substeps};
     require(field.covariance.rows()==layout.dimension(),"staggered joint dimension");
     RealType error{};
@@ -113,18 +127,17 @@ void check_covariance()
         require(sampler->reconstruction_error()<1e-11,"original-basis reconstruction diagnostic");
         auto reference_sampler=make_sampler();
         std::mt19937 batch_engine{321},single_engine{321};
-        const auto batch=sampler->draw_contour_batch(batch_engine,3,true);
+        const auto batch=sampler->draw_contour_batch(batch_engine,3);
         for(const auto& sample:batch)
         {
             const auto single=reference_sampler->draw(single_engine);
             for(size_t i=0;i<single.size();++i)
                 require(std::abs(single[i]-sample.edge_field[i])<1e-12,"batch and single latent draws agree");
-            require(!sample.has_real_gauss_fields(),"staggered fields need no Gauss interpolation");
         }
     }
     // Coupling rotation and classical noise do not create response noise.
     p.spin_model=Physics::SpinModel{"DRF"};p.noise=Physics::Noise{"z",0.1};
-    const auto rotated=f::self_consistent_equations(p,primitive,re,im);
+    const auto rotated=f::self_consistent_equations(p, primitive, spinDMFT::Contour::Magnetization{re,im});
     const auto& D=p.spin_model.coupling_matrix;
     ComplexType expected{};
     for(size_t a=0;a<3;++a)for(size_t b=0;b<3;++b)
@@ -179,17 +192,20 @@ void check_skipped_final_trace()
             field.edge_field[i]=ComplexType{0.1*std::sin(RealType(i)),0.05*std::cos(RealType(i))};
         const f::MeanFieldTrajectory mean(p.num_RealTimePoints,FieldVector{});
         spinDMFT::Run_Time_Data::RunTimeData data(p,0);
-        spinDMFT::Run_Time_Data::MeasuredSample full,skipped;
+        spinDMFT::Contour::CorrelationSet data_sums;
+        spinDMFT::Contour::Magnetization data_magnetization;
+        data.begin_iteration_accumulation(data_sums,data_magnetization);
+        spinDMFT::Functions::MeasuredSample full,skipped;
         f::MeasurementWorkspace measurement;
         f::TrajectoryWorkspace workspace;
         f::ContourTrajectory tr;
         f::build_contour_trajectory(p,field,mean,tr,workspace);
         const ComplexType final_trace=tr.final_closed_contour_trace;
-        f::measure_contour_observables(data,tr,full,measurement,"prefix");
+        f::measure_contour_observables(data,tr,full,measurement);
         // Reuse the same trajectory to detect an accidentally stale final trace.
         f::build_contour_trajectory(p,field,mean,tr,workspace,false,f::FinalTraceMode::Skip);
         require(std::isnan(std::real(tr.final_closed_contour_trace)),"skipped trace is marked unavailable");
-        f::measure_contour_observables(data,tr,skipped,measurement,"prefix");
+        f::measure_contour_observables(data,tr,skipped,measurement);
         require(full.partition==skipped.partition&&full.correlations==skipped.correlations
             &&full.magnetization==skipped.magnetization&&full.closure==skipped.closure,
             "skipping the redundant trace preserves every independent observable");
@@ -242,12 +258,14 @@ void check_static_trajectory()
                     &&std::abs(fixed.final_closed_contour_trace-dynamic.final_closed_contour_trace)<2e-12,
                     "fixed-size partition and final trace agree");
                 spinDMFT::Run_Time_Data::RunTimeData data(p,0);
-                spinDMFT::Run_Time_Data::MeasuredSample a,b;
+                spinDMFT::Contour::CorrelationSet data_sums;
+                spinDMFT::Contour::Magnetization data_magnetization;
+                data.begin_iteration_accumulation(data_sums,data_magnetization);
+                spinDMFT::Functions::MeasuredSample a,b;
                 f::MeasurementWorkspace measurement;
-                for(const std::string insertion:{"prefix","closed-contour"})
                 {
-                    f::measure_contour_observables(data,dynamic,a,measurement,insertion);
-                    f::measure_contour_observables(data,fixed,b,measurement,insertion);
+                    f::measure_contour_observables(data,dynamic,a,measurement);
+                    f::measure_contour_observables(data,fixed,b,measurement);
                     const auto same_values=[&](const auto& x,const auto& y)
                     {
                         require(x.size()==y.size(),"fixed-size observable shape");

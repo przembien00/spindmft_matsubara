@@ -54,6 +54,5 @@ mpirun -n 16 ./executable_DOUBLE.out \
     --numSamplesPerCore=1000000 \
     --preparationSamplesPerCore=100000 \
     --iterlimit=30 \
-    --realTimeEvolution=staggered-strang \
-    --gaussianFactorization=dense
+    --realTimeEvolution=staggered-strang
 

@@ -3,14 +3,13 @@
 #include<cstddef>
 #include<random>
 
-#include"Functions.h"
+#include"../../Functions/Functions.h"
 
 namespace spinDMFT::Functions
 {
 
-// Metropolized pCN chain whose likelihood is the real part of the selected
-// observable denominator: Z_M for partition-function normalization and the
-// fixed final D(T) for closed-contour normalization.
+// Legacy reference pCN chain with likelihood Re Z_M.
+// The staged solver uses the Matsubara modulus chains in Staged_Solver.h.
 class PCNChain
 {
  public:

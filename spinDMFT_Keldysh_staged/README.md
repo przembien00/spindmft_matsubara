@@ -16,6 +16,17 @@ Read [the LaTeX loop note](staged_loop.tex) for the equations, joint sampling,
 convergence rules, output schema, and limitations. A [Markdown version](staged_loop.md)
 is also provided.
 
+The loop variables own the observable estimates. At the start of each sampling
+sweep, `runtime.begin_iteration_accumulation(correlations, magnetization)` zeros
+those variables and binds them as the accumulation destinations. Each sample
+adds its unnormalized numerator directly to them.
+`runtime.mpi_reduce_and_normalize()` reduces those same sums across MPI ranks,
+computes statistical errors, and normalizes them by the complex partition sum.
+Preparation uses the analogous preparation variables and passes `true` to the
+begin call. Magnetization is one `Magnetization` object with `.Re` and `.Im`
+members. Runtime retains partition sums, statistical blocks, errors, and the two
+loops' diagnostic histories.
+
 ## Build
 
 From the repository root:
@@ -41,13 +52,20 @@ mpirun -n 1 ./executable_DOUBLE.out \
   --numImagTimeSteps=20 --numRealTimeSteps=40 --Tmax=2 \
   --numSamplesPerCore=10000 --preparationSamplesPerCore=20000 \
   --numBlocks=32 --iterlimit=30 --preparationIterlimit=30 \
-  --mixingAlpha=0.5 --seed=17
+  --seed=17
 ```
 
 These are example settings, not validated production convergence parameters.
-Defaults select independent sampling, dense whole-contour Takagi factorization, prefix
-insertions, and partition-function normalization. The executable also supports Matsubara-only pCN with `--jointMatsubaraPCN`, as described below. It rejects FFT, weighted-dense,
-closed-contour insertion/normalization, and a nonnegative FFT cutoff. The inherited machinery remains available to the copied unit tests.
+Defaults select independent sampling and dense whole-contour Takagi factorization.
+Prefix insertions and partition-function normalization are fixed; the
+`spinInsertionStrategy` and `correlationNormalization` options have been removed. The executable also supports Matsubara-only pCN with `--jointMatsubaraPCN`, as described below. It always uses dense factorization. The `gaussianFactorization`, `gaussianWeightM`, `gaussianWeightEta`, and `gaussianWeightKappa` options have been removed.
+
+`--dt` and `--partitionImagTolerance` have been removed because they did not
+affect this solver. Imaginary-time spacing is `beta/numImagTimeSteps`;
+real-time measurement spacing is `Tmax/numRealTimeSteps`.
+
+Covariance construction always produces a dense matrix: the Matsubara matrix
+for preparation and the full joint matrix for real-time sampling.
 
 `--preparationSamplesPerCore=0` uses `--numSamplesPerCore`; similarly,
 `--preparationIterlimit=0` uses `--iterlimit`.
@@ -55,7 +73,7 @@ Preparation uses the `spinDMFT_cplx_field` stopping rule: the largest component
 mean absolute change in Re/Im imaginary-time correlations or real origin
 magnetization must be strictly below
 `reliterror * S*(S+1) / (3*sqrt(3*N))`, where `N` is the total preparation sample
-count across MPI ranks. Changes are measured before mixing. Sampling errors are
+count across MPI ranks. Changes are measured between successive estimates. Sampling errors are
 reported but do not relax this threshold. The existing diagnostic gates still
 apply. `--reliterror` is also the shared standard-error multiplier for requiring
 the measured imaginary origin magnetization to be consistent with zero; there
@@ -122,8 +140,8 @@ New filenames begin `staged__jointMpcn_absZ__`, distinguishing this method
 from historical samplers. `/parameters` records `joint_matsubara_pcn`, the
 updated coordinates, null-space refresh, and SVD rank rule. Both stages
 store acceptance, phase, autocorrelation and blocking diagnostics. The
-preparation factor is an internal imaginary-only reference; its matrix and the
-preparation covariance matrix are not saved. Real-time sampling uses a fresh
+preparation factor is not retained or saved; it can be reconstructed from the
+preparation correlations and magnetization. Real-time sampling uses a fresh
 full-contour factor.
 
 Regression commands:
@@ -137,7 +155,7 @@ Tests cover both Gaussian covariances (including weighted factors), weak and
 singular Matsubara blocks, zero bath, mixed coupling with zero MM block,
 actual pCN rejections with fresh real noise, exact thermal spins, harmonic
 bath comparison with independent sampling, and a short self-consistent run
-at `mixingAlpha=1`. These are implementation checks, not a long-time
+without iteration mixing. These are implementation checks, not a long-time
 production stability scan.
 
 Validation on 2026-10-12: the Release build, all 18 registered CTests, and
@@ -217,9 +235,9 @@ matched self-consistent scans.
 
 Output filenames begin with `staged__`. `/results` contains the final raw spin
 measurements; `/preparation` records the frozen input, preparation statistics,
-and invariant checks. Factor and covariance matrices are not saved. Raw preparation estimates are used
-internally for mixing and convergence but are not saved separately. The preparation
-`*_sample_stds` describe the last measured estimates, not the mixed frozen input.
+and invariant checks. Factor and covariance matrices are not saved. Each stage stores correlations and real/imaginary magnetization separately.
+Each iteration replaces the previous estimates directly; `mixingAlpha` is no longer
+supported. Preparation `*_sample_stds` describe the saved final estimates.
 Preparation correlations, their standard errors, and pCN autocorrelation diagnostics
 have axes `[direction, tau]`; real-time output retains `[t, direction, tau]`.
 A failed preparation writes an explicitly marked file in

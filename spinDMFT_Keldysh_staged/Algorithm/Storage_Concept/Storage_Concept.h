@@ -12,7 +12,6 @@ static hid_t H5_REAL_TYPE = H5T_IEEE_F32LE;
 #include"../Time_Measure/Time_Measure.h"
 #include"../Run_Time_Data/Run_Time_Data.h"
 #include"../Contour/Contour_Types.h"
-#include"../Functions/Complex_Gaussian.h"
 
 namespace spinDMFT::Storage_Concept
 {
@@ -25,6 +24,7 @@ namespace mag = Observables::Magnetization;
 using CorrelationSet = spinDMFT::Contour::CorrelationSet;
 using ContourCorrelation = spinDMFT::Contour::ContourCorrelation;
 using MagTen = mag::MagnetizationTensor<mag::MagnetizationVector>;
+using Magnetization = spinDMFT::Contour::Magnetization;
 
 // =================================================================
 // ================= HEADER FOR HDF5 STORAGE CLASS =================
@@ -32,16 +32,14 @@ using MagTen = mag::MagnetizationTensor<mag::MagnetizationVector>;
 class HDF5_Storage
 {
  public:
-    HDF5_Storage( const int my_rank, const ps::ParameterSpace& pspace, const std::string& termination );
+    HDF5_Storage( const int my_rank, const ps::ParameterSpace& pspace, const std::string& termination,
+                  const std::string& filename_suffix="" );
     void store_main( const ps::ParameterSpace& pspace, const rtd::RunTimeData& rtdata,
                      const CorrelationSet& correlations,
-                     const MagTen& magnetization_Re,
-                     const MagTen& magnetization_Im );
+                     const Magnetization& magnetization, bool preparation=false );
     void store_preparation(const ps::ParameterSpace& pspace,const rtd::RunTimeData& data,
-        const CorrelationSet& frozen,const MagTen& re,const MagTen& im,
-        const spinDMFT::Functions::ComplexDynamicMatrix& covariance,
-        const spinDMFT::Functions::ComplexDynamicMatrix& factor,
-        const std::vector<RealType>& frozen_errors,bool real_started);
+        const CorrelationSet& frozen,const Magnetization& magnetization,
+        bool real_started);
     void store_time( const tmm::DerivedTimeMeasure& tmeasure );
     void finalize();
 
@@ -53,7 +51,7 @@ class HDF5_Storage
     std::string m_filename{};
 
     void create_folder_branch( const ps::ParameterSpace& pspace, const std::string& termination );
-    void create_file( const ps::ParameterSpace& pspace );
+    void create_file( const ps::ParameterSpace& pspace, const std::string& filename_suffix );
     void store_correlation( const ContourCorrelation& correlations,
                             const hid_t group_id,
                             const std::string& dataset_name,

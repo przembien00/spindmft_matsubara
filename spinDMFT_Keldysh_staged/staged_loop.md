@@ -92,13 +92,13 @@ At preparation iteration k:
 4. Accumulate spin correlation and magnetization numerators together with Z_M.
    Reduce across MPI ranks and form ratios of ensemble sums. Calculate paired
    real/imaginary ratio jackknife errors using the inherited blocking code.
-5. Evaluate the raw, pre-mixing absolute residual as in `spinDMFT_cplx_field`:
+5. Evaluate the absolute residual between successive estimates as in `spinDMFT_cplx_field`:
    take the largest mean absolute change over tau for each Re/Im correlation
    component and the largest real origin-magnetization change. Require this to
    be strictly below `reliterror * S*(S+1)/(3*sqrt(3*N))`, using the total
    preparation sample count across MPI ranks. Standardized residuals remain
-   diagnostics and do not set the preparation stopping threshold. Update both
-   the imaginary correlations and initial magnetization with `mixingAlpha`.
+   diagnostics and do not set the preparation stopping threshold. Replace both
+   the imaginary correlations and initial magnetization with the new estimates.
 6. Apply the inherited covariance/factorization/phase and imaginary-origin-
    magnetization gates, with the preparation iteration limit. The branch
    transpose diagnostic excludes the unused real placeholders at this stage.
@@ -329,10 +329,10 @@ At iteration k:
    the inverse-modulus weights above. It is not an average of N/Z_M and is
    not divided by a trajectory's real-time trace.
 6. For the **feedback copy only**, restore X_star(0,tau) and m_star(0). Exclude
-   these frozen coordinates from the fixed-point residual. Update all t>0
-   mixed correlations/endpoints and real-time magnetization with `mixingAlpha`.
-7. Restore the origin exactly after mixing, preventing roundoff drift. Assess
-   convergence using the active raw residual and inherited diagnostics. The
+   these frozen coordinates from the fixed-point residual. Replace all t>0
+   mixed correlations/endpoints and real-time magnetization with the new estimates.
+7. Apply the prepared origin when constructing the next feedback field. Assess
+   convergence using the residual over unfrozen coordinates and inherited diagnostics. The
    imaginary-origin-magnetization diagnostic still uses the raw measured
    quantity; freezing must not hide a changed ensemble.
 
@@ -385,11 +385,12 @@ Files use the existing `/results` and `/runtimedata` schema. Independent
 filenames begin `staged__`; joint Matsubara pCN filenames begin
 `staged__jointMpcn_absZ__`. `/parameters` records `joint_matsubara_pcn`,
 `field_sampling`, the pCN weight, updated coordinates, null-space refresh
-rule, and SVD rank rule. The preparation factor is an imaginary-only
-reference. The frozen physical covariance, frozen input, raw preparation
-measurements, and per-iteration frozen-MM residuals remain in `/preparation`.
-Zero-rank preparation factors have no matrix dataset and an explicit zero
-latent dimension. `/results` always contains raw final-iteration estimates.
+rule, and SVD rank rule. Preparation correlations, magnetization, their
+statistical errors, and per-iteration frozen-MM residuals remain in
+`/preparation`. The preparation covariance and Takagi factor can be
+reconstructed from those observables and the saved parameters; neither their
+matrices nor a separate preparation-factor rank are saved. `/results` always
+contains raw final-iteration estimates.
 
 For pCN, both stages store acceptance and zero-modulus rejection rates,
 phase magnitude, blocking curves, and autocorrelation/ESS diagnostics.
@@ -407,8 +408,10 @@ partition-function normalization with independent or joint Matsubara pCN
 sampling. Propagators are endpoint CFET, Gauss-CF4 and staggered Strang.
 Strang uses the coordinate weights (M,eta,nu)=(1,2,1/2) before inverse scaling;
 pCN splits the resulting physical factor and preserves that bare law.
-FFT, weighted-dense, closed-contour insertion/normalization, nonnegative FFT
-cutoffs, and self-consistent `noselfcons` are rejected. Harmonic prescribed
+Prefix insertion and partition-function normalization are fixed;
+`spinInsertionStrategy` and `correlationNormalization` have been removed.
+Weighted-dense and self-consistent `noselfcons`
+are rejected. Harmonic prescribed
 baths bypass fixed-point preparation for controlled tests.
 
 `preparationSamplesPerCore` and `preparationIterlimit` fall back to their
@@ -422,6 +425,6 @@ space after every production step. The new sampler tests verify both complete
 Gaussian covariances for weighted, complex, weak, singular and zero kernels.
 The pCN tests cover actual rejected steps, analytic complex-phase averages,
 normalization invariance, exact thermal spins, harmonic-bath agreement with
-independent draws, and short self-consistency with mixingAlpha=1.
+independent draws, and short self-consistency without iteration mixing.
 See README.md for build and test commands. These checks do not establish
 long-time production stability or reduced magnetization drift.

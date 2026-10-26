@@ -102,7 +102,7 @@ int check_weighted_gaussian_propagation(ps::ParameterSpace p)
         for(size_t i=0;i<order;++i)for(size_t j=0;j<order;++j)for(size_t k=0;k<order;++k)
         {
             func::JointComplexGaussianSampler::LatentVector r{nodes[i],nodes[j],nodes[k]};
-            const auto tr=func::compute_contour_trajectory(p,sampler.contour_field_from_latent(r,false),mean);
+            const auto tr=func::compute_contour_trajectory(p,sampler.contour_field_from_latent(r),mean);
             Operator density=tr.imaginary_density_operator;
             const RealType weight=weights[i]*weights[j]*weights[k];
             for(size_t t=0;t<p.num_RealTimePoints;++t)
@@ -317,8 +317,7 @@ int main()
                 full.Im[ti][pair][tau]=std::imag(value);
             }
         }
-    const auto connected=func::connected_contour_primitive(
-        full,magnetization_Re,magnetization_Im);
+    const auto connected=func::connected_contour_primitive(full, spinDMFT::Contour::Magnetization{magnetization_Re,magnetization_Im});
     for( size_t ti=0;ti<connected.Re.size();++ti )
         for( size_t pair=0;pair<connected.Re[ti].size();++pair )
             for( size_t tau=0;tau<connected.Re[ti][pair].size();++tau )
@@ -342,8 +341,7 @@ int main()
                 std::abs(stationary_Re[t][c]-stationary_Re.front()[c])<RealType{1e-13}
                 &&std::abs(stationary_Im[t][c]-stationary_Im.front()[c])<RealType{1e-13},
                 "constant magnetization projection uses m(0) at every time");
-    const auto stationary_connected=func::connected_contour_primitive(
-        full,stationary_Re,stationary_Im);
+    const auto stationary_connected=func::connected_contour_primitive(full, spinDMFT::Contour::Magnetization{stationary_Re,stationary_Im});
     for( size_t pair=0;pair<stationary_connected.Re[0].size();++pair )
     {
         const auto ab=stationary_connected.Re[0].get_direction_pair(pair);
@@ -367,7 +365,9 @@ int main()
     mean_pspace.JQ=RealType{0.};
     mean_pspace.JL=RealType{-2.};
     const auto self_consistent=func::self_consistent_equations(
-        mean_pspace,full,magnetization_Re,magnetization_Im);
+        mean_pspace,
+        full,
+        spinDMFT::Contour::Magnetization{magnetization_Re,magnetization_Im});
     for( size_t ti=0;ti<magnetization_Re.size();++ti )
         for( size_t c=0;c<3;++c )
             failures+=require(std::abs(self_consistent.mean_time[ti][c]
@@ -378,7 +378,9 @@ int main()
     covariance_pspace.JQ=RealType{1.};
     covariance_pspace.JL=RealType{0.};
     const auto endpoint_covariance=func::self_consistent_equations(
-        covariance_pspace,full,magnetization_Re,magnetization_Im);
+        covariance_pspace,
+        full,
+        spinDMFT::Contour::Magnetization{magnetization_Re,magnetization_Im});
     const contour::StaggeredLayout endpoint_layout{
         covariance_pspace.num_TimePoints,covariance_pspace.num_RealTimeSteps};
     const size_t zero_row=endpoint_layout.flat(contour::StaggeredSector::Matsubara,0,0);
@@ -433,6 +435,14 @@ int main()
             "single-component harmonic bath leaves orthogonal fields zero");
     }
     const auto bath_field=func::prescribed_harmonic_bath_field(bath_pspace);
+    const auto prepared_bath=func::prescribed_harmonic_bath_field(bath_pspace,true);
+    const size_t bath_nm=3*bath_pspace.num_TimePoints;
+    failures+=require(prepared_bath.covariance.rows()==bath_nm
+        &&prepared_bath.covariance.columns()==bath_nm,
+        "harmonic preparation constructs only the Matsubara covariance");
+    for(size_t i=0;i<bath_nm;++i)for(size_t j=0;j<bath_nm;++j)
+        failures+=require(prepared_bath.covariance(i,j)==bath_field.covariance(i,j),
+            "harmonic preparation matches the joint Matsubara block");
     const contour::StaggeredLayout bath_layout{
         bath_pspace.num_TimePoints,bath_pspace.num_RealTimeSteps};
     failures+=require(bath_field.covariance.rows()==bath_layout.dimension(),
@@ -502,18 +512,24 @@ int main()
         &&imported_mag_Im[0][0]==RealType{},
         "loaded magnetization initializes every real-time point from imported m(0)");
     const auto residual=func::iteration_residual(
-        old_iteration,raw_iteration,iteration_errors,
-        old_mag_Re,old_mag_Im,raw_mag_Re,raw_mag_Im,
-        mag_Re_errors,mag_Im_errors);
+        old_iteration,
+        raw_iteration,
+        iteration_errors,
+        spinDMFT::Contour::Magnetization{old_mag_Re,old_mag_Im},
+        spinDMFT::Contour::Magnetization{raw_mag_Re,raw_mag_Im},
+        spinDMFT::Contour::Magnetization{mag_Re_errors,mag_Im_errors});
     failures+=require(std::abs(residual.absolute-RealType{0.5})<RealType{1e-14},
         "iteration residual retains the largest absolute complex difference");
     failures+=require(std::abs(residual.standardized-RealType{5.})<RealType{1e-14},
         "iteration residual standardizes real and imaginary magnetization separately");
     iteration_errors.Re[0][0][0]=RealType{};
     const auto unresolved=func::iteration_residual(
-        old_iteration,raw_iteration,iteration_errors,
-        old_mag_Re,old_mag_Im,raw_mag_Re,raw_mag_Im,
-        mag_Re_errors,mag_Im_errors);
+        old_iteration,
+        raw_iteration,
+        iteration_errors,
+        spinDMFT::Contour::Magnetization{old_mag_Re,old_mag_Im},
+        spinDMFT::Contour::Magnetization{raw_mag_Re,raw_mag_Im},
+        spinDMFT::Contour::Magnetization{mag_Re_errors,mag_Im_errors});
     failures+=require(std::isinf(unresolved.standardized),
         "a nonzero residual with zero statistical error cannot converge");
     contour::CorrelationSet exact_old{'A',2,1};
@@ -526,25 +542,66 @@ int main()
     exact_raw.Re[0][0][1]=std::nextafter(
         RealType{0.25},RealType{});
     const auto endpoint_roundoff=func::iteration_residual(
-        exact_old,exact_raw,exact_errors,
-        old_mag_Re,old_mag_Im,old_mag_Re,old_mag_Im,
-        mag_Re_errors,mag_Im_errors);
+        exact_old,
+        exact_raw,
+        exact_errors,
+        spinDMFT::Contour::Magnetization{old_mag_Re,old_mag_Im},
+        spinDMFT::Contour::Magnetization{old_mag_Re,old_mag_Im},
+        spinDMFT::Contour::Magnetization{mag_Re_errors,mag_Im_errors});
     failures+=require(endpoint_roundoff.standardized==RealType{},
         "roundoff at zero-variance t=0 tau endpoints is resolved");
     exact_raw.Re[0][0][1]=RealType{0.24};
     const auto endpoint_mismatch=func::iteration_residual(
-        exact_old,exact_raw,exact_errors,
-        old_mag_Re,old_mag_Im,old_mag_Re,old_mag_Im,
-        mag_Re_errors,mag_Im_errors);
+        exact_old,
+        exact_raw,
+        exact_errors,
+        spinDMFT::Contour::Magnetization{old_mag_Re,old_mag_Im},
+        spinDMFT::Contour::Magnetization{old_mag_Re,old_mag_Im},
+        spinDMFT::Contour::Magnetization{mag_Re_errors,mag_Im_errors});
     failures+=require(std::isinf(endpoint_mismatch.standardized),
         "a physical zero-variance t=0 tau endpoint mismatch remains unresolved");
     iteration_errors.Re[0][0][0]=std::numeric_limits<RealType>::quiet_NaN();
     const auto nonfinite=func::iteration_residual(
-        old_iteration,raw_iteration,iteration_errors,
-        old_mag_Re,old_mag_Im,raw_mag_Re,raw_mag_Im,
-        mag_Re_errors,mag_Im_errors);
+        old_iteration,
+        raw_iteration,
+        iteration_errors,
+        spinDMFT::Contour::Magnetization{old_mag_Re,old_mag_Im},
+        spinDMFT::Contour::Magnetization{raw_mag_Re,raw_mag_Im},
+        spinDMFT::Contour::Magnetization{mag_Re_errors,mag_Im_errors});
     failures+=require(std::isinf(nonfinite.absolute)
                       &&std::isinf(nonfinite.standardized),
         "nonfinite iteration statistics cannot converge");
+    contour::CorrelationSet constrained_old{'A',2,2},constrained_new{'A',2,2},constrained_errors{'A',2,2};
+    func::MagTen constrained_old_mag{'D',2},constrained_new_mag{'D',2},constrained_mag_errors{'D',2};
+    constrained_new.Re[0][0][0]=RealType{1.};
+    constrained_new_mag[0][0]=RealType{1.};
+    constrained_new.Re[1][0][0]=RealType{0.2};
+    constrained_new_mag[1][0]=RealType{0.3};
+    constrained_errors.Re[1][0][0]=RealType{0.1};
+    constrained_mag_errors[1][0]=RealType{0.1};
+    const auto frozen_residual=func::iteration_residual(
+        constrained_old,
+        constrained_new,
+        constrained_errors,
+        spinDMFT::Contour::Magnetization{constrained_old_mag,constrained_old_mag},
+        spinDMFT::Contour::Magnetization{constrained_new_mag,constrained_old_mag},
+        spinDMFT::Contour::Magnetization{constrained_mag_errors,constrained_mag_errors},
+        true,
+        false);
+    failures+=require(std::abs(frozen_residual.absolute-RealType{0.3})<RealType{1e-14}
+        &&std::abs(frozen_residual.standardized-RealType{3.})<RealType{1e-14},
+        "frozen-origin residual excludes origin differences but retains real-time updates");
+    const auto constant_residual=func::iteration_residual(
+        constrained_old,
+        constrained_new,
+        constrained_errors,
+        spinDMFT::Contour::Magnetization{constrained_old_mag,constrained_old_mag},
+        spinDMFT::Contour::Magnetization{constrained_new_mag,constrained_old_mag},
+        spinDMFT::Contour::Magnetization{constrained_mag_errors,constrained_mag_errors},
+        true,
+        true);
+    failures+=require(std::abs(constant_residual.absolute-RealType{0.2})<RealType{1e-14}
+        &&std::abs(constant_residual.standardized-RealType{2.})<RealType{1e-14},
+        "constant-magnetization residual excludes constrained magnetizations");
     return failures==0?0:1;
 }

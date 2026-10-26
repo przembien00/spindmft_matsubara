@@ -3,101 +3,191 @@
 #include"Functions/Joint_Matsubara_PCN.h"
 #include<algorithm>
 #include<cmath>
-#include<limits>
 #include<memory>
 #include<stdexcept>
 
-namespace
+int main(int argc,char* const argv[])
 {
-struct StageState
-{
-    CorrelationSet input,raw;
-    MagTen re,im,raw_re,raw_im;
-    explicit StageState(const ps::ParameterSpace& p)
-        :raw(p.correlation_symmetry_type,p.num_TimePoints,p.num_RealTimePoints),
-         raw_re(p.correlation_symmetry_type,p.num_RealTimePoints),
-         raw_im(p.correlation_symmetry_type,p.num_RealTimePoints)
-    {
-        std::tie(re,im)=func::generate_initial_magnetization(p);
-        input=func::generate_initial_correlations(p,re);
-    }
-};
+    MPI_Init(nullptr,nullptr);
+    int world{},rank{};MPI_Comm_size(MPI_COMM_WORLD,&world);MPI_Comm_rank(MPI_COMM_WORLD,&rank);
+    tmm::DerivedTimeMeasure clock(rank,world);
+    const ps::ParameterSpace parameters(argc,argv,world,rank);
+    print::print_R0(rank,parameters.create_essentials_string());
+    func::initialize_matrices(parameters);
+    auto preparation_magnetization=func::generate_initial_magnetization(parameters,true);
+    auto preparation_correlations=func::generate_initial_correlations(parameters,preparation_magnetization.Re);
+    rtd::RunTimeData runtime(parameters,rank);
+    runtime.generated_seed=rd::generate_seed(runtime.get_seed_str(),rank);
+    clock.measure("initialization",true);
 
-RealType matrix_difference(const func::ComplexDynamicMatrix& a,const func::ComplexDynamicMatrix& b)
-{
-    RealType difference{},scale{};
-    for(size_t i=0;i<a.rows();++i)for(size_t j=0;j<a.columns();++j)
-    {difference+=std::norm(a(i,j)-b(i,j));scale+=std::norm(b(i,j));}
-    return std::sqrt(difference)/std::max(std::sqrt(scale),RealType{1.});
-}
-
-// The two stages share propagation, estimators, MPI reduction, and stopping
-// diagnostics. Preparation uses the spinDMFT_cplx_field absolute stopping rule;
-// real-time feedback uses the standardized contour residual.
-void run_stage(const ps::ParameterSpace& p,int rank,StageState& state,rtd::RunTimeData& data,
-    tmm::DerivedTimeMeasure& clock,const StageState* preparation,
-    const func::ComplexDynamicMatrix* frozen,
-    std::vector<RealType>& frozen_errors)
-{
-    const bool real=preparation!=nullptr;
-    const size_t nm=3*p.num_TimePoints;
+    // Self-consistency loop for imaginary-time correlations.
     clock.enter_loop();
     do
     {
         clock.new_iteration();
-        print::print_R0(rank,std::string{"\n--- "}+(real?"Mixed/real-time":"Matsubara")
-            +" iteration "+std::to_string(data.num_Iterations+1)+" ---\n");
-        auto field=p.uses_harmonic_bath()?func::prescribed_harmonic_bath_field(p,true)
-            :func::self_consistent_equations(p,state.input,state.re,state.im,true);
-        std::unique_ptr<func::JointComplexGaussianSampler> sampler;
-        if(real)
+        const auto previous_correlations=preparation_correlations;
+        const auto previous_magnetization=preparation_magnetization;
+        print::print_R0(rank,"\n--- Matsubara iteration "
+            +std::to_string(runtime.preparation.num_Iterations+1)+" ---\n");
+        const auto field=parameters.uses_harmonic_bath()?func::prescribed_harmonic_bath_field(parameters,true)
+            :func::self_consistent_equations(parameters,preparation_correlations,
+                preparation_magnetization);
+        func::DenseComplexGaussianSampler sampler(
+            field.covariance,parameters.takagi_tolerance);
+        runtime.begin_iteration_accumulation(preparation_correlations,preparation_magnetization,true);
+        runtime.record_complex_field_diagnostics(field.covariance_symmetry_error,
+            sampler.reconstruction_error(),
+            RealType{},sampler.latent_dimension(),sampler.largest_factorization_dimension());
+        // Even stream indices are reserved for Matsubara preparation.
+        std::mt19937 engine{static_cast<unsigned>(rd::throw_seed(runtime.generated_seed,
+            2*runtime.preparation.num_Iterations,rank))};
+        clock.measure("Matsubara field distribution",true);
+        func::MeasurementWorkspace measurement;
+        func::MeasuredSample sample;
+        const bool pcn=parameters.sampling_strategy=="pcn";
+        std::unique_ptr<func::MatsubaraPCNChain> chain;
+        size_t burn_accepted{},burn_proposed{},burn_zero{};
+        if(pcn)
         {
-            const auto A=func::matsubara_block(field,p.num_TimePoints);
-            const RealType mismatch=matrix_difference(A,*frozen);
-            frozen_errors.push_back(mismatch);
-            if(!std::isfinite(mismatch)||mismatch>p.covariance_tolerance)
-                throw std::runtime_error("MM feedback changed despite the frozen origin");
-            // Exact copy also prevents different roundoff paths from changing
-            // fixed pseudo-covariance at the factorization boundary.
-            for(size_t i=0;i<nm;++i)for(size_t j=0;j<nm;++j)
-                field.covariance(i,j)=(*frozen)(i,j);
-            // Preserve the branch-field sampling norm even when the sampled
-            // coordinates are staggered eta/nu. Every mixed block is retained.
-            sampler=func::make_staged_real_sampler(p,field.covariance);
+            chain=std::make_unique<func::MatsubaraPCNChain>(parameters,sampler,field.mean_time,engine);
+            for(size_t i=0;i<parameters.mh_burn_in;++i)chain->step();
+            burn_accepted=chain->accepted();burn_proposed=chain->proposed();
+            burn_zero=chain->rejected_zero_weight();
+        }
+        if(!pcn)
+        {
+            const auto sample_independent=[&](auto& independent_trajectory,auto& independent_workspace)
+            {
+                for(size_t index=0;index<parameters.num_PreparationSamplesPerCore;++index)
+                {
+                    func::measure_matsubara_sample(parameters,sampler,engine,field.mean_time,runtime,
+                        independent_trajectory,independent_workspace,sample,measurement);
+                    runtime.accumulate_sample(sample);
+                }
+            };
+            if(parameters.num_HilbertSpaceDimension==2)
+            {
+                func::SpinHalfContourTrajectory spin_half_trajectory;
+                func::SpinHalfTrajectoryWorkspace spin_half_workspace;
+                sample_independent(spin_half_trajectory,spin_half_workspace);
+            }
+            else
+            {
+                func::ContourTrajectory trajectory;
+                func::TrajectoryWorkspace trajectory_workspace;
+                sample_independent(trajectory,trajectory_workspace);
+            }
         }
         else
-            sampler=std::make_unique<func::DenseComplexGaussianSampler>(
-                func::matsubara_block(field,p.num_TimePoints));
-        if(!std::isfinite(sampler->reconstruction_error())
-            ||sampler->reconstruction_error()>p.takagi_tolerance)
-            throw std::runtime_error("joint Gaussian factor failed pseudo-covariance reconstruction");
-        data.record_complex_field_diagnostics(field.covariance_symmetry_error,
+        {
+            func::ContourTrajectory trajectory;
+            func::TrajectoryWorkspace trajectory_workspace;
+            for(size_t index=0;index<parameters.num_PreparationSamplesPerCore;++index)
+            {
+                chain->step();
+                const auto M=sampler.field_from_latent(chain->latent());
+                func::JointComplexGaussianSampler::ContourFieldSample fields;
+                fields.edge_field.resize(M.size()+6);fields.edge_field=ComplexType{};
+                for(size_t i=0;i<M.size();++i)fields.edge_field[i]=M[i];
+                func::build_matsubara_trajectory(parameters,fields,field.mean_time,trajectory,trajectory_workspace);
+                func::measure_contour_observables(runtime,trajectory,sample,measurement);
+                runtime.accumulate_sample(sample,RealType{1.}/chain->weight());
+            }
+        }
+        if(pcn)runtime.record_pcn_diagnostics(chain->accepted()-burn_accepted,
+            chain->proposed()-burn_proposed,chain->rejected_zero_weight()-burn_zero);
+        clock.measure("Matsubara sampling",true);
+        runtime.mpi_reduce_and_normalize();
+        clock.measure("MPI communication",true);
+        const auto residual=func::iteration_residual(previous_correlations,preparation_correlations,
+            runtime.preparation.contour_sample_stds,previous_magnetization,
+            preparation_magnetization,
+            runtime.preparation.magnetization_time_stds);
+        runtime.record_matsubara_iteration_error(previous_correlations,preparation_correlations,
+            previous_magnetization.Re,preparation_magnetization.Re,residual.standardized);
+        runtime.finalize_iteration_step();
+        clock.measure("iteration-step finalization",true);
+    }while(!runtime.terminate(preparation_magnetization.Im));
+    clock.leave_loop();
+    clock.measure("Matsubara self consistency",true);
+
+    // Start real-time evolution only after successful preparation.
+    if(runtime.preparation.termination!="by convergence"&&!parameters.uses_harmonic_bath())
+    {
+        stoc::HDF5_Storage storage(rank,parameters,"by iteration limit","__preparation_failed");
+        storage.store_main(parameters,runtime,preparation_correlations,
+            preparation_magnetization,true);
+        storage.store_preparation(parameters,runtime,preparation_correlations,
+            preparation_magnetization,false);
+        clock.stop();storage.store_time(clock);storage.finalize();
+        print::print_R0(rank,"Matsubara preparation did not converge; real-time stage was not started.\n");
+        MPI_Finalize();return 2;
+    }
+    const auto prepared_field=parameters.uses_harmonic_bath()
+        ?func::prescribed_harmonic_bath_field(parameters,true)
+        :func::self_consistent_equations(parameters,preparation_correlations,
+            preparation_magnetization);
+    const auto& frozen=prepared_field.covariance;
+    CorrelationSet correlations;
+    func::Magnetization magnetization;
+    func::seed_from_preparation(parameters,preparation_correlations,
+        preparation_magnetization,
+        correlations,magnetization);
+    print::print_R0(rank,std::string{"\nMatsubara preparation frozen. Starting "}
+        +(parameters.sampling_strategy=="pcn"?"joint-Takagi Matsubara pCN":"joint-Takagi")
+        +" mixed/real-time iteration.\n");
+
+    // Self-consistency loop for mixed and real-time correlations.
+    const size_t nm=3*parameters.num_TimePoints;
+    clock.enter_loop();
+    do
+    {
+        clock.new_iteration();
+        print::print_R0(rank,"\n--- Mixed/real-time iteration "
+            +std::to_string(runtime.real_time.num_Iterations+1)+" ---\n");
+        // Keep the measured quantities for output; constrain only the feedback.
+        auto previous_correlations=correlations;
+        auto previous_magnetization=magnetization;
+        func::freeze_origin(previous_correlations,previous_magnetization,
+            preparation_correlations,preparation_magnetization);
+        if(parameters.constant_magnetization_time)
+            for(size_t t=1;t<parameters.num_RealTimePoints;++t)
+            {
+                previous_magnetization.Re[t]=preparation_magnetization.Re.front();
+                previous_magnetization.Im[t]=preparation_magnetization.Im.front();
+            }
+        auto field=parameters.uses_harmonic_bath()?func::prescribed_harmonic_bath_field(parameters)
+            :func::self_consistent_equations(parameters,previous_correlations,
+                previous_magnetization);
+        const auto A=func::matsubara_block(field,parameters.num_TimePoints);
+        const RealType mismatch=func::matrix_difference(A,frozen);
+        runtime.frozen_errors.push_back(mismatch);
+        if(!std::isfinite(mismatch)||mismatch>parameters.covariance_tolerance)
+            throw std::runtime_error("MM feedback changed despite the frozen origin");
+        // Preserve the branch-field sampling norm even when the sampled
+        // coordinates are staggered eta/nu. Every mixed block is retained.
+        const auto sampler=func::make_staged_real_sampler(parameters,field.covariance);
+        runtime.begin_iteration_accumulation(correlations,magnetization);
+        runtime.record_complex_field_diagnostics(field.covariance_symmetry_error,
             sampler->reconstruction_error(),
             RealType{},sampler->latent_dimension(),sampler->largest_factorization_dimension());
-        // Separate stage streams, also for the same seed and iteration index.
-        std::mt19937 engine{static_cast<unsigned>(rd::throw_seed(data.generated_seed,
-            2*data.num_Iterations+(real?1:0),rank))};
-        clock.measure(real?"joint field distribution":"Matsubara field distribution",true);
-        data.begin_iteration_accumulation();
-        func::ContourTrajectory trajectory;
-        func::TrajectoryWorkspace trajectory_workspace;
+        // Odd stream indices keep real-time sampling separate from preparation.
+        std::mt19937 engine{static_cast<unsigned>(rd::throw_seed(runtime.generated_seed,
+            2*runtime.real_time.num_Iterations+1,rank))};
+        clock.measure("joint field distribution",true);
         func::MeasurementWorkspace measurement;
-        rtd::MeasuredSample sample;
-        const bool pcn=p.sampling_strategy=="pcn";
+        func::MeasuredSample sample;
+        const bool pcn=parameters.sampling_strategy=="pcn";
         std::unique_ptr<func::JointMatsubaraSampler> chain_sampler;
         std::unique_ptr<func::MatsubaraPCNChain> chain;
         size_t burn_accepted{},burn_proposed{},burn_zero{};
         if(pcn)
         {
-            if(real)
-            {
-                const auto* joint=dynamic_cast<const func::DenseComplexGaussianSampler*>(sampler.get());
-                if(!joint)throw std::logic_error("joint Matsubara pCN requires dense joint Takagi");
-                chain_sampler=std::make_unique<func::JointMatsubaraSampler>(*joint,nm);
-            }
-            chain=std::make_unique<func::MatsubaraPCNChain>(p,
-                real?*chain_sampler:*sampler,field.mean_time,engine);
-            for(size_t i=0;i<p.mh_burn_in;++i)chain->step();
+            const auto* joint=dynamic_cast<const func::DenseComplexGaussianSampler*>(sampler.get());
+            if(!joint)throw std::logic_error("joint Matsubara pCN requires dense joint Takagi");
+            chain_sampler=std::make_unique<func::JointMatsubaraSampler>(*joint,nm);
+            chain=std::make_unique<func::MatsubaraPCNChain>(parameters,*chain_sampler,field.mean_time,engine);
+            for(size_t i=0;i<parameters.mh_burn_in;++i)chain->step();
             burn_accepted=chain->accepted();burn_proposed=chain->proposed();
             burn_zero=chain->rejected_zero_weight();
         }
@@ -105,178 +195,78 @@ void run_stage(const ps::ParameterSpace& p,int rank,StageState& state,rtd::RunTi
         {
             // One immutable deterministic trajectory per iteration, shared by
             // all samples. Only its real-time interpolation nodes are cached.
-            const func::PreparedMeanField prepared_mean(p,field.mean_time);
+            const func::PreparedMeanField prepared_mean(parameters,field.mean_time);
             const auto sample_independent=[&](auto& independent_trajectory,auto& independent_workspace)
             {
-                if(real)
+                // Preserve sample-major RNG order and statistical blocks.
+                constexpr size_t batch_size=32;
+                for(size_t first=0;first<parameters.num_SamplesPerCore;)
                 {
-                    // Preserve sample-major RNG order and statistical blocks.
-                    constexpr size_t batch_size=32;
-                    for(size_t first=0;first<p.num_SamplesPerCore;)
+                    const size_t count=std::min(batch_size,parameters.num_SamplesPerCore-first);
+                    const auto fields=sampler->draw_contour_batch(engine,count);
+                    for(const auto& field_sample:fields)
                     {
-                        const size_t count=std::min(batch_size,p.num_SamplesPerCore-first);
-                        const auto fields=sampler->draw_contour_batch(engine,count,false);
-                        for(const auto& field_sample:fields)
-                        {
-                            func::build_contour_trajectory(p,field_sample,prepared_mean,
-                                independent_trajectory,independent_workspace,false,func::FinalTraceMode::Skip);
-                            func::measure_and_accumulate_independent(data,independent_trajectory,measurement,"prefix");
-                        }
-                        first+=count;
+                        func::build_contour_trajectory(parameters,field_sample,prepared_mean,
+                            independent_trajectory,independent_workspace,false,func::FinalTraceMode::Skip);
+                        func::measure_and_accumulate_independent(runtime,independent_trajectory,measurement);
                     }
+                    first+=count;
                 }
-                else
-                    for(size_t index=0;index<p.num_SamplesPerCore;++index)
-                    {
-                        func::measure_matsubara_sample(p,*sampler,engine,field.mean_time,data,
-                            independent_trajectory,independent_workspace,sample,measurement);
-                        data.accumulate_sample(sample);
-                    }
             };
-            if(p.num_HilbertSpaceDimension==2)
+            if(parameters.num_HilbertSpaceDimension==2)
             {
                 func::SpinHalfContourTrajectory spin_half_trajectory;
                 func::SpinHalfTrajectoryWorkspace spin_half_workspace;
                 sample_independent(spin_half_trajectory,spin_half_workspace);
             }
-            else sample_independent(trajectory,trajectory_workspace);
-        }
-        else for(size_t index=0;index<p.num_SamplesPerCore;++index)
-        {
-            chain->step();
-            func::JointComplexGaussianSampler::ContourFieldSample fields;
-            if(real)
+            else
             {
+                func::ContourTrajectory trajectory;
+                func::TrajectoryWorkspace trajectory_workspace;
+                sample_independent(trajectory,trajectory_workspace);
+            }
+        }
+        else
+        {
+            const func::PreparedMeanField prepared_mean(parameters,field.mean_time);
+            func::ContourTrajectory trajectory;
+            func::TrajectoryWorkspace trajectory_workspace;
+            for(size_t index=0;index<parameters.num_SamplesPerCore;++index)
+            {
+                chain->step();
                 // Refresh the joint factor null-space after EVERY step,
                 // including rejection, retaining the M-active coordinates.
                 const auto latent=chain_sampler->draw_joint_latent(chain->latent(),engine);
-                fields=sampler->contour_field_from_latent(latent,false);
+                const auto fields=sampler->contour_field_from_latent(latent);
+                func::build_contour_trajectory(parameters,fields,prepared_mean,trajectory,trajectory_workspace);
+                func::measure_contour_observables(runtime,trajectory,sample,measurement);
+                runtime.accumulate_sample(sample,RealType{1.}/chain->weight());
             }
-            else
-            {
-                const auto M=sampler->field_from_latent(chain->latent());
-                fields.edge_field.resize(M.size()+6);fields.edge_field=ComplexType{};
-                for(size_t i=0;i<M.size();++i)fields.edge_field[i]=M[i];
-            }
-            func::build_contour_trajectory(p,fields,field.mean_time,trajectory,trajectory_workspace);
-            func::measure_contour_observables(data,trajectory,sample,measurement,"prefix");
-            data.accumulate_sample(sample,RealType{1.}/chain->weight());
         }
-        if(pcn)data.record_pcn_diagnostics(chain->accepted()-burn_accepted,
-            chain->proposed()-burn_proposed,chain->rejected_zero_weight()-burn_zero,RealType{});
-        clock.measure(real?"mixed real-time sampling":"Matsubara sampling",true);
-        data.mpi_reduce_and_finalize(state.raw,state.raw_re,state.raw_im);
+        if(pcn)runtime.record_pcn_diagnostics(chain->accepted()-burn_accepted,
+            chain->proposed()-burn_proposed,chain->rejected_zero_weight()-burn_zero);
+        clock.measure("mixed real-time sampling",true);
+        runtime.mpi_reduce_and_normalize();
         clock.measure("MPI communication",true);
-        auto active=state.raw;
-        auto active_re=state.raw_re,active_im=state.raw_im;
-        if(real)
-        {
-            // Mask frozen coordinates for residuals and updates, never for
-            // output or uncertainty diagnostics.
-            func::freeze_origin(active,active_re,active_im,
-                preparation->input,preparation->re,preparation->im);
-            if(p.constant_magnetization_time)
-                for(size_t t=1;t<p.num_RealTimePoints;++t)
-                {active_re[t]=preparation->re.front();active_im[t]=preparation->im.front();}
-        }
-        const auto residual=func::iteration_residual(state.input,active,data.contour_sample_stds,
-            state.re,state.im,active_re,active_im,
-            data.magnetization_time_Re_stds,data.magnetization_time_Im_stds);
-        if(real)
-            data.record_iteration_error(residual.absolute,residual.standardized);
-        else
-            data.record_matsubara_iteration_error(state.input,active,state.re,active_re,
-                residual.standardized);
-        if(p.uses_harmonic_bath())
-        {state.input=active;state.re=active_re;state.im=active_im;}
-        else
-        {
-            state.input=func::mix_correlations(state.input,active,p.mixing_alpha);
-            state.re=func::mix_magnetization_tensor(state.re,active_re,p.mixing_alpha);
-            state.im=func::mix_magnetization_tensor(state.im,active_im,p.mixing_alpha);
-        }
-        if(real)func::freeze_origin(state.input,state.re,state.im,
-            preparation->input,preparation->re,preparation->im);
-        data.finalize_iteration_step();
+        // Frozen coordinates do not contribute to the iteration residual.
+        const auto residual=func::iteration_residual(previous_correlations,correlations,
+            runtime.real_time.contour_sample_stds,previous_magnetization,
+            magnetization,
+            runtime.real_time.magnetization_time_stds,
+            true,parameters.constant_magnetization_time);
+        runtime.record_iteration_error(residual.absolute,residual.standardized);
+        runtime.finalize_iteration_step();
         clock.measure("iteration-step finalization",true);
         // Assess imaginary-magnetization diagnostics on the measured result.
         // Substituting the frozen origin here could hide a changed ensemble.
-    }while(!data.terminate(state.raw_im));
+    }while(!runtime.terminate(magnetization.Im));
     clock.leave_loop();
-    clock.measure(real?"real-time self consistency":"Matsubara self consistency",true);
-}
-}
+    clock.measure("real-time self consistency",true);
 
-int main(int argc,char* const argv[])
-{
-    MPI_Init(nullptr,nullptr);
-    int world{},rank{};MPI_Comm_size(MPI_COMM_WORLD,&world);MPI_Comm_rank(MPI_COMM_WORLD,&rank);
-    try
-    {
-        tmm::DerivedTimeMeasure clock(rank,world);
-        const ps::ParameterSpace parameters(argc,argv,world,rank);
-        if(parameters.gaussian_factorization!="dense"
-            ||parameters.spin_insertion_strategy!="prefix"
-            ||parameters.correlation_normalization!="partition-function")
-            throw std::invalid_argument("staged solver requires dense factorization, prefix insertions, and partition-function normalization");
-        if(!parameters.self_consistency&&!parameters.uses_harmonic_bath())
-            throw std::invalid_argument("noselfcons cannot prepare a converged self-consistent Matsubara bath; use bath=harmonic for prescribed-bath validation");
-        if(parameters.fft_cross_frequency_cutoff>=RealType{})
-            throw std::invalid_argument("the staged dense sampler does not support an FFT cutoff");
-        print::print_R0(rank,parameters.create_essentials_string());
-        func::initialize_matrices(parameters);
-        auto pM=parameters;
-        pM.num_RealTimeSteps=0;pM.num_RealTimePoints=1;pM.Tmax=RealType{};
-        pM.num_SamplesPerCore=parameters.preparation_samples?parameters.preparation_samples:parameters.num_SamplesPerCore;
-        if(pM.num_SamplesPerCore>std::numeric_limits<size_t>::max()/parameters.get_num_Cores())
-            throw std::invalid_argument("preparation sample count overflows size_t");
-        pM.num_Samples=pM.num_SamplesPerCore*pM.get_num_Cores();
-        pM.Iteration_Limit=parameters.preparation_iteration_limit?parameters.preparation_iteration_limit:parameters.Iteration_Limit;
-        StageState preparation(pM);
-        rtd::RunTimeData prep_data(pM,rank,true);
-        prep_data.generated_seed=rd::generate_seed(prep_data.get_seed_str(),rank);
-        clock.measure("initialization",true);
-        std::vector<RealType> frozen_errors;
-        run_stage(pM,rank,preparation,prep_data,clock,nullptr,nullptr,frozen_errors);
-        if(prep_data.termination!="by convergence"&&!parameters.uses_harmonic_bath())
-        {
-            auto failed=pM;failed.filename_extension+="__preparation_failed";
-            stoc::HDF5_Storage storage(rank,failed,"by iteration limit");
-            storage.store_main(failed,prep_data,preparation.raw,preparation.raw_re,preparation.raw_im);
-            storage.store_preparation(pM,prep_data,preparation.input,preparation.re,preparation.im,
-                {},{},frozen_errors,false);
-            clock.stop();storage.store_time(clock);storage.finalize();
-            print::print_R0(rank,"Matsubara preparation did not converge; real-time stage was not started.\n");
-            MPI_Finalize();return 2;
-        }
-        const auto prepared_field=parameters.uses_harmonic_bath()
-            ?func::prescribed_harmonic_bath_field(pM,true)
-            :func::self_consistent_equations(pM,preparation.input,preparation.re,preparation.im,true);
-        const auto frozen=func::matsubara_block(prepared_field,pM.num_TimePoints);
-        // Imaginary-only reference; the real loop always uses the current joint law.
-        const auto reference=func::autonne_takagi(frozen);
-        if(!std::isfinite(reference.reconstruction_error)
-            ||reference.reconstruction_error>parameters.takagi_tolerance)
-            throw std::runtime_error("prepared Gaussian factor failed pseudo-covariance reconstruction");
-        const auto& preparation_factor=reference.L;
-        StageState real(parameters);
-        func::seed_from_preparation(parameters,preparation.input,preparation.re,preparation.im,
-            real.input,real.re,real.im);
-        rtd::RunTimeData real_data(parameters,rank);real_data.generated_seed=prep_data.generated_seed;
-        print::print_R0(rank,std::string{"\nMatsubara preparation frozen. Starting "}
-            +(parameters.sampling_strategy=="pcn"?"joint-Takagi Matsubara pCN":"joint-Takagi")
-            +" mixed/real-time iteration.\n");
-        run_stage(parameters,rank,real,real_data,clock,&preparation,&frozen,frozen_errors);
-        stoc::HDF5_Storage storage(rank,parameters,real_data.termination);
-        storage.store_main(parameters,real_data,real.raw,real.raw_re,real.raw_im);
-        storage.store_preparation(pM,prep_data,preparation.input,preparation.re,preparation.im,
-            frozen,preparation_factor,frozen_errors,true);
-        clock.measure("storing",true);clock.stop();storage.store_time(clock);storage.finalize();
-        MPI_Finalize();return real_data.termination=="by iteration limit"?3:0;
-    }
-    catch(const std::exception& exception)
-    {
-        std::cerr<<"Rank "<<rank<<": staged solver failed: "<<exception.what()<<'\n';
-        MPI_Abort(MPI_COMM_WORLD,1);return 1;
-    }
+    stoc::HDF5_Storage storage(rank,parameters,runtime.real_time.termination);
+    storage.store_main(parameters,runtime,correlations,magnetization);
+    storage.store_preparation(parameters,runtime,preparation_correlations,
+        preparation_magnetization,true);
+    clock.measure("storing",true);clock.stop();storage.store_time(clock);storage.finalize();
+    MPI_Finalize();return runtime.real_time.termination=="by iteration limit"?3:0;
 }

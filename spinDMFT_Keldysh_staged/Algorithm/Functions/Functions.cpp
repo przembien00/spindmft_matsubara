@@ -13,6 +13,14 @@ namespace sp = Physics::Spin;
 
 namespace spinDMFT::Functions
 {
+RealType matrix_difference(const ComplexDynamicMatrix& a,const ComplexDynamicMatrix& b)
+{
+    RealType difference{},scale{};
+    for(size_t i=0;i<a.rows();++i)for(size_t j=0;j<a.columns();++j)
+    {difference+=std::norm(a(i,j)-b(i,j));scale+=std::norm(b(i,j));}
+    return std::sqrt(difference)/std::max(std::sqrt(scale),RealType{1.});
+}
+
 namespace
 {
 Operator spin_scalar_product( const ComplexFieldVector& field )
@@ -134,15 +142,6 @@ RealType tensor_max_difference( const CorrTen& lhs, const CorrTen& rhs )
             largest=std::max(largest,std::abs(lhs[p][i]-rhs[p][i]));
     }
     return largest;
-}
-
-void mix_tensor( CorrTen& output, const CorrTen& old_values,
-                 const CorrTen& raw_values, RealType alpha )
-{
-    for( size_t p=0;p<output.size();++p )
-        for( size_t i=0;i<output[p].size();++i )
-            output[p][i]=(RealType{1.}-alpha)*old_values[p][i]
-                         +alpha*raw_values[p][i];
 }
 }
 
@@ -313,13 +312,11 @@ void initialize_matrices( const ps::ParameterSpace& pspace )
     }
 }
 
-std::pair<MagTen,MagTen> generate_initial_magnetization(
-    const ps::ParameterSpace& pspace )
+Magnetization generate_initial_magnetization(
+    const ps::ParameterSpace& pspace, const bool matsubara_preparation )
 {
-    MagTen magnetization_Re{
-        pspace.correlation_symmetry_type,pspace.num_RealTimePoints};
-    MagTen magnetization_Im{
-        pspace.correlation_symmetry_type,pspace.num_RealTimePoints};
+    Magnetization magnetization{
+        pspace.correlation_symmetry_type,matsubara_preparation?size_t{1}:pspace.num_RealTimePoints};
     if( pspace.load_initial_spin_correlations )
     {
         if( pspace.initial_magnetization_linearized.size()<3 )
@@ -330,26 +327,31 @@ std::pair<MagTen,MagTen> generate_initial_magnetization(
                     imported_full.size(),imported_full.begin());
         const MagVec imported{
             pspace.correlation_symmetry_type,imported_full};
-        for( auto& magnetization : magnetization_Re ) magnetization=imported;
+        for( auto& value : magnetization.Re ) value=imported;
     }
-    return {std::move(magnetization_Re),std::move(magnetization_Im)};
+    return magnetization;
 }
 
 CorrelationSet generate_initial_correlations( const ps::ParameterSpace& pspace,
-                                              const MagTen& magnetization_Re )
+                                              const MagTen& magnetization_Re,
+                                              const CorrelationSet* prepared )
 {
     if( magnetization_Re.empty()
-        ||magnetization_Re.size()!=pspace.num_RealTimePoints
         ||magnetization_Re.get_symmetry()!=pspace.correlation_symmetry_type )
         throw std::invalid_argument(
             "initial correlations need a matching nonempty magnetization tensor");
     const FieldVector spin_expectation=magnetization_Re.front().expand();
     CorrelationSet result{pspace.correlation_symmetry_type,pspace.num_TimePoints,
-                          pspace.num_RealTimePoints};
+                          magnetization_Re.size()};
     CorrTen edge_Re{pspace.correlation_symmetry_type,pspace.num_TimePoints};
     CorrTen edge_Im{pspace.correlation_symmetry_type,pspace.num_TimePoints};
 
-    if( !pspace.load_initial_spin_correlations )
+    if(prepared)
+    {
+        edge_Re=prepared->Re.front();
+        edge_Im=prepared->Im.front();
+    }
+    else if( !pspace.load_initial_spin_correlations )
     {
         const Corr diagonal{pspace.init_diag_corr.create_discretization(
             pspace.delta_t,pspace.num_TimePoints,pspace.spin_float)};
@@ -407,21 +409,20 @@ CorrelationSet generate_initial_correlations( const ps::ParameterSpace& pspace,
 
 CorrelationSet connected_contour_primitive(
     const CorrelationSet& correlations,
-    const MagTen& magnetization_Re,
-    const MagTen& magnetization_Im )
+    const Magnetization& magnetization )
 {
     if( correlations.Re.empty() || correlations.Im.size()!=correlations.Re.size()
-        ||magnetization_Re.size()!=correlations.Re.size()
-        ||magnetization_Im.size()!=correlations.Re.size()
-        ||magnetization_Re.get_symmetry()!=magnetization_Im.get_symmetry()
-        ||magnetization_Re.get_symmetry()!=correlations.Re.front().get_symmetry()
-        ||magnetization_Re.get_directions()!=magnetization_Im.get_directions() )
+        ||magnetization.Re.size()!=correlations.Re.size()
+        ||magnetization.Im.size()!=correlations.Re.size()
+        ||magnetization.Re.get_symmetry()!=magnetization.Im.get_symmetry()
+        ||magnetization.Re.get_symmetry()!=correlations.Re.front().get_symmetry()
+        ||magnetization.Re.get_directions()!=magnetization.Im.get_directions() )
         throw std::invalid_argument(
             "connected contour primitive needs matching correlation and magnetization grids" );
 
     CorrelationSet connected=correlations;
-    const auto full_Re=magnetization_Re.expand();
-    const auto full_Im=magnetization_Im.expand();
+    const auto full_Re=magnetization.Re.expand();
+    const auto full_Im=magnetization.Im.expand();
     for( size_t t=0;t<connected.Re.size();++t )
     {
         if( connected.Im[t].size()!=connected.Re[t].size() )
@@ -450,11 +451,12 @@ CorrelationSet connected_contour_primitive(
 namespace
 {
 SelfConsistentField covariance_from_primitive( const ps::ParameterSpace& pspace,
-    CorrelationSet primitive,const bool prescribed,const bool materialize )
+    const CorrelationSet& primitive,const bool prescribed )
 {
     if(pspace.uses_staggered_strang()&&pspace.real_time_substeps==0)
         throw std::invalid_argument("staggered Strang requires positive substeps");
-    const contour::ContourLayout layout{pspace.num_TimePoints,pspace.num_RealTimePoints};
+    const size_t num_real_points=primitive.Re.size();
+    const contour::ContourLayout layout{pspace.num_TimePoints,num_real_points};
     struct Term {size_t c,d;RealType coefficient;};
     std::array<std::vector<Term>,9> rotations;
     std::array<RealType,9> noise{};
@@ -473,13 +475,10 @@ SelfConsistentField covariance_from_primitive( const ps::ParameterSpace& pspace,
         }
     }
     const RealType scale=prescribed?RealType{1.}:pspace.JQ*pspace.JQ;
-    auto values=std::make_shared<CorrelationSet>(std::move(primitive));
-    // Capture owned values and rotation coefficients, never a ParameterSpace
-    // reference: the source remains valid independently of its caller.
-    const bool staggered=pspace.uses_staggered_strang();
+    const bool staggered=num_real_points>1&&pspace.uses_staggered_strang();
     const size_t q=pspace.real_time_steps_per_interval();
     const contour::StaggeredLayout staggered_layout{pspace.num_TimePoints,std::max(size_t{1},pspace.num_RealTimeSteps*q)};
-    const auto raw=[values,layout,staggered_layout,staggered,q,rotations,noise,scale](size_t row,size_t col)
+    const auto raw=[&](size_t row,size_t col)
     {
         if(staggered)
         {
@@ -487,7 +486,7 @@ SelfConsistentField covariance_from_primitive( const ps::ParameterSpace& pspace,
             const size_t pair=3*first.component+second.component;
             ComplexType value{};
             for(const auto& term:rotations[pair])
-                value+=term.coefficient*contour::staggered_correlation(*values,
+                value+=term.coefficient*contour::staggered_correlation(primitive,
                     {first.sector,first.point,term.c},{second.sector,second.point,term.d},q);
             // Static classical noise is common precession noise. It has no
             // response or response--Matsubara block.
@@ -499,37 +498,35 @@ SelfConsistentField covariance_from_primitive( const ps::ParameterSpace& pspace,
         const size_t pair=3*first.component+second.component;
         ComplexType value{};
         for(const auto& term:rotations[pair])
-            value+=term.coefficient*contour::branch_correlation(*values,layout,
+            value+=term.coefficient*contour::branch_correlation(primitive,layout,
                 {first.branch,first.point,term.c},{second.branch,second.point,term.d});
         return scale*value+ComplexType{noise[pair],RealType{}};
     };
     SelfConsistentField result;
-    const size_t n=staggered?staggered_layout.dimension():layout.dimension();
-    if(materialize)result.covariance.resize(n,n,false);
+    const size_t n=num_real_points==1?3*pspace.num_TimePoints
+        :staggered?staggered_layout.dimension():layout.dimension();
+    result.covariance.resize(n,n,false);
     // Fill one canonical triangle and reuse each value for its transpose.
     for(size_t i=0;i<n;++i)for(size_t j=i;j<n;++j)
     {
         const ComplexType upper=raw(i,j);
-        if(materialize){result.covariance(i,j)=upper;result.covariance(j,i)=upper;}
+        result.covariance(i,j)=upper;result.covariance(j,i)=upper;
     }
     result.covariance_symmetry_error=RealType{};
-    result.covariance_source=CovarianceSource(n,[raw](size_t i,size_t j)
-    {return i<=j?raw(i,j):raw(j,i);});
     return result;
 }
 }
 
 SelfConsistentField self_consistent_equations(
     const ps::ParameterSpace& pspace, const CorrelationSet& correlations,
-    const MagTen& magnetization_Re, const MagTen& magnetization_Im,
-    const bool materialize_covariance )
+    const Magnetization& magnetization )
 {
     SelfConsistentField result=covariance_from_primitive(pspace,
-        connected_contour_primitive(correlations,magnetization_Re,magnetization_Im),
-        false,materialize_covariance);
-    const auto physical_magnetization=magnetization_Re.expand();
-    result.mean_time.resize(magnetization_Re.size());
-    for(size_t t=0;t<magnetization_Re.size();++t)
+        connected_contour_primitive(correlations,magnetization),
+        false);
+    const auto physical_magnetization=magnetization.Re.expand();
+    result.mean_time.resize(magnetization.Re.size());
+    for(size_t t=0;t<magnetization.Re.size();++t)
     {
         result.mean_time[t]=pspace.JL*(
             pspace.spin_model.coupling_matrix*physical_magnetization[t]);
@@ -537,7 +534,8 @@ SelfConsistentField self_consistent_equations(
     return result;
 }
 
-CorrelationSet harmonic_bath_primitive( const ps::ParameterSpace& pspace )
+CorrelationSet harmonic_bath_primitive( const ps::ParameterSpace& pspace,
+                                        const bool matsubara_preparation )
 {
     if( !pspace.uses_harmonic_bath() )
         throw std::invalid_argument(
@@ -550,12 +548,13 @@ CorrelationSet harmonic_bath_primitive( const ps::ParameterSpace& pspace )
     if( component==std::string::npos )
         throw std::invalid_argument("invalid harmonic-bath spin component");
 
+    const size_t num_real_points=matsubara_preparation?size_t{1}:pspace.num_RealTimePoints;
     CorrelationSet result{pspace.correlation_symmetry_type,
-                          pspace.num_TimePoints,pspace.num_RealTimePoints};
+                          pspace.num_TimePoints,num_real_points};
     const RealType omega=pspace.bath_frequency;
     const RealType n_plus_one=-RealType{1.}/std::expm1(-pspace.beta*omega);
     const RealType amplitude=pspace.bath_coupling*pspace.bath_coupling*n_plus_one;
-    for( size_t t_index=0;t_index<pspace.num_RealTimePoints;++t_index )
+    for( size_t t_index=0;t_index<num_real_points;++t_index )
     {
         const RealType t=static_cast<RealType>(t_index)*pspace.delta_real_t;
         const ComplexType positive_phase=std::exp(ComplexType{0.,omega*t});
@@ -578,10 +577,10 @@ CorrelationSet harmonic_bath_primitive( const ps::ParameterSpace& pspace )
 }
 
 SelfConsistentField prescribed_harmonic_bath_field(
-    const ps::ParameterSpace& pspace,const bool materialize_covariance )
+    const ps::ParameterSpace& pspace,const bool matsubara_preparation )
 {
-    auto result=covariance_from_primitive(pspace,harmonic_bath_primitive(pspace),true,materialize_covariance);
-    result.mean_time.assign(pspace.num_RealTimePoints,FieldVector{});
+    auto result=covariance_from_primitive(pspace,harmonic_bath_primitive(pspace,matsubara_preparation),true);
+    result.mean_time.assign(matsubara_preparation?size_t{1}:pspace.num_RealTimePoints,FieldVector{});
     return result;
 }
 
@@ -612,39 +611,40 @@ template<typename Matrix>
 void complete_contour_trajectory_impl(const ps::ParameterSpace&,
     const JointComplexGaussianSampler::ContourFieldSample&,const MeanFieldTrajectory&,
     BasicContourTrajectory<Matrix>&,BasicTrajectoryWorkspace<Matrix>&,FinalTraceMode,
-    const PreparedMeanField*);
+    const PreparedMeanField*,bool=false);
 
 template<typename Matrix>
 void build_contour_trajectory_impl( const ps::ParameterSpace& pspace,
     const JointComplexGaussianSampler::ContourFieldSample& field_sample,
     const MeanFieldTrajectory& mean_field_time, BasicContourTrajectory<Matrix>& result,
     BasicTrajectoryWorkspace<Matrix>& workspace, const bool imaginary_only,
-    const FinalTraceMode final_trace, const PreparedMeanField* mean_nodes )
+    const FinalTraceMode final_trace, const PreparedMeanField* mean_nodes,
+    const bool matsubara_preparation=false )
 {
+    const size_t num_real_points=matsubara_preparation?size_t{1}:pspace.num_RealTimePoints;
+    const size_t num_real_steps=matsubara_preparation?size_t{}:pspace.num_RealTimeSteps;
+    const bool staggered=!matsubara_preparation&&pspace.uses_staggered_strang();
     if constexpr(std::is_same_v<Matrix,SpinHalfOperator>)
         if(pspace.num_HilbertSpaceDimension!=2)
             throw std::invalid_argument("fixed-size trajectory requires spin 1/2");
-    if(pspace.uses_staggered_strang()&&pspace.real_time_substeps==0)
+    if(staggered&&pspace.real_time_substeps==0)
         throw std::invalid_argument("staggered Strang requires positive substeps");
     const contour::ContourLayout layout{
-        pspace.num_TimePoints,pspace.num_RealTimePoints};
+        pspace.num_TimePoints,num_real_points};
     const contour::StaggeredLayout staggered_layout{pspace.num_TimePoints,
-        std::max(size_t{1},pspace.num_RealTimeSteps*pspace.real_time_steps_per_interval())};
+        std::max(size_t{1},num_real_steps*pspace.real_time_steps_per_interval())};
     const auto& joint_field=field_sample.edge_field;
-    if( joint_field.size()!=(pspace.uses_staggered_strang()?staggered_layout.dimension():layout.dimension()) )
+    if( joint_field.size()!=(staggered?staggered_layout.dimension():layout.dimension()) )
         throw std::invalid_argument("joint Keldysh field has the wrong dimension");
-    if( mean_field_time.size()!=pspace.num_RealTimePoints )
+    if( mean_field_time.size()!=num_real_points )
         throw std::invalid_argument("mean-field trajectory has the wrong real-time grid");
     const size_t q=pspace.real_time_substeps;
     // The staged preparation has one real-time origin and no real interval.
     // Keep overflow validation for every genuine real-time grid.
-    if((pspace.num_RealTimeSteps==0&&pspace.num_RealTimePoints!=1)
-        ||(pspace.num_RealTimeSteps>0&&(pspace.num_RealTimeSteps>=std::numeric_limits<size_t>::max()/6
-        ||q>(std::numeric_limits<size_t>::max()/6-1)/pspace.num_RealTimeSteps)))
+    if((num_real_steps==0&&num_real_points!=1)
+        ||(num_real_steps>0&&(num_real_steps>=std::numeric_limits<size_t>::max()/6
+        ||q>(std::numeric_limits<size_t>::max()/6-1)/num_real_steps)))
         throw std::invalid_argument("invalid real-time substep grid");
-    if(pspace.uses_staggered_strang()&&(field_sample.real_gauss_fields[0].size()!=0
-        ||field_sample.real_gauss_fields[1].size()!=0))
-        throw std::invalid_argument("staggered Strang must sample its fields directly, without Gauss-node field interpolation");
     auto& imaginary_fields=workspace.imaginary_fields;
     imaginary_fields.resize(pspace.num_TimePoints);
     for( size_t k=0;k<pspace.num_TimePoints;++k )
@@ -672,7 +672,7 @@ void build_contour_trajectory_impl( const ps::ParameterSpace& pspace,
     result.partition_function=blaze::trace(result.imaginary_density_operator);
 
     if( !imaginary_only )
-        complete_contour_trajectory_impl(pspace,field_sample,mean_field_time,result,workspace,final_trace,mean_nodes);
+        complete_contour_trajectory_impl(pspace,field_sample,mean_field_time,result,workspace,final_trace,mean_nodes,matsubara_preparation);
 }
 
 template<typename Matrix>
@@ -680,8 +680,11 @@ void complete_contour_trajectory_impl( const ps::ParameterSpace& pspace,
     const JointComplexGaussianSampler::ContourFieldSample& field_sample,
     const MeanFieldTrajectory& mean_field_time, BasicContourTrajectory<Matrix>& result,
     BasicTrajectoryWorkspace<Matrix>& workspace, const FinalTraceMode final_trace,
-    const PreparedMeanField* mean_nodes )
+    const PreparedMeanField* mean_nodes, const bool matsubara_preparation )
 {
+    const size_t num_real_points=matsubara_preparation?size_t{1}:pspace.num_RealTimePoints;
+    const size_t num_real_steps=matsubara_preparation?size_t{}:pspace.num_RealTimeSteps;
+    const bool staggered=!matsubara_preparation&&pspace.uses_staggered_strang();
     const auto& prefix=workspace.prefix;
     const auto& imaginary_steps=workspace.imaginary_steps;
     auto& suffix=workspace.suffix;
@@ -697,12 +700,12 @@ void complete_contour_trajectory_impl( const ps::ParameterSpace& pspace,
                 suffix[tau]*spins[c]*prefix[tau];
     }
 
-    result.forward_steps.resize(pspace.num_RealTimePoints);
-    result.backward_steps.resize(pspace.num_RealTimePoints);
+    result.forward_steps.resize(num_real_points);
+    result.backward_steps.resize(num_real_points);
     result.forward_steps.front()=IDENTITY; result.backward_steps.front()=IDENTITY;
     const size_t q=pspace.real_time_steps_per_interval();
     const RealType h=pspace.delta_real_t/static_cast<RealType>(q);
-    const contour::StaggeredLayout staggered_layout{pspace.num_TimePoints,std::max(size_t{1},pspace.num_RealTimeSteps*q)};
+    const contour::StaggeredLayout staggered_layout{pspace.num_TimePoints,std::max(size_t{1},num_real_steps*q)};
     const auto staggered_field=[&](contour::StaggeredSector sector,size_t point)
     {
         ComplexFieldVector field{};
@@ -718,9 +721,9 @@ void complete_contour_trajectory_impl( const ps::ParameterSpace& pspace,
         return general_matrix_exponential(step*H);
     };
     Matrix response_left;
-    if(pspace.uses_staggered_strang())
+    if(staggered)
         response_left=exponential(staggered_field(contour::StaggeredSector::Nu,0),ComplexType{0.,-h/4},false);
-    for( size_t t=1;t<pspace.num_RealTimePoints;++t )
+    for( size_t t=1;t<num_real_points;++t )
     {
         const size_t interval=t-1;
         for(size_t j=0;j<q;++j)
@@ -768,7 +771,7 @@ void complete_contour_trajectory_impl( const ps::ParameterSpace& pspace,
     if(final_trace==FinalTraceMode::Compute)
     {
         Matrix final_density=result.imaginary_density_operator;
-        for( size_t t=1;t<pspace.num_RealTimePoints;++t )
+        for( size_t t=1;t<num_real_points;++t )
             final_density=result.forward_steps[t]*final_density
                         *result.backward_steps[t];
         result.final_closed_contour_trace=blaze::trace(final_density);
@@ -778,6 +781,16 @@ void complete_contour_trajectory_impl( const ps::ParameterSpace& pspace,
             std::numeric_limits<RealType>::quiet_NaN(),
             std::numeric_limits<RealType>::quiet_NaN()};
 }
+}
+
+template<typename Matrix>
+void build_matsubara_trajectory(const ps::ParameterSpace& pspace,
+    const JointComplexGaussianSampler::ContourFieldSample& field,const MeanFieldTrajectory& mean,
+    BasicContourTrajectory<Matrix>& result,BasicTrajectoryWorkspace<Matrix>& workspace,
+    const bool partition_only)
+{
+    build_contour_trajectory_impl(pspace,field,mean,result,workspace,partition_only,
+        FinalTraceMode::Compute,nullptr,true);
 }
 
 template<typename Matrix>
@@ -822,7 +835,7 @@ namespace
 {
 struct BufferedMeasurement
 {
-    rtd::MeasuredSample& sample;
+    MeasuredSample& sample;
     void begin(ComplexType partition,size_t nt,size_t nc,size_t ni,size_t nm)
     {
         sample.partition=partition;
@@ -859,8 +872,7 @@ struct IndependentMeasurement
 template<typename Matrix,typename TrajectoryMatrix,typename Measurement>
 void measure_observables_impl( const rtd::RunTimeData& rtdata,
     const BasicContourTrajectory<TrajectoryMatrix>& trajectory, Measurement& measurement,
-    MeasurementWorkspace& workspace, std::vector<Matrix>& left,
-    const bool prefix_insertion )
+    MeasurementWorkspace& workspace )
 {
     const size_t nt=rtdata.num_real_time_points();
     const size_t ni=rtdata.num_imaginary_edge_points();
@@ -886,15 +898,6 @@ void measure_observables_impl( const rtd::RunTimeData& rtdata,
         }
     const Matrix identity(IDENTITY);
     const std::array<Matrix,3> spins{Matrix(S_X),Matrix(S_Y),Matrix(S_Z)};
-    if( !prefix_insertion )
-    {
-        Matrix backward_total=identity;
-        for( size_t t=1;t<nt;++t )
-            backward_total=backward_total*Matrix(trajectory.backward_steps[t]);
-        left.resize(nt); left.back()=backward_total;
-        for( size_t t=nt-1;t>0;--t )
-            left[t-1]=left[t]*Matrix(trajectory.forward_steps[t]);
-    }
     const Matrix rho(trajectory.imaginary_density_operator);
     Matrix density=rho,forward=identity,backward_prefix=identity;
     std::array<Matrix,3> measured_spins{};
@@ -911,12 +914,12 @@ void measure_observables_impl( const rtd::RunTimeData& rtdata,
         {
             const Matrix u(trajectory.forward_steps[t]),b(trajectory.backward_steps[t]);
             forward=u*forward;
-            if( prefix_insertion ) backward_prefix=backward_prefix*b;
+            backward_prefix=backward_prefix*b;
             density=u*density*b;
         }
         measurement.closure(t,blaze::trace(density));
         for( size_t c=0;c<3;++c ) if( measured[c] )
-            measured_spins[c]=(prefix_insertion?backward_prefix:left[t])*spins[c]*forward;
+            measured_spins[c]=backward_prefix*spins[c]*forward;
         for( size_t c=0;c<nm;++c )
             measurement.magnetization(t,c,nm,contract(rho,measured_spins[rtdata.magnetization_direction(c)]));
         for( size_t p=0;p<nc;++p )
@@ -944,48 +947,51 @@ void measure_observables_impl( const rtd::RunTimeData& rtdata,
 template<typename Matrix,typename Measurement>
 void dispatch_measurement( const rtd::RunTimeData& layout,
     const BasicContourTrajectory<Matrix>& trajectory, Measurement& measurement,
-    MeasurementWorkspace& workspace, const std::string& insertion_strategy )
+    MeasurementWorkspace& workspace )
 {
     const size_t nt=layout.num_real_time_points();
     if( nt==0||trajectory.forward_steps.size()!=nt||trajectory.backward_steps.size()!=nt )
         throw std::invalid_argument("trajectory and measurement real-time grids differ");
-    if( insertion_strategy!="closed-contour"&&insertion_strategy!="prefix" )
-        throw std::invalid_argument("unknown spin insertion strategy");
     for( const auto& insertions:trajectory.imaginary_edge_insertions )
         if( insertions.size()!=layout.num_imaginary_edge_points() )
             throw std::invalid_argument("trajectory and measurement imaginary-time grids differ");
-    const bool prefix=insertion_strategy=="prefix";
     if constexpr(std::is_same_v<Matrix,SpinHalfOperator>)
-        measure_observables_impl(layout,trajectory,measurement,workspace,workspace.spin_half_left,prefix);
+        measure_observables_impl<SpinHalfOperator>(layout,trajectory,measurement,workspace);
     else if( trajectory.imaginary_density_operator.rows()==2 )
-        measure_observables_impl(layout,trajectory,measurement,workspace,workspace.spin_half_left,prefix);
+        measure_observables_impl<SpinHalfOperator>(layout,trajectory,measurement,workspace);
     else
-        measure_observables_impl(layout,trajectory,measurement,workspace,workspace.general_left,prefix);
+        measure_observables_impl<Operator>(layout,trajectory,measurement,workspace);
 }
 }
 
 template<typename Matrix>
 void measure_contour_observables(const rtd::RunTimeData& layout,
-    const BasicContourTrajectory<Matrix>& trajectory,rtd::MeasuredSample& sample,
-    MeasurementWorkspace& workspace,const std::string& insertion_strategy)
+    const BasicContourTrajectory<Matrix>& trajectory,MeasuredSample& sample,
+    MeasurementWorkspace& workspace)
 {
     BufferedMeasurement measurement{sample};
-    dispatch_measurement(layout,trajectory,measurement,workspace,insertion_strategy);
+    dispatch_measurement(layout,trajectory,measurement,workspace);
 }
 
 template<typename Matrix>
 void measure_and_accumulate_independent(rtd::RunTimeData& data,
-    const BasicContourTrajectory<Matrix>& trajectory,MeasurementWorkspace& workspace,
-    const std::string& insertion_strategy)
+    const BasicContourTrajectory<Matrix>& trajectory,MeasurementWorkspace& workspace)
 {
     IndependentMeasurement measurement{data};
-    dispatch_measurement(data,trajectory,measurement,workspace,insertion_strategy);
+    dispatch_measurement(data,trajectory,measurement,workspace);
 }
 
 template void measure_and_accumulate_independent<Operator>(rtd::RunTimeData&,
-    const BasicContourTrajectory<Operator>&,MeasurementWorkspace&,const std::string&);
+    const BasicContourTrajectory<Operator>&,MeasurementWorkspace&);
 template void measure_and_accumulate_independent<SpinHalfOperator>(rtd::RunTimeData&,
-    const BasicContourTrajectory<SpinHalfOperator>&,MeasurementWorkspace&,const std::string&);
+    const BasicContourTrajectory<SpinHalfOperator>&,MeasurementWorkspace&);
+
+template void build_matsubara_trajectory<Operator>(const ps::ParameterSpace&,
+    const JointComplexGaussianSampler::ContourFieldSample&,const MeanFieldTrajectory&,
+    BasicContourTrajectory<Operator>&,BasicTrajectoryWorkspace<Operator>&,bool);
+template void build_matsubara_trajectory<SpinHalfOperator>(const ps::ParameterSpace&,
+    const JointComplexGaussianSampler::ContourFieldSample&,const MeanFieldTrajectory&,
+    BasicContourTrajectory<SpinHalfOperator>&,BasicTrajectoryWorkspace<SpinHalfOperator>&,bool);
 
 template void build_contour_trajectory<Operator>(const ps::ParameterSpace&,
     const JointComplexGaussianSampler::ContourFieldSample&,const MeanFieldTrajectory&,
@@ -994,7 +1000,7 @@ template void complete_contour_trajectory<Operator>(const ps::ParameterSpace&,
     const JointComplexGaussianSampler::ContourFieldSample&,const MeanFieldTrajectory&,
     BasicContourTrajectory<Operator>&,BasicTrajectoryWorkspace<Operator>&,FinalTraceMode);
 template void measure_contour_observables<Operator>(const rtd::RunTimeData&,
-    const BasicContourTrajectory<Operator>&,rtd::MeasuredSample&,MeasurementWorkspace&,const std::string&);
+    const BasicContourTrajectory<Operator>&,MeasuredSample&,MeasurementWorkspace&);
 template void build_contour_trajectory<SpinHalfOperator>(const ps::ParameterSpace&,
     const JointComplexGaussianSampler::ContourFieldSample&,const MeanFieldTrajectory&,
     BasicContourTrajectory<SpinHalfOperator>&,BasicTrajectoryWorkspace<SpinHalfOperator>&,bool,FinalTraceMode);
@@ -1002,7 +1008,7 @@ template void complete_contour_trajectory<SpinHalfOperator>(const ps::ParameterS
     const JointComplexGaussianSampler::ContourFieldSample&,const MeanFieldTrajectory&,
     BasicContourTrajectory<SpinHalfOperator>&,BasicTrajectoryWorkspace<SpinHalfOperator>&,FinalTraceMode);
 template void measure_contour_observables<SpinHalfOperator>(const rtd::RunTimeData&,
-    const BasicContourTrajectory<SpinHalfOperator>&,rtd::MeasuredSample&,MeasurementWorkspace&,const std::string&);
+    const BasicContourTrajectory<SpinHalfOperator>&,MeasuredSample&,MeasurementWorkspace&);
 
 template void build_contour_trajectory<Operator>(const ps::ParameterSpace&,
     const JointComplexGaussianSampler::ContourFieldSample&,const PreparedMeanField&,
@@ -1018,12 +1024,11 @@ template void complete_contour_trajectory<SpinHalfOperator>(const ps::ParameterS
     BasicContourTrajectory<SpinHalfOperator>&,BasicTrajectoryWorkspace<SpinHalfOperator>&,FinalTraceMode);
 
 void compute_contour_correlations( rtd::RunTimeData& rtdata,
-    const ContourTrajectory& trajectory, const RealType observable_normalization,
-    const std::string& insertion_strategy )
+    const ContourTrajectory& trajectory, const RealType observable_normalization )
 {
-    rtd::MeasuredSample sample;
+    MeasuredSample sample;
     MeasurementWorkspace workspace;
-    measure_contour_observables(rtdata,trajectory,sample,workspace,insertion_strategy);
+    measure_contour_observables(rtdata,trajectory,sample,workspace);
     rtdata.accumulate_sample(sample,observable_normalization);
 }
 
@@ -1044,36 +1049,6 @@ RealType max_contour_difference( const CorrelationSet& old_values,
     return largest;
 }
 
-CorrelationSet mix_correlations( const CorrelationSet& old_values,
-                                 const CorrelationSet& raw_values,
-                                 RealType alpha )
-{
-    if( alpha<=RealType{0.} || alpha>RealType{1.} )
-        throw std::invalid_argument("fixed-point mixing alpha must lie in (0,1]");
-    CorrelationSet result=raw_values;
-    for( size_t t=0;t<result.Re.size();++t )
-    {
-        mix_tensor(result.Re[t],old_values.Re[t],raw_values.Re[t],alpha);
-        mix_tensor(result.Im[t],old_values.Im[t],raw_values.Im[t],alpha);
-    }
-    return result;
-}
-
-MagTen mix_magnetization_tensor( const MagTen& old_values,
-                                 const MagTen& raw_values,
-                                 RealType alpha )
-{
-    if( alpha<=RealType{0.} || alpha>RealType{1.} )
-        throw std::invalid_argument("fixed-point mixing alpha must lie in (0,1]");
-    if( old_values.size()!=raw_values.size()
-        ||old_values.get_symmetry()!=raw_values.get_symmetry()
-        ||old_values.get_directions()!=raw_values.get_directions() )
-        throw std::invalid_argument("magnetization trajectories have different grids");
-    MagTen result=(RealType{1.}-alpha)*old_values;
-    result+=alpha*raw_values;
-    return result;
-}
-
 MagTen project_constant_magnetization( const MagTen& values )
 {
     if( values.empty() )
@@ -1087,22 +1062,20 @@ IterationResidual iteration_residual(
     const CorrelationSet& old_correlations,
     const CorrelationSet& raw_correlations,
     const CorrelationSet& standard_errors,
-    const MagTen& old_magnetization_Re,
-    const MagTen& old_magnetization_Im,
-    const MagTen& raw_magnetization_Re,
-    const MagTen& raw_magnetization_Im,
-    const MagTen& magnetization_Re_errors,
-    const MagTen& magnetization_Im_errors )
+    const Magnetization& old_magnetization,
+    const Magnetization& raw_magnetization,
+    const Magnetization& magnetization_errors,
+    bool frozen_origin, bool constant_magnetization )
 {
     if( old_correlations.Re.size()!=raw_correlations.Re.size()
         ||old_correlations.Im.size()!=raw_correlations.Im.size()
         ||standard_errors.Re.size()!=raw_correlations.Re.size()
         ||standard_errors.Im.size()!=raw_correlations.Im.size()
-        ||old_magnetization_Re.size()!=raw_magnetization_Re.size()
-        ||old_magnetization_Im.size()!=raw_magnetization_Im.size()
-        ||raw_magnetization_Im.size()!=raw_magnetization_Re.size()
-        ||magnetization_Re_errors.size()!=raw_magnetization_Re.size()
-        ||magnetization_Im_errors.size()!=raw_magnetization_Re.size() )
+        ||old_magnetization.Re.size()!=raw_magnetization.Re.size()
+        ||old_magnetization.Im.size()!=raw_magnetization.Im.size()
+        ||raw_magnetization.Im.size()!=raw_magnetization.Re.size()
+        ||magnetization_errors.Re.size()!=raw_magnetization.Re.size()
+        ||magnetization_errors.Im.size()!=raw_magnetization.Re.size() )
         throw std::invalid_argument("iteration residual inputs have different grids");
 
     IterationResidual result{};
@@ -1135,7 +1108,7 @@ IterationResidual iteration_residual(
                              const contour::ContourCorrelation& raw_values,
                              const contour::ContourCorrelation& errors )
     {
-        for( size_t t=0;t<raw_values.size();++t )
+        for( size_t t=frozen_origin?1:0;t<raw_values.size();++t )
         {
             if( old_values[t].size()!=raw_values[t].size()
                 ||errors[t].size()!=raw_values[t].size() )
@@ -1167,30 +1140,31 @@ IterationResidual iteration_residual(
     update_contour(old_correlations.Re,raw_correlations.Re,standard_errors.Re);
     update_contour(old_correlations.Im,raw_correlations.Im,standard_errors.Im);
 
-    const auto& directions=raw_magnetization_Re.get_directions();
-    const char symmetry=raw_magnetization_Re.get_symmetry();
-    if( old_magnetization_Re.get_symmetry()!=symmetry
-        ||old_magnetization_Im.get_symmetry()!=symmetry
-        ||raw_magnetization_Im.get_symmetry()!=symmetry
-        ||magnetization_Re_errors.get_symmetry()!=symmetry
-        ||magnetization_Im_errors.get_symmetry()!=symmetry
-        ||old_magnetization_Re.get_directions()!=directions
-        ||old_magnetization_Im.get_directions()!=directions
-        ||raw_magnetization_Im.get_directions()!=directions
-        ||magnetization_Re_errors.get_directions()!=directions
-        ||magnetization_Im_errors.get_directions()!=directions )
+    const auto& directions=raw_magnetization.Re.get_directions();
+    const char symmetry=raw_magnetization.Re.get_symmetry();
+    if( old_magnetization.Re.get_symmetry()!=symmetry
+        ||old_magnetization.Im.get_symmetry()!=symmetry
+        ||raw_magnetization.Im.get_symmetry()!=symmetry
+        ||magnetization_errors.Re.get_symmetry()!=symmetry
+        ||magnetization_errors.Im.get_symmetry()!=symmetry
+        ||old_magnetization.Re.get_directions()!=directions
+        ||old_magnetization.Im.get_directions()!=directions
+        ||raw_magnetization.Im.get_directions()!=directions
+        ||magnetization_errors.Re.get_directions()!=directions
+        ||magnetization_errors.Im.get_directions()!=directions )
         throw std::invalid_argument("iteration residual magnetization inputs have different symmetries");
-    for( size_t t=0;t<raw_magnetization_Re.size();++t )
-        for( size_t c=0;c<magnetization_Re_errors.num_components();++c )
+    for( size_t t=constant_magnetization?raw_magnetization.Re.size():(frozen_origin?1:0);
+         t<raw_magnetization.Re.size();++t )
+        for( size_t c=0;c<magnetization_errors.Re.num_components();++c )
         {
             const RealType difference_Re=
-                raw_magnetization_Re[t][c]-old_magnetization_Re[t][c];
+                raw_magnetization.Re[t][c]-old_magnetization.Re[t][c];
             const RealType difference_Im=
-                raw_magnetization_Im[t][c]-old_magnetization_Im[t][c];
+                raw_magnetization.Im[t][c]-old_magnetization.Im[t][c];
             result.absolute=std::max(
                 result.absolute,std::hypot(difference_Re,difference_Im));
-            update(difference_Re,magnetization_Re_errors[t][c]);
-            update(difference_Im,magnetization_Im_errors[t][c]);
+            update(difference_Re,magnetization_errors.Re[t][c]);
+            update(difference_Im,magnetization_errors.Im[t][c]);
         }
     return result;
 }

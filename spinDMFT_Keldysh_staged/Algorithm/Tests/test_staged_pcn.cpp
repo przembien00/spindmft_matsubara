@@ -164,11 +164,20 @@ void check_ratio_statistics(int world,int rank)
 {
     char name[]="test_staged_pcn";char* argv[]{name};
     ps::ParameterSpace p(1,argv,world,rank);
-    p.sampling_strategy="pcn";p.correlation_normalization="partition-function";
+    p.sampling_strategy="pcn";
     p.correlation_symmetry_type='C';p.num_TimeSteps=0;p.num_TimePoints=1;
     p.num_RealTimeSteps=0;p.num_RealTimePoints=1;
     p.num_SamplesPerCore=512;p.num_Samples=512*world;p.num_blocks=32;
     f::rtd::RunTimeData cached(p,rank),scaled(p,rank),streamed(p,rank);
+    spinDMFT::Contour::CorrelationSet cached_sums;
+    spinDMFT::Contour::Magnetization cached_magnetization;
+    cached.begin_iteration_accumulation(cached_sums,cached_magnetization);
+    spinDMFT::Contour::CorrelationSet scaled_sums;
+    spinDMFT::Contour::Magnetization scaled_magnetization;
+    scaled.begin_iteration_accumulation(scaled_sums,scaled_magnetization);
+    spinDMFT::Contour::CorrelationSet streamed_sums;
+    spinDMFT::Contour::Magnetization streamed_magnetization;
+    streamed.begin_iteration_accumulation(streamed_sums,streamed_magnetization);
     std::vector<ComplexType> numerators,phases;
     for(size_t i=0;i<p.num_SamplesPerCore;++i)
     {
@@ -177,7 +186,7 @@ void check_ratio_statistics(int world,int rank)
         const auto n=ComplexType{0.2,-0.1}*z+ComplexType{0.3*std::sin(0.31*s),0.2*std::cos(0.27*s)};
         const RealType w=2.+(i%3);
         phases.push_back(z);numerators.push_back(n);
-        f::rtd::MeasuredSample sample;
+        spinDMFT::Functions::MeasuredSample sample;
         sample.partition=w*z;sample.closure={w*z};
         sample.correlations.assign(cached.num_correlation_components(),w*n);
         sample.magnetization.assign(cached.num_magnetization_components(),w*n);
@@ -193,9 +202,18 @@ void check_ratio_statistics(int world,int rank)
         streamed.end_sample();
     }
     f::CorrelationSet g,g_scaled,g_streamed;f::MagTen re,im;
-    cached.mpi_reduce_and_finalize(g,re,im);
-    scaled.mpi_reduce_and_finalize(g_scaled,re,im);
-    streamed.mpi_reduce_and_finalize(g_streamed,re,im);
+    cached.mpi_reduce_and_normalize();
+    g=cached_sums;
+    re=cached_magnetization.Re;
+    im=cached_magnetization.Im;
+    scaled.mpi_reduce_and_normalize();
+    g_scaled=scaled_sums;
+    re=scaled_magnetization.Re;
+    im=scaled_magnetization.Im;
+    streamed.mpi_reduce_and_normalize();
+    g_streamed=streamed_sums;
+    re=streamed_magnetization.Re;
+    im=streamed_magnetization.Im;
     ComplexType mean_z{};for(auto z:phases)mean_z+=z;mean_z/=RealType(phases.size());
     const ComplexType estimate{g.Re[0][0][0],g.Im[0][0][0]};
     RealType var_re{},var_im{};
@@ -207,15 +225,15 @@ void check_ratio_statistics(int world,int rank)
     }
     var_re/=phases.size();var_im/=phases.size();
     const RealType count=RealType(p.num_Samples);
-    const RealType error_re=cached.contour_sample_stds.Re[0][0][0];
-    const RealType error_im=cached.contour_sample_stds.Im[0][0][0];
-    require(std::abs(cached.contour_tau_int.Re[0][0][0]-0.5*error_re*error_re*count/var_re)<1e-10,
+    const RealType error_re=cached.real_time.contour_sample_stds.Re[0][0][0];
+    const RealType error_im=cached.real_time.contour_sample_stds.Im[0][0][0];
+    require(std::abs(cached.real_time.contour_tau_int.Re[0][0][0]-0.5*error_re*error_re*count/var_re)<1e-10,
         "Re tau uses complex ratio influence variance");
-    require(std::abs(cached.contour_tau_int.Im[0][0][0]-0.5*error_im*error_im*count/var_im)<1e-10,
+    require(std::abs(cached.real_time.contour_tau_int.Im[0][0][0]-0.5*error_im*error_im*count/var_im)<1e-10,
         "Im tau uses complex ratio influence variance");
-    require(std::abs(cached.maximum_tau_int.back()-scaled.maximum_tau_int.back())<1e-10,
+    require(std::abs(cached.real_time.maximum_tau_int.back()-scaled.real_time.maximum_tau_int.back())<1e-10,
         "ratio tau is invariant to overall likelihood normalization");
-    require(std::abs(cached.maximum_tau_int.back()-streamed.maximum_tau_int.back())<1e-10,
+    require(std::abs(cached.real_time.maximum_tau_int.back()-streamed.real_time.maximum_tau_int.back())<1e-10,
         "cached and streamed samples have identical phase cross moments");
 }
 }

@@ -41,7 +41,12 @@ def main():
             result = subprocess.run([*launcher, str(executable), *defaults, *options],
                                     cwd=work, text=True, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, env=dict(os.environ), timeout=90)
-            assert result.returncode == status, (name, result.returncode, result.stdout)
+            # Invalid inputs now propagate as uncaught exceptions; the abort
+            # status depends on whether the executable is launched through MPI.
+            if status == 1:
+                assert result.returncode != 0, (name, result.returncode, result.stdout)
+            else:
+                assert result.returncode == status, (name, result.returncode, result.stdout)
             files = list(work.rglob('*.hdf5'))
             if status == 1:
                 assert not files
@@ -138,7 +143,7 @@ def main():
                 assert not any(key in new['preparation'] for key in
                                ('Re_factor', 'Im_factor', 'Re_covariance', 'Im_covariance'))
 
-        path = run('selfconsistent', ['--beta=0.3', '--JQ=1', '--mixingAlpha=1',
+        path = run('selfconsistent', ['--beta=0.3', '--JQ=1',
                    '--numSamplesPerCore=2048', '--preparationSamplesPerCore=4096', '--numBlocks=32'])
         with h5py.File(path) as f:
             check_metadata(f, path)

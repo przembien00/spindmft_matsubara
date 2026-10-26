@@ -22,13 +22,14 @@ namespace spinDMFT::Storage_Concept
 // =============== HDF5 STORAGE CLASS ================
 // ===================================================
 // constructor : create folder branch and data file
-HDF5_Storage::HDF5_Storage( const int my_rank, const ps::ParameterSpace& pspace, const std::string& termination ):
+HDF5_Storage::HDF5_Storage( const int my_rank, const ps::ParameterSpace& pspace, const std::string& termination,
+                            const std::string& filename_suffix ):
     m_storing_permission( my_rank == 0 ),
     m_fname_max_length( 200 ),
     m_num_TriesToBuildFile( 5 )
 {
     create_folder_branch( pspace, termination );
-    create_file( pspace );
+    create_file( pspace,filename_suffix );
 }
 
 // create the folder branch in which the data will be stored
@@ -61,7 +62,7 @@ void HDF5_Storage::create_folder_branch( const ps::ParameterSpace& pspace, const
 }
 
 // create the file in which the data will be stored
-void HDF5_Storage::create_file( const ps::ParameterSpace& pspace )
+void HDF5_Storage::create_file( const ps::ParameterSpace& pspace, const std::string& filename_suffix )
 {
     if( !m_storing_permission ){ return; } // permission request
 
@@ -124,22 +125,10 @@ void HDF5_Storage::create_file( const ps::ParameterSpace& pspace )
         if(pspace.real_time_substeps>1)
             filename += "__substeps="+std::to_string(pspace.real_time_substeps);
     }
-    if( pspace.correlation_normalization=="closed-contour" )
+    const std::string extension=pspace.filename_extension+filename_suffix;
+    if( !extension.empty() )
     {
-        filename += "__corrnorm=D";
-    }
-    if( pspace.gaussian_factorization=="weighted-dense" )
-    {
-        std::ostringstream weights;
-        weights << std::setprecision(std::numeric_limits<RealType>::max_digits10);
-        weights << "__noiseW=" << pspace.gaussian_noise_weights[0]
-                << ',' << pspace.gaussian_noise_weights[1]
-                << ',' << pspace.gaussian_noise_weights[2];
-        filename += weights.str();
-    }
-    if( pspace.filename_extension != "" )
-    {
-        filename += "_" + pspace.filename_extension;
+        filename += "_" + extension;
     }
 
     // create the file:
@@ -176,10 +165,11 @@ void HDF5_Storage::create_file( const ps::ParameterSpace& pspace )
 void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
                               const rtd::RunTimeData& rtdata,
                               const CorrelationSet& correlations,
-                              const MagTen& magnetization_Re,
-                              const MagTen& magnetization_Im )
+                              const Magnetization& magnetization, bool preparation )
 {
     if( !m_storing_permission ){ return; } // permission request
+
+    const auto& statistics=preparation?rtdata.preparation:rtdata.real_time;
 
     // ++++++++++ store parameters ++++++++++
     auto ps_group_id = H5Gcreate( m_file_id, "parameters", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT );
@@ -237,6 +227,9 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
     // ...concerning statistics
     hdf5r::store_scalar( ps_group_id, "num_SamplesPerCore",         pspace.num_SamplesPerCore );
     hdf5r::store_scalar( ps_group_id, "num_Samples",                pspace.num_Samples );
+    hdf5r::store_scalar(ps_group_id,"num_PreparationSamplesPerCore",pspace.num_PreparationSamplesPerCore);
+    hdf5r::store_scalar(ps_group_id,"num_PreparationSamples",pspace.num_PreparationSamples);
+    hdf5r::store_scalar(ps_group_id,"Preparation_Iteration_Limit",pspace.Preparation_Iteration_Limit);
     hdf5r::store_scalar( ps_group_id, "num_Cores",                  pspace.get_num_Cores() );
 
     hdf5r::store_string( ps_group_id, "seed",                       pspace.seed );
@@ -256,34 +249,13 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
                          pspace.mh_step_size );
     hdf5r::store_scalar( ps_group_id, "mh_burn_in",
                          pspace.mh_burn_in );
-    hdf5r::store_scalar( ps_group_id, "partition_imaginary_tolerance",
-                         pspace.partition_imaginary_tolerance );
-    hdf5r::store_string( ps_group_id, "gaussian_factorization",
-                         pspace.gaussian_factorization );
-    if( pspace.gaussian_factorization=="weighted-dense" )
-    {
-        hdf5r::store_scalar(ps_group_id,"gaussian_weight_M",pspace.gaussian_noise_weights[0]);
-        hdf5r::store_scalar(ps_group_id,"gaussian_weight_eta",pspace.gaussian_noise_weights[1]);
-        hdf5r::store_scalar(ps_group_id,"gaussian_weight_kappa",pspace.gaussian_noise_weights[2]);
-        hdf5r::store_string(ps_group_id,"gaussian_weight_basis",
-            "V_M, eta=(V_++V_-)/2, kappa=(V_+-V_-)/2; native point-major xyz grids with distinct Matsubara endpoints");
-        hdf5r::store_string(ps_group_id,"gaussian_weight_objective",
-            "minimize tr(W E[z z^dagger]) at fixed full E[z z^T]; weights are per native grid entry, not quadrature weights; common scale normalized to max weight 2");
-        hdf5r::store_string(ps_group_id,"gaussian_reconstruction_basis",
-            "original physical V_M,V_+,V_- covariance after inverse weighting and branch transformation");
-    }
+
     if(pspace.sampling_strategy=="pcn")
         hdf5r::store_string(ps_group_id,"pcn_row_space_rank_rule",
             "singular value > epsilon*max(2*nM,q)*largest singular value; relative reconstruction checked; rebuilt and chain burned in each iteration");
-    hdf5r::store_scalar( ps_group_id, "fft_cross_frequency_cutoff",
-                         pspace.fft_cross_frequency_cutoff );
     hdf5r::store_scalar(ps_group_id,"real_time_substeps",pspace.real_time_substeps);
     hdf5r::store_scalar(ps_group_id,"delta_real_propagation_t",
         pspace.delta_real_t/static_cast<RealType>(pspace.real_time_steps_per_interval()));
-    hdf5r::store_string( ps_group_id, "correlation_normalization",
-                         pspace.correlation_normalization );
-    hdf5r::store_string( ps_group_id, "magnetization_normalization",
-                         pspace.correlation_normalization );
     {
         // HDF5's FALSE/TRUE enum is read as a boolean by h5py.
         const hid_t boolean_type=H5Tenum_create(H5T_NATIVE_UCHAR);
@@ -310,7 +282,6 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
     hdf5r::store_scalar( ps_group_id, "Iteration_Limit",            pspace.Iteration_Limit );
     hdf5r::store_scalar(ps_group_id,"real_time_absolute_residual_ceiling",
         std::max(pspace.spin_float,pspace.spin_float*pspace.spin_float));
-    hdf5r::store_scalar( ps_group_id, "fixed_point_mixing_alpha",   pspace.mixing_alpha );
     hdf5r::store_scalar( ps_group_id, "covariance_tolerance",       pspace.covariance_tolerance );
     hdf5r::store_scalar( ps_group_id, "takagi_tolerance",           pspace.takagi_tolerance );
     hdf5r::store_scalar( ps_group_id, "minimum_phase_magnitude",    pspace.minimum_phase_magnitude );
@@ -349,83 +320,82 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
     auto rtd_group_id = H5Gcreate( m_file_id, "runtimedata", H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT );
 
     hdf5r::store_scalar( rtd_group_id, "generated_seed",            rtdata.generated_seed );
-    hdf5r::store_list( rtd_group_id, "covariance_symmetry_errors",  rtdata.covariance_symmetry_errors );
-    hdf5r::store_list( rtd_group_id, "gaussian_factor_reconstruction_errors",rtdata.gaussian_factor_reconstruction_errors );
-    hdf5r::store_list( rtd_group_id, "gaussian_covariance_approximation_errors",rtdata.gaussian_covariance_approximation_errors );
-    hdf5r::store_list( rtd_group_id, "gaussian_factor_latent_dimensions",      rtdata.gaussian_factor_latent_dimensions );
-    hdf5r::store_list( rtd_group_id, "gaussian_largest_factorization_dimensions",rtdata.gaussian_largest_factorization_dimensions );
-    hdf5r::store_list( rtd_group_id, "average_phase_magnitudes",    rtdata.average_phase_magnitudes );
+    hdf5r::store_list( rtd_group_id, "covariance_symmetry_errors",  statistics.covariance_symmetry_errors );
+    hdf5r::store_list( rtd_group_id, "gaussian_factor_reconstruction_errors",statistics.gaussian_factor_reconstruction_errors );
+    hdf5r::store_list( rtd_group_id, "gaussian_covariance_approximation_errors",statistics.gaussian_covariance_approximation_errors );
+    hdf5r::store_list( rtd_group_id, "gaussian_factor_latent_dimensions",      statistics.gaussian_factor_latent_dimensions );
+    hdf5r::store_list( rtd_group_id, "gaussian_largest_factorization_dimensions",statistics.gaussian_largest_factorization_dimensions );
+    hdf5r::store_list( rtd_group_id, "average_phase_magnitudes",    statistics.average_phase_magnitudes );
     hdf5r::store_list( rtd_group_id,
         pspace.sampling_strategy=="pcn"
         ?"pcn_minimum_effective_sample_sizes"
         :"complex_weight_effective_sample_sizes",
-        rtdata.effective_sample_sizes );
-    hdf5r::store_list( rtd_group_id, "partition_sum_Re",            rtdata.partition_sum_Re );
-    hdf5r::store_list( rtd_group_id, "partition_sum_Im",            rtdata.partition_sum_Im );
-    hdf5r::store_list( rtd_group_id, "partition_abs_sum",           rtdata.partition_abs_sums );
-    hdf5r::store_list( rtd_group_id, "denominator_constancy_residuals", rtdata.denominator_constancy_residuals );
+        statistics.effective_sample_sizes );
+    hdf5r::store_list( rtd_group_id, "partition_sum_Re",            statistics.partition_sum_Re );
+    hdf5r::store_list( rtd_group_id, "partition_sum_Im",            statistics.partition_sum_Im );
+    hdf5r::store_list( rtd_group_id, "partition_abs_sum",           statistics.partition_abs_sums );
+    hdf5r::store_list( rtd_group_id, "denominator_constancy_residuals", statistics.denominator_constancy_residuals );
     if( pspace.sampling_strategy=="pcn" )
     {
-        hdf5r::store_list( rtd_group_id, "mh_acceptance_rates",       rtdata.mh_acceptance_rates );
-        hdf5r::store_list( rtd_group_id, "mh_zero_weight_rejection_rates",rtdata.mh_nonpositive_rejection_rates );
-        hdf5r::store_list( rtd_group_id, "maximum_relative_imaginary_sampling_weights",rtdata.maximum_relative_imaginary_sampling_weights );
-        hdf5r::store_list( rtd_group_id, "blocking_curve_block_length",rtdata.blocking_curve_block_lengths );
-        hdf5r::store_list( rtd_group_id, "blocking_curve_mean_error", rtdata.blocking_curve_mean_errors );
-        hdf5r::store_list( rtd_group_id, "blocking_curve_max_error",  rtdata.blocking_curve_max_errors );
-        hdf5r::store_list( rtd_group_id, "maximum_correlation_tau_int",rtdata.maximum_tau_int );
-        hdf5r::store_list( rtd_group_id, "base_block_length_to_max_tau_ratio",rtdata.block_length_to_tau_ratios );
+        hdf5r::store_list( rtd_group_id, "mh_acceptance_rates",       statistics.mh_acceptance_rates );
+        hdf5r::store_list( rtd_group_id, "mh_zero_weight_rejection_rates",statistics.mh_nonpositive_rejection_rates );
+        hdf5r::store_list( rtd_group_id, "blocking_curve_block_length",statistics.blocking_curve_block_lengths );
+        hdf5r::store_list( rtd_group_id, "blocking_curve_mean_error", statistics.blocking_curve_mean_errors );
+        hdf5r::store_list( rtd_group_id, "blocking_curve_max_error",  statistics.blocking_curve_max_errors );
+        hdf5r::store_list( rtd_group_id, "maximum_correlation_tau_int",statistics.maximum_tau_int );
+        hdf5r::store_list( rtd_group_id, "base_block_length_to_max_tau_ratio",statistics.block_length_to_tau_ratios );
     }
-    hdf5r::store_list( rtd_group_id, "closed_contour_ratio_Re",     rtdata.closed_contour_ratio_Re );
-    hdf5r::store_list( rtd_group_id, "closed_contour_ratio_Im",     rtdata.closed_contour_ratio_Im );
+    hdf5r::store_list( rtd_group_id, "closed_contour_ratio_Re",     statistics.closed_contour_ratio_Re );
+    hdf5r::store_list( rtd_group_id, "closed_contour_ratio_Im",     statistics.closed_contour_ratio_Im );
 
     // ...concerning the statistics
-    hdf5r::store_scalar( rtd_group_id, "actual_num_blocks_per_core",rtdata.num_blocks() );
-    hdf5r::store_scalar( rtd_group_id, "samples_per_block",rtdata.samples_per_block() );
+    hdf5r::store_scalar( rtd_group_id, "actual_num_blocks_per_core",statistics.num_blocks );
+    hdf5r::store_scalar( rtd_group_id, "samples_per_block",statistics.samples_per_block );
     if( pspace.sampling_strategy=="independent" )
     {
-        hdf5r::store_scalar( rtd_group_id, "actual_num_ratio_jackknife_blocks_per_core", rtdata.num_blocks() );
-        hdf5r::store_scalar( rtd_group_id, "samples_per_ratio_jackknife_block", rtdata.samples_per_block() );
+        hdf5r::store_scalar( rtd_group_id, "actual_num_ratio_jackknife_blocks_per_core", statistics.num_blocks );
+        hdf5r::store_scalar( rtd_group_id, "samples_per_ratio_jackknife_block", statistics.samples_per_block );
     }
     const std::string contour_err_remark = pspace.sampling_strategy=="pcn"
         ?" Standard error from contiguous pCN batch means, taking the largest resolved value along the power-of-two blocking curve; blocks are pooled over independent MPI chains."
         :" Delete-one-block jackknife standard error of the paired complex ratio (sum N)/(sum Z_M), pooling equal-sized independent-sample blocks over MPI ranks.";
     hdf5r::store_list( rtd_group_id, "closed_contour_residual_Re_sample_stds",
-        rtdata.closed_contour_residual_Re_sample_stds );
+        statistics.closed_contour_residual_Re_sample_stds );
     hdf5r::store_list( rtd_group_id, "closed_contour_residual_Im_sample_stds",
-        rtdata.closed_contour_residual_Im_sample_stds );
+        statistics.closed_contour_residual_Im_sample_stds );
     hdf5r::store_list( rtd_group_id, "closed_contour_residual_abs_sample_stds",
-        rtdata.closed_contour_residual_abs_sample_stds );
-    store_correlation( rtdata.contour_sample_stds.Re, rtd_group_id,
+        statistics.closed_contour_residual_abs_sample_stds );
+    store_correlation( statistics.contour_sample_stds.Re, rtd_group_id,
         "Re_correlation_sample_stds",
         "Standard errors of edge-grid Re X; axes t,direction_pair,tau_edge." + contour_err_remark );
-    store_correlation( rtdata.contour_sample_stds.Im, rtd_group_id,
+    store_correlation( statistics.contour_sample_stds.Im, rtd_group_id,
         "Im_correlation_sample_stds",
         "Standard errors of edge-grid Im X; axes t,direction_pair,tau_edge." + contour_err_remark );
     if( pspace.sampling_strategy=="pcn" )
     {
-        store_correlation( rtdata.contour_tau_int.Re, rtd_group_id,
+        store_correlation( statistics.contour_tau_int.Re, rtd_group_id,
             "Re_correlation_tau_int",
             "Integrated autocorrelation time in pCN steps inferred from batch-mean variance inflation; axes t,direction_pair,tau_edge." );
-        store_correlation( rtdata.contour_tau_int.Im, rtd_group_id,
+        store_correlation( statistics.contour_tau_int.Im, rtd_group_id,
             "Im_correlation_tau_int",
             "Integrated autocorrelation time in pCN steps inferred from batch-mean variance inflation; axes t,direction_pair,tau_edge." );
     }
 
     // Components forbidden by the symmetry are exact zeros.
     hdf5r::store_2D_tensor<RealType>( rtd_group_id, "Re_magnetization_sample_stds",
-        H5_REAL_TYPE, rtdata.magnetization_time_Re_stds.expand(),
+        H5_REAL_TYPE, statistics.magnetization_time_stds.Re.expand(),
         "Axes are real_time, spin_component(x,y,z)." );
     hdf5r::store_2D_tensor<RealType>( rtd_group_id, "Im_magnetization_sample_stds",
-        H5_REAL_TYPE, rtdata.magnetization_time_Im_stds.expand(),
+        H5_REAL_TYPE, statistics.magnetization_time_stds.Im.expand(),
         "Axes are real_time, spin_component(x,y,z)." );
 
 
     // ...concerning the iteration
-    hdf5r::store_scalar( rtd_group_id, "num_Iterations",            rtdata.num_Iterations );
-    hdf5r::store_string( rtd_group_id, "termination",               rtdata.termination );
-    hdf5r::store_list( rtd_group_id, "absolute_iteration_errors",   rtdata.absolute_iteration_errors );
+    hdf5r::store_scalar( rtd_group_id, "num_Iterations",            statistics.num_Iterations );
+    hdf5r::store_string( rtd_group_id, "termination",               statistics.termination );
+    hdf5r::store_list( rtd_group_id, "absolute_iteration_errors",   statistics.absolute_iteration_errors );
     hdf5r::store_list( rtd_group_id, "standardized_iteration_errors",
-                       rtdata.standardized_iteration_errors );
+                       statistics.standardized_iteration_errors );
 
     H5Gclose( rtd_group_id );
 
@@ -442,7 +412,7 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
     hdf5r::store_string_list( results_group_id, "correlation_direction_labels",
                               direction_labels );
     std::vector<RealType> imaginary_edges(pspace.num_TimePoints),
-                          real_times(pspace.num_RealTimePoints);
+                          real_times(correlations.Re.size());
     for( size_t k=0;k<imaginary_edges.size();++k ) imaginary_edges[k]=k*pspace.delta_t;
     for( size_t t=0;t<real_times.size();++t ) real_times[t]=t*pspace.delta_real_t;
     hdf5r::store_list( results_group_id, "imaginary_time_edges", imaginary_edges );
@@ -454,21 +424,20 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
         "Im_correlation",
         "Im X^{ab}(t,tau_edge); axes t,direction_pair(a,b),tau_edge." );
     hdf5r::store_2D_tensor<RealType>( results_group_id, "Re_magnetization",
-        H5_REAL_TYPE, magnetization_Re.expand(),
+        H5_REAL_TYPE, magnetization.Re.expand(),
         "Re m_a(t); axes are real_time, spin_component(x,y,z)." );
     hdf5r::store_2D_tensor<RealType>( results_group_id, "Im_magnetization",
-        H5_REAL_TYPE, magnetization_Im.expand(),
+        H5_REAL_TYPE, magnetization.Im.expand(),
         "Im m_a(t); axes are real_time, spin_component(x,y,z)." );
     H5Gclose( results_group_id );
 }
 
 void HDF5_Storage::store_preparation(const ps::ParameterSpace& p,
-    const rtd::RunTimeData& data,const CorrelationSet& frozen,const MagTen& re,const MagTen& im,
-    const spinDMFT::Functions::ComplexDynamicMatrix& covariance,
-    const spinDMFT::Functions::ComplexDynamicMatrix& factor,
-    const std::vector<RealType>& frozen_errors,bool real_started)
+    const rtd::RunTimeData& data,const CorrelationSet& frozen,const Magnetization& magnetization,
+    bool real_started)
 {
     if(!m_storing_permission)return;
+    const auto& statistics=data.preparation;
     const auto store_matsubara_correlation=[&](const ContourCorrelation& values,
         hid_t group,const std::string& name,const std::string& info)
     {
@@ -478,12 +447,12 @@ void HDF5_Storage::store_preparation(const ps::ParameterSpace& p,
             info+"; axes direction,tau");
     };
     const hid_t group=H5Gcreate(m_file_id,"preparation",H5P_DEFAULT,H5P_DEFAULT,H5P_DEFAULT);
-    hdf5r::store_string(group,"termination",data.termination);
+    hdf5r::store_string(group,"termination",statistics.termination);
     hdf5r::store_string(group,"real_time_started",hdf5r::bool_to_string(real_started));
-    hdf5r::store_scalar(group,"num_Iterations",data.num_Iterations);
+    hdf5r::store_scalar(group,"num_Iterations",statistics.num_Iterations);
     hdf5r::store_scalar(group,"absolute_iteration_error_threshold",data.matsubara_iteration_error_threshold());
-    hdf5r::store_scalar(group,"samples_per_core",p.num_SamplesPerCore);
-    hdf5r::store_scalar(group,"iteration_limit",p.Iteration_Limit);
+    hdf5r::store_scalar(group,"samples_per_core",p.num_PreparationSamplesPerCore);
+    hdf5r::store_scalar(group,"iteration_limit",p.Preparation_Iteration_Limit);
     hdf5r::store_scalar(group,"generated_seed",data.generated_seed);
     hdf5r::store_string(group,"sampling_strategy",p.sampling_strategy);
     if(p.sampling_strategy=="pcn")
@@ -492,38 +461,34 @@ void HDF5_Storage::store_preparation(const ps::ParameterSpace& p,
         hdf5r::store_string(group,"normalization_strategy","sum[N/|Z_M|]/sum[Z_M/|Z_M|]");
         hdf5r::store_scalar(group,"mh_step_size",p.mh_step_size);
         hdf5r::store_scalar(group,"mh_burn_in",p.mh_burn_in);
-        hdf5r::store_scalar(group,"actual_num_blocks_per_core",data.num_blocks());
-        hdf5r::store_scalar(group,"samples_per_block",data.samples_per_block());
-        hdf5r::store_list(group,"mh_acceptance_rates",data.mh_acceptance_rates);
-        hdf5r::store_list(group,"mh_zero_weight_rejection_rates",data.mh_nonpositive_rejection_rates);
-        hdf5r::store_list(group,"blocking_curve_block_length",data.blocking_curve_block_lengths);
-        hdf5r::store_list(group,"blocking_curve_mean_error",data.blocking_curve_mean_errors);
-        hdf5r::store_list(group,"blocking_curve_max_error",data.blocking_curve_max_errors);
-        hdf5r::store_list(group,"maximum_correlation_tau_int",data.maximum_tau_int);
-        hdf5r::store_list(group,"base_block_length_to_max_tau_ratio",data.block_length_to_tau_ratios);
-        store_matsubara_correlation(data.contour_tau_int.Re,group,"Re_correlation_tau_int","pCN batch-means variance inflation");
-        store_matsubara_correlation(data.contour_tau_int.Im,group,"Im_correlation_tau_int","pCN batch-means variance inflation");
+        hdf5r::store_scalar(group,"actual_num_blocks_per_core",statistics.num_blocks);
+        hdf5r::store_scalar(group,"samples_per_block",statistics.samples_per_block);
+        hdf5r::store_list(group,"mh_acceptance_rates",statistics.mh_acceptance_rates);
+        hdf5r::store_list(group,"mh_zero_weight_rejection_rates",statistics.mh_nonpositive_rejection_rates);
+        hdf5r::store_list(group,"blocking_curve_block_length",statistics.blocking_curve_block_lengths);
+        hdf5r::store_list(group,"blocking_curve_mean_error",statistics.blocking_curve_mean_errors);
+        hdf5r::store_list(group,"blocking_curve_max_error",statistics.blocking_curve_max_errors);
+        hdf5r::store_list(group,"maximum_correlation_tau_int",statistics.maximum_tau_int);
+        hdf5r::store_list(group,"base_block_length_to_max_tau_ratio",statistics.block_length_to_tau_ratios);
+        store_matsubara_correlation(statistics.contour_tau_int.Re,group,"Re_correlation_tau_int","pCN batch-means variance inflation");
+        store_matsubara_correlation(statistics.contour_tau_int.Im,group,"Im_correlation_tau_int","pCN batch-means variance inflation");
     }
     store_matsubara_correlation(frozen.Re,group,"Re_correlation","frozen X(0,tau)");
     store_matsubara_correlation(frozen.Im,group,"Im_correlation","frozen X(0,tau)");
-    store_matsubara_correlation(data.contour_sample_stds.Re,group,"Re_correlation_sample_stds","last raw estimate standard errors; not uncertainty of the mixed iterate");
-    store_matsubara_correlation(data.contour_sample_stds.Im,group,"Im_correlation_sample_stds","last raw estimate standard errors");
-    hdf5r::store_2D_tensor<RealType>(group,"Re_magnetization",H5_REAL_TYPE,re.expand(),"frozen origin magnetization");
-    hdf5r::store_2D_tensor<RealType>(group,"Im_magnetization",H5_REAL_TYPE,im.expand(),"frozen origin magnetization");
-    hdf5r::store_2D_tensor<RealType>(group,"Re_magnetization_sample_stds",H5_REAL_TYPE,data.magnetization_time_Re_stds.expand(),"last measured origin standard errors");
-    hdf5r::store_2D_tensor<RealType>(group,"Im_magnetization_sample_stds",H5_REAL_TYPE,data.magnetization_time_Im_stds.expand(),"last measured origin standard errors");
-    hdf5r::store_list(group,"absolute_iteration_errors",data.absolute_iteration_errors);
-    hdf5r::store_list(group,"standardized_iteration_errors",data.standardized_iteration_errors);
-    hdf5r::store_list(group,"gaussian_factor_reconstruction_errors",data.gaussian_factor_reconstruction_errors);
-    hdf5r::store_list(group,"average_phase_magnitudes",data.average_phase_magnitudes);
-    hdf5r::store_list(group,"effective_sample_sizes",data.effective_sample_sizes);
-    hdf5r::store_list(group,"partition_sum_Re",data.partition_sum_Re);
-    hdf5r::store_list(group,"partition_sum_Im",data.partition_sum_Im);
-    if(!frozen_errors.empty())hdf5r::store_list(group,"frozen_MM_residuals",frozen_errors);
-    if(covariance.rows())
-    {
-        hdf5r::store_scalar(group,"preparation_latent_dimension",factor.columns());
-    }
+    store_matsubara_correlation(statistics.contour_sample_stds.Re,group,"Re_correlation_sample_stds","final preparation estimate standard errors");
+    store_matsubara_correlation(statistics.contour_sample_stds.Im,group,"Im_correlation_sample_stds","final preparation estimate standard errors");
+    hdf5r::store_2D_tensor<RealType>(group,"Re_magnetization",H5_REAL_TYPE,magnetization.Re.expand(),"frozen origin magnetization");
+    hdf5r::store_2D_tensor<RealType>(group,"Im_magnetization",H5_REAL_TYPE,magnetization.Im.expand(),"frozen origin magnetization");
+    hdf5r::store_2D_tensor<RealType>(group,"Re_magnetization_sample_stds",H5_REAL_TYPE,statistics.magnetization_time_stds.Re.expand(),"last measured origin standard errors");
+    hdf5r::store_2D_tensor<RealType>(group,"Im_magnetization_sample_stds",H5_REAL_TYPE,statistics.magnetization_time_stds.Im.expand(),"last measured origin standard errors");
+    hdf5r::store_list(group,"absolute_iteration_errors",statistics.absolute_iteration_errors);
+    hdf5r::store_list(group,"standardized_iteration_errors",statistics.standardized_iteration_errors);
+    hdf5r::store_list(group,"gaussian_factor_reconstruction_errors",statistics.gaussian_factor_reconstruction_errors);
+    hdf5r::store_list(group,"average_phase_magnitudes",statistics.average_phase_magnitudes);
+    hdf5r::store_list(group,"effective_sample_sizes",statistics.effective_sample_sizes);
+    hdf5r::store_list(group,"partition_sum_Re",statistics.partition_sum_Re);
+    hdf5r::store_list(group,"partition_sum_Im",statistics.partition_sum_Im);
+    if(!data.frozen_errors.empty())hdf5r::store_list(group,"frozen_MM_residuals",data.frozen_errors);
     H5Gclose(group);
 }
 

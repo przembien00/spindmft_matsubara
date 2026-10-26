@@ -15,6 +15,8 @@
 #include"../Contour/Contour_Types.h"
 #include"../Parameter_Space/Parameter_Space.h"
 
+namespace spinDMFT::Functions { struct MeasuredSample; }
+
 namespace spinDMFT::Run_Time_Data
 {
 namespace ps = spinDMFT::Parameter_Space;
@@ -27,27 +29,14 @@ using MagVec = mag::MagnetizationVector;
 using MagTen = mag::MagnetizationTensor<MagVec>;
 using IndexPair = ten::IndexPair;
 using CorrelationSet = spinDMFT::Contour::CorrelationSet;
+using Magnetization = spinDMFT::Contour::Magnetization;
 
-// Unnormalized observables in contiguous [t,component,tau] / [t,component]
-// order. Cached pCN states are accumulated once for every Markov step.
-struct MeasuredSample
+// Results retained independently for each self-consistency loop.
+struct LoopStatistics
 {
-    ComplexType partition{};
-    std::vector<ComplexType> correlations,magnetization,closure;
-};
-
-class RunTimeData
-{
- public:
-    RunTimeData() = default;
-    RunTimeData( const ps::ParameterSpace& pspace, int my_rank,
-                 bool matsubara_preparation=false );
-
-    size_t generated_seed{};
     CorrelationSet contour_sample_stds{};
     CorrelationSet contour_tau_int{};
-    MagTen magnetization_time_Re_stds{};
-    MagTen magnetization_time_Im_stds{};
+    Magnetization magnetization_time_stds{};
     std::vector<RealType> closed_contour_ratio_Re{};
     std::vector<RealType> closed_contour_ratio_Im{};
     std::vector<RealType> closed_contour_residual_Re_sample_stds{};
@@ -67,7 +56,6 @@ class RunTimeData
     std::vector<RealType> denominator_constancy_residuals{};
     std::vector<RealType> mh_acceptance_rates{};
     std::vector<RealType> mh_nonpositive_rejection_rates{};
-    std::vector<RealType> maximum_relative_imaginary_sampling_weights{};
     std::vector<RealType> blocking_curve_block_lengths{};
     std::vector<RealType> blocking_curve_mean_errors{};
     std::vector<RealType> blocking_curve_max_errors{};
@@ -77,9 +65,25 @@ class RunTimeData
     std::vector<RealType> standardized_iteration_errors{};
     size_t num_Iterations{};
     std::string termination{};
+    size_t num_blocks{}, samples_per_block{};
+};
+
+class RunTimeData
+{
+ public:
+    RunTimeData() = default;
+    RunTimeData( const ps::ParameterSpace& pspace, int my_rank );
+
+    size_t generated_seed{};
+    LoopStatistics preparation{}, real_time{};
+    // Real-time feedback residuals against the frozen Matsubara covariance.
+    std::vector<RealType> frozen_errors{};
 
     std::string get_seed_str() const { return m_seed; }
-    void begin_iteration_accumulation();
+    // Zero the caller-owned observable sums and accumulate directly into them.
+    // They must remain alive until mpi_reduce_and_normalize() completes.
+    void begin_iteration_accumulation(CorrelationSet& correlations,
+        Magnetization& magnetization,bool matsubara_preparation=false);
     void begin_sample( ComplexType Z, RealType observable_normalization=RealType{1.} );
     void accumulate_closed_contour_trace( size_t real_time, ComplexType value );
     void accumulate_magnetization( size_t real_time, size_t component,
@@ -87,7 +91,7 @@ class RunTimeData
     void accumulate_edge_correlation( size_t real_time, size_t component,
                                       size_t imaginary_edge, ComplexType numerator );
     void end_sample();
-    void accumulate_sample( const MeasuredSample& sample, RealType normalization=RealType{1.} );
+    void accumulate_sample( const spinDMFT::Functions::MeasuredSample& sample, RealType normalization=RealType{1.} );
 
     // Independent measurement writes directly into total and block sums.
     // Keep the contraction inlined into this loop, with no numerator buffer.
@@ -97,8 +101,8 @@ class RunTimeData
     {
         if(t>=m_num_real_points||c>=m_corr_directions.size())
             throw std::invalid_argument("independent correlation row exceeds accumulator");
-        RealType* total_re=m_total.correlations.Re[t][c].data();
-        RealType* total_im=m_total.correlations.Im[t][c].data();
+        RealType* total_re=m_correlations->Re[t][c].data();
+        RealType* total_im=m_correlations->Im[t][c].data();
         RealType* block_re=m_blocks[m_current_block].correlations.Re[t][c].data();
         RealType* block_im=m_blocks[m_current_block].correlations.Im[t][c].data();
         for(size_t tau=0;tau<m_num_imaginary_edge_points;++tau)
@@ -125,11 +129,9 @@ class RunTimeData
                                            size_t latent_dimension,
                                            size_t largest_factorization_dimension );
     void record_pcn_diagnostics( size_t accepted, size_t proposed,
-                                 size_t rejected_nonpositive,
-                                 RealType maximum_relative_imaginary_sampling_weight );
-    void mpi_reduce_and_finalize( CorrelationSet& correlations,
-                                  MagTen& magnetization_Re,
-                                  MagTen& magnetization_Im );
+                                 size_t rejected_zero_weight );
+    // Reduce the bound sums, calculate errors, then normalize those same variables.
+    void mpi_reduce_and_normalize();
     void record_iteration_error( RealType absolute_error,
                                  RealType standardized_error );
     void record_matsubara_iteration_error( const CorrelationSet& old_correlations,
@@ -139,8 +141,6 @@ class RunTimeData
     { return m_matsubara_iteration_error_threshold; }
     void finalize_iteration_step();
     bool terminate( const MagTen& magnetization_Im );
-    size_t num_blocks() const { return m_num_blocks; }
-    size_t samples_per_block() const { return m_samples_per_block; }
 
  private:
     struct ComplexBlockSums
@@ -150,13 +150,16 @@ class RunTimeData
                           size_t num_real_points );
         ComplexType partition{};
         RealType partition_abs{};
-        RealType partition_abs_sq{};
         CorrelationSet correlations{};
-        MagTen mag_Re{};
-        MagTen mag_Im{};
+        Magnetization magnetization{};
         std::vector<ComplexType> closure{};
-        std::vector<RealType> closure_abs{};
     };
+
+    LoopStatistics& loop() { return m_matsubara_preparation?preparation:real_time; }
+    const LoopStatistics& loop() const { return m_matsubara_preparation?preparation:real_time; }
+    size_t m_real_time_points{}, m_real_samples_per_core{}, m_real_iteration_limit{};
+    size_t m_preparation_samples_per_core{}, m_preparation_iteration_limit{};
+    size_t m_requested_num_blocks{};
 
     int m_my_rank{};
     size_t m_num_print_digits{};
@@ -173,9 +176,6 @@ class RunTimeData
     bool m_self_consistency{};
     bool m_harmonic_bath{};
     bool m_pcn{};
-    bool m_modulus_pcn{};
-    bool m_fft{};
-    bool m_closed_contour_observable_normalization{};
     bool m_matsubara_preparation{};
     RealType m_matsubara_iteration_error_threshold{};
     RealType m_iteration_error_sigma_threshold{};
@@ -184,10 +184,18 @@ class RunTimeData
     RealType m_covariance_tolerance{};
     RealType m_takagi_tolerance{};
     RealType m_minimum_phase_magnitude{};
-    RealType m_partition_imaginary_tolerance{};
     std::vector<IndexPair> m_corr_directions{};
     std::vector<size_t> m_mag_directions{};
-    ComplexBlockSums m_total{};
+    struct TotalSampleSums
+    {
+        ComplexType partition{};
+        RealType partition_abs{},partition_abs_sq{};
+        std::vector<ComplexType> closure{};
+    };
+    TotalSampleSums m_total{};
+    // The caller owns the observable sums; runtime keeps only references.
+    CorrelationSet* m_correlations{};
+    Magnetization* m_magnetization{};
     std::vector<ComplexBlockSums> m_blocks{};
     CorrelationSet m_sample_squares{};
     CorrelationSet m_current_sample{};
@@ -200,6 +208,8 @@ class RunTimeData
     ComplexType m_current_partition{};
     RealType m_current_observable_normalization{RealType{1.}};
 
+    void configure_iteration(bool matsubara_preparation);
+    void normalize_observables();
     void accumulate_ratio_cross_moments(size_t flat,RealType re,RealType im);
 
     static ComplexType edge_value( const CorrelationSet& values,
