@@ -1,0 +1,51 @@
+cmake_minimum_required(VERSION 3.16)
+project(CspinDMFT_Keldysh LANGUAGES C CXX)
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 NEW)
+endif()
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+endif()
+# The existing dense joint Gaussian implementation is compiled directly, so
+# changes/fixes in the staged solver are shared without copying its source.
+find_package(MPI REQUIRED COMPONENTS CXX)
+find_package(HDF5 REQUIRED COMPONENTS C)
+find_package(LAPACK REQUIRED)
+find_package(Boost REQUIRED COMPONENTS program_options)
+find_path(BLAZE_INCLUDE_DIR blaze/Math.h HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../../cpp_libs REQUIRED)
+add_library(cluster_keldysh
+    Parameter_Space/Parameter_Space.cpp
+    Mean_Field_Models/Mean_Field_Models.cpp
+    Contour/Contour_Types.cpp Contour/Contour_Kernel.cpp
+    Functions/Functions.cpp Functions/Initialization.cpp Functions/Staged_Solver.cpp
+    Run_Time_Data/Run_Time_Data.cpp Functions/Sampling.cpp
+    Storage_Concept/Storage_Concept.cpp Time_Measure/Time_Measure.cpp
+    ../../spinDMFT_Keldysh_staged/Algorithm/Functions/Joint_Matsubara_PCN.cpp
+    ../../spinDMFT_Keldysh_staged/Algorithm/Functions/Complex_Gaussian.cpp)
+target_compile_definitions(cluster_keldysh PUBLIC USE_DOUBLE)
+target_include_directories(cluster_keldysh PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+    ../../cpp_libs ${BLAZE_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
+target_link_libraries(cluster_keldysh PUBLIC MPI::MPI_CXX ${HDF5_LIBRARIES} ${LAPACK_LIBRARIES} Boost::program_options)
+add_executable(CspinDMFT_Keldysh_DOUBLE main.cpp)
+target_link_libraries(CspinDMFT_Keldysh_DOUBLE PRIVATE cluster_keldysh Boost::program_options)
+set_target_properties(CspinDMFT_Keldysh_DOUBLE PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/.. OUTPUT_NAME executable_DOUBLE.out)
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(test_cluster Tests/test_cluster.cpp
+        ../../spinDMFT_Keldysh_staged/Algorithm/Contour/Contour_Kernel.cpp)
+    target_link_libraries(test_cluster PRIVATE cluster_keldysh)
+    add_test(NAME cluster_core COMMAND test_cluster)
+    find_package(Python3 QUIET COMPONENTS Interpreter)
+    if(Python3_Interpreter_FOUND)
+        execute_process(COMMAND ${Python3_EXECUTABLE} -c "import numpy,h5py"
+            RESULT_VARIABLE MODULES OUTPUT_QUIET ERROR_QUIET)
+        if(MODULES EQUAL 0)
+            add_test(NAME cluster_solver COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_solver.py $<TARGET_FILE:CspinDMFT_Keldysh_DOUBLE>)
+            set_tests_properties(cluster_solver PROPERTIES TIMEOUT 120)
+        endif()
+    endif()
+endif()

@@ -1,0 +1,62 @@
+[
+  {
+    "tag": "Cubic_3D_N=2_NN_J=-0.40825_zero_beta5_n4_908412be",
+    "config": "Cubic_3D_N=2_NN_J=-0.40825",
+    "case": "zero",
+    "beta": "5",
+    "samples": 4,
+    "executable_sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba",
+    "elapsed_seconds": 0.9929643329232931,
+    "initialization_seconds": 0.0005345,
+    "peak_child_rss_bytes": 644038656,
+    "real_sample_seconds": 0.0018722175,
+    "preparation_sample_seconds": 0.0002936975,
+    "real_setup_seconds": 0.876338,
+    "preparation_setup_seconds": 0.00432933
+  },
+  {
+    "tag": "Cubic_3D_N=2_NN_J=-0.40825_hz0p5_beta5_n4_908412be",
+    "config": "Cubic_3D_N=2_NN_J=-0.40825",
+    "case": "hz0p5",
+    "beta": "5",
+    "samples": 4,
+    "executable_sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba",
+    "elapsed_seconds": 28.000521167065017,
+    "initialization_seconds": 0.001582,
+    "peak_child_rss_bytes": 1251065856,
+    "real_sample_seconds": 0.00568435,
+    "preparation_sample_seconds": 0.00030775,
+    "real_setup_seconds": 27.8307,
+    "preparation_setup_seconds": 0.0198218
+  },
+  {
+    "tag": "Cubic_3D_N=4_NN_J=-0.40825_zero_beta5_n4_908412be",
+    "config": "Cubic_3D_N=4_NN_J=-0.40825",
+    "case": "zero",
+    "beta": "5",
+    "samples": 4,
+    "executable_sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba",
+    "elapsed_seconds": 8.682755874935538,
+    "initialization_seconds": 0.0280156,
+    "peak_child_rss_bytes": 2427076608,
+    "real_sample_seconds": 0.0685445,
+    "preparation_sample_seconds": 0.0135165,
+    "real_setup_seconds": 8.21562,
+    "preparation_setup_seconds": 0.0116868
+  },
+  {
+    "tag": "Cubic_3D_N=4_NN_J=-0.40825_hz0p5_beta5_n4_908412be",
+    "config": "Cubic_3D_N=4_NN_J=-0.40825",
+    "case": "hz0p5",
+    "beta": "5",
+    "samples": 4,
+    "executable_sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba",
+    "elapsed_seconds": 235.65251729101874,
+    "initialization_seconds": 0.112077,
+    "peak_child_rss_bytes": 4736073728,
+    "real_sample_seconds": 0.15494275,
+    "preparation_sample_seconds": 0.01400675,
+    "real_setup_seconds": 234.621,
+    "preparation_setup_seconds": 0.131491
+  }
+]

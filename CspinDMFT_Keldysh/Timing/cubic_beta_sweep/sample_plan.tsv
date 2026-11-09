@@ -1,0 +1,13 @@
+config	case	symmetry	field	amplitude	samples_per_core	preparation_samples_per_core	preparation_iterlimit	estimated_seconds	real_sample_seconds	preparation_sample_seconds	real_setup_seconds	preparation_setup_seconds	initialization_seconds	timing_source	status
+Cubic_3D_N=2_NN_J=-0.40825	zero	A	unifield	0	368700	36870	20	14256.6	0.003744435	0.000587395	1.752676	0.00865866	0.001069	Cubic_3D_N=2_NN_J=-0.40825/zero	ready
+Cubic_3D_N=2_NN_J=-0.40825	hz0p5	C	unifield	0.5	116700	11670	20	13968.3	0.0113687	0.0006155	55.6614	0.0396436	0.003164	Cubic_3D_N=2_NN_J=-0.40825/hz0p5	ready
+Cubic_3D_N=2_NN_J=-0.40825	ordering	C	unifield	0.005	116700	11670	20	13968.3	0.0113687	0.0006155	55.6614	0.0396436	0.003164	Cubic_3D_N=2_NN_J=-0.40825/hz0p5	ready
+Cubic_3D_N=2_NN_J=0.40825	zero	A	unifield	0	368700	36870	20	14256.6	0.003744435	0.000587395	1.752676	0.00865866	0.001069	Cubic_3D_N=2_NN_J=-0.40825/zero	ready
+Cubic_3D_N=2_NN_J=0.40825	hz0p5	C	unifield	0.5	116700	11670	20	13968.3	0.0113687	0.0006155	55.6614	0.0396436	0.003164	Cubic_3D_N=2_NN_J=-0.40825/hz0p5	ready
+Cubic_3D_N=2_NN_J=0.40825	ordering	C	stagfield	0.005	116700	11670	20	13968.3	0.0113687	0.0006155	55.6614	0.0396436	0.003164	Cubic_3D_N=2_NN_J=-0.40825/hz0p5	ready
+Cubic_3D_N=4_NN_J=-0.40825	zero	A	unifield	0	9900	990	20	14271.9	0.137089	0.027033	16.43124	0.0233736	0.0560312	Cubic_3D_N=4_NN_J=-0.40825/zero	ready
+Cubic_3D_N=4_NN_J=-0.40825	hz0p5	C	unifield	0.5	2900	290	20	13847.1	0.3098855	0.0280135	469.242	0.262982	0.224154	Cubic_3D_N=4_NN_J=-0.40825/hz0p5	ready
+Cubic_3D_N=4_NN_J=-0.40825	ordering	C	unifield	0.005	2900	290	20	13847.1	0.3098855	0.0280135	469.242	0.262982	0.224154	Cubic_3D_N=4_NN_J=-0.40825/hz0p5	ready
+Cubic_3D_N=4_NN_J=0.40825	zero	A	unifield	0	9900	990	20	14271.9	0.137089	0.027033	16.43124	0.0233736	0.0560312	Cubic_3D_N=4_NN_J=-0.40825/zero	ready
+Cubic_3D_N=4_NN_J=0.40825	hz0p5	C	unifield	0.5	2900	290	20	13847.1	0.3098855	0.0280135	469.242	0.262982	0.224154	Cubic_3D_N=4_NN_J=-0.40825/hz0p5	ready
+Cubic_3D_N=4_NN_J=0.40825	ordering	C	stagfield	0.005	2900	290	20	13847.1	0.3098855	0.0280135	469.242	0.262982	0.224154	Cubic_3D_N=4_NN_J=-0.40825/hz0p5	ready
