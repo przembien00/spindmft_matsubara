@@ -55,6 +55,8 @@ class RunTimeData
     std::vector<RealType> gaussian_factor_reconstruction_errors{};
     std::vector<RealType> gaussian_covariance_approximation_errors{};
     std::vector<unsigned int> gaussian_factor_latent_dimensions{};
+    std::vector<unsigned int> gaussian_polynomial_degrees{};
+    std::vector<RealType> gaussian_spectral_bounds{};
     std::vector<unsigned int> gaussian_largest_factorization_dimensions{};
     std::vector<RealType> average_phase_magnitudes{};
     std::vector<RealType> effective_sample_sizes{};
@@ -98,7 +100,8 @@ class RunTimeData
                                            RealType factor_reconstruction_error,
                                            RealType covariance_approximation_error,
                                            size_t latent_dimension,
-                                           size_t largest_factorization_dimension );
+        size_t largest_factorization_dimension,
+        size_t polynomial_degree=0,RealType spectral_bound=RealType{} );
     void record_pcn_diagnostics( size_t accepted, size_t proposed,
                                  size_t rejected_nonpositive,
                                  RealType maximum_relative_imaginary_sampling_weight );
@@ -143,7 +146,6 @@ class RunTimeData
     bool m_self_consistency{};
     bool m_harmonic_bath{};
     bool m_pcn{};
-    bool m_fft{};
     bool m_closed_contour_observable_normalization{};
     RealType m_iteration_error_sigma_threshold{};
     size_t m_iteration_limit{};

@@ -78,14 +78,79 @@ Staggered Strang defaults to `--gaussianFactorization=dense`; explicit
 `weighted-dense` is also supported with independent sampling. Its existing
 M, eta, kappa weights apply directly to M, midpoint eta and boundary
 `kappa=nu/2`, so the effective nu weight is `gaussianWeightKappa/4`.
-Explicit FFT factorization, FFT cutoff options, and `--realTimeSubsteps=0`
-are rejected. The obsolete `--contactCounterterm` option has been removed. At least three
+`--realTimeSubsteps=0` is rejected. The obsolete `--contactCounterterm` option has been removed. At least three
 imaginary-time intervals are needed for Gauss-CF4 preparation; one or more
 real-time intervals are allowed.
 
+An experimental sampler that avoids dense covariance/factor storage is enabled by:
+
+```bash
+--gaussianFactorization=chebyshev --samplingStrategy=independent \
+--gaussianChebyshevTolerance=0.001 --gaussianChebyshevMaxDegree=16384
+```
+
+It stores exact Matsubara/noise/causal-response lag tables and the mixed
+primitive on the original measurement grid. Stationary products use
+zero-padded FFT convolutions (direct products on short grids); mixed products
+use the original cubic/short-grid interpolation and its ordinary transpose.
+It applies a fixed Chebyshev polynomial approximation to
+`f(A)=sqrt(max(A,0))` for each real standard-normal latent draw. The degree
+and coefficients are chosen once per iteration, independently of samples.
+There is no dense covariance, real lift, eigendecomposition, or sampling factor.
+Known zero rows, including the final response boundary, remain exactly zero.
+The existing streamed transpose diagnostic still takes quadratic setup work.
+
+The compressed covariance operator is exact. **Finite polynomial sampling is
+approximate and can bias both Gaussian second moments.** The tolerance is a
+uniform absolute operator-norm bound for each complex moment, divided by the
+reported absolute-row-sum spectral upper bound `Lambda`; it is not a relative
+error guarantee on each entry or on small response blocks. The bound comes
+from the absolute Chebyshev coefficient sum of `p^2-max(t,0)`, including its
+analytic infinite-series tail and a roundoff allowance, rather than checking
+only selected spectral points. An insufficient maximum degree fails explicitly.
+Reducing the tolerance raises the work per sample and can be very expensive.
+Dense remains the default and the reference for sensitive covariance blocks.
+
+The target is the **unweighted dense Gaussian law**, up to this stated
+polynomial error. Sector weights and pCN are currently rejected. The uncut
+matrix function is approximated; dense's existing machine-scale numerical
+rank cutoff is not increased or reproduced as a discontinuous filter.
+To match dense's floating-point fidelity, both the polynomial error and this
+cutoff difference need to be budgeted. Monte Carlo error bars do not include
+polynomial bias, and agreement at one statistical resolution does not prove
+equivalence at arbitrarily many samples.
+
+HDF5 records `gaussian_chebyshev_tolerance`, `gaussian_chebyshev_max_degree`,
+and per-iteration `gaussian_polynomial_degrees`, `gaussian_spectral_bounds`,
+and `gaussian_covariance_approximation_errors`. The last quantity is the
+absolute bound for **each** moment. Factor reconstruction errors and largest
+factorization dimensions are zero because this sampler forms no factor;
+they are not the polynomial error. Output filenames include the sampler and
+tolerance to distinguish these runs from dense output.
+
+`test_structured_gaussian` checks compressed products against the original
+canonical dense matrix (including non-Hermitian component data, substeps,
+short grids, FFT grids, rotated couplings and static noise), both Gaussian
+moments against dense factors, convergence with degree, linearity, exact
+null rows, zero covariance and failure on insufficient degree. To reproduce
+statistical comparisons and retain all HDF5 outputs and logs:
+
+```bash
+python3 Algorithm/Tests/compare_chebyshev_sampling.py executable_DOUBLE.out \
+  Analysis/chebyshev_comparison --samples=8192
+```
+
+The comparison uses independent seeds and combines the existing jackknife
+standard errors in quadrature. It covers the initial bath, two feedback
+iterations, a fixed harmonic bath with nonzero response, real-time substeps,
+and a tighter polynomial tolerance. It reports pointwise sigma distances
+across all real/imaginary correlations and magnetizations; correlated grid
+points are not independent tests. Feedback comparisons do not separately
+propagate uncertainty in the bath estimated by earlier iterations.
+
 Increasing `realTimeSubsteps` here refines the jointly sampled stochastic
 grid and increases factorization cost. Output filenames
-include `__prop=staggered-strang` and, when greater than one, `__substeps=q`;
+include `__substeps=q` when q is greater than one;
 HDF5 metadata records the layout, covariance and maps.
 
 Tests cover the full joint covariance, complex mean subtraction and coupling
@@ -97,8 +162,7 @@ and equilibrium magnetization drift of the complete self-consistent
 thermal-contour problem still require matched numerical scans.
 
 The standard solver supports dense joint sampling (default) and
-`weighted-dense` with independent sampling. FFT interpolation is incompatible
-with the causal staggered grid and is rejected.
+`weighted-dense` with independent sampling.
 
 ## Weighted dense noise optimization
 
@@ -238,16 +302,13 @@ No rank gathers or replicates the block-resolved correlation tensors.
 ## Execution and statistical accounting
 
 Independent sampling processes up to 32 trajectories per batch, including a
-short final batch when needed. Dense, weighted-dense, and FFT samplers use
-BLAS matrix-matrix products for independent block-factor draws. FFT factors
-store alternating real and imaginary rows of the same complex Takagi factor:
-GEMM applies them to independent batches, and GEMV applies them to single pCN
-proposals. Identical factors share this packed storage, while their latent
-coordinates remain independent. The original complex factor storage is released
-after packing. FFTs then evaluate each sample on its native and Gauss-node grids.
+short final batch when needed. Dense and weighted-dense samplers use
+BLAS matrix-matrix products for independent block-factor draws. Identical
+factors share packed real and imaginary storage, while their latent
+coordinates remain independent.
 Random coordinates are generated in sample-major order, so batch boundaries do
 not change the random sequence. Multiplication order can change floating-point
-roundoff; covariance, cutoff, and latent rank are unchanged. Exactly
+roundoff; covariance and latent rank are unchanged. Exactly
 `numSamplesPerCore` observations are accumulated on every iteration. There is
 no adaptive sample-count or convergence change.
 
@@ -267,10 +328,8 @@ after acceptance. Closed-contour normalization still evaluates the complete
 trajectory to obtain the proposal likelihood `Re D(T)`.
 
 Covariance construction skips exactly zero rotation coefficients and diagnoses
-the raw transpose residual while filling its canonical triangle. FFT setup
-uses a read-only covariance source instead of allocating a dense physical-grid
-matrix. Existing cutoff, reconstruction, and raw-kernel diagnostics remain in
-the output. Gauss-node Fourier phases are precomputed for each FFT grid.
+the raw transpose residual while filling its canonical triangle. Reconstruction
+and raw-kernel diagnostics remain in the output.
 
 `--antitheticPairs` has been removed. New files contain ordinary trajectory or
 pCN-state counting metadata. Existing historical output files remain readable
@@ -402,7 +461,8 @@ mpirun -n 1 ./executable_DOUBLE.out \
 ```
 
 Dense joint sampling is the default. `--gaussianFactorization=weighted-dense`
-is available with independent sampling. The selected factorization is recorded
+and the experimental `--gaussianFactorization=chebyshev` are available with
+independent sampling (see the accuracy controls above). The selected sampler is recorded
 in HDF5; existing files are protected by filename collision handling. Dense
 factorization scales cubically in the complete staggered field dimension.
 
@@ -419,6 +479,7 @@ derived jackknife errors for the closed-contour ratio `D(t)-1`,
 `gaussian_factor_reconstruction_errors`,
 `gaussian_covariance_approximation_errors`,
 `gaussian_factor_latent_dimensions`,
+`gaussian_polynomial_degrees`, `gaussian_spectral_bounds`,
 `gaussian_largest_factorization_dimensions`, branch identities, phase and effective
 sample size, complex partition sums, denominator constancy, and the raw complex
 fixed-point residual.

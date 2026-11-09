@@ -85,6 +85,10 @@ class DenseComplexGaussianSampler : public JointComplexGaussianSampler
     DenseComplexGaussianSampler(const ComplexDynamicMatrix& covariance,
         const std::vector<RealType>& weights, RealType takagi_tolerance=RealType{1e-8});
 
+    // Fixed contour scaling: Matsubara=1, eta=2, nu=1/2, without a weight vector.
+    DenseComplexGaussianSampler(const ComplexDynamicMatrix& covariance,
+        size_t matsubara_size,size_t eta_size,RealType takagi_tolerance);
+
     LatentVector draw_latent( std::mt19937& engine ) override;
     FieldVector field_from_latent( const LatentVector& latent ) override;
     FieldVector draw( std::mt19937& engine ) override;
@@ -102,6 +106,10 @@ class DenseComplexGaussianSampler : public JointComplexGaussianSampler
 
  private:
     void validate_reconstruction(RealType tolerance) const;
+    void initialize_weighted(const ComplexDynamicMatrix&,RealType tolerance);
+    RealType weight_root(size_t row) const;
+    bool m_contour_scaling=false;
+    size_t m_matsubara_size=0,m_eta_end=0;
     std::shared_ptr<GaussianBlockFactors> m_factors;
     std::vector<RealType> m_weight_roots{};
     RealType m_unweighted_reconstruction_error{};

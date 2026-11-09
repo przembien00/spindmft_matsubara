@@ -49,7 +49,8 @@ void measure_matsubara_sample(const ps::ParameterSpace& preparation,
     MeasuredSample& sample,MeasurementWorkspace& measurement);
 // Replace feedback at the origin only; raw measured observables stay intact.
 void freeze_origin(CorrelationSet& correlations,Magnetization& magnetization,
-    const CorrelationSet& prepared,const Magnetization& prepared_magnetization);
+    const CorrelationSet& prepared,const Magnetization& prepared_magnetization,
+    const ps::ParameterSpace* parameters=nullptr);
 void seed_from_preparation(const ps::ParameterSpace& real_parameters,
     const CorrelationSet& prepared,const Magnetization& prepared_magnetization,
     CorrelationSet& correlations,Magnetization& magnetization);

@@ -8,6 +8,7 @@
 #include<Standard_Algorithms/Standard_Algorithms.h>
 #include<Observables/Magnetization.h>
 #include"Complex_Gaussian.h"
+#include"Structured_Gaussian.h"
 #include"../Contour/Contour_Types.h"
 #include"../Contour/Contour_Kernel.h"
 #include"../matrices.h"
@@ -35,6 +36,7 @@ struct SelfConsistentField
     MeanFieldTrajectory mean_time{};
     ComplexDynamicMatrix covariance{};
     CovarianceSource covariance_source{};
+    std::shared_ptr<StructuredContourCovariance> structured_covariance{};
     RealType covariance_symmetry_error{};
     RealType branch_identity_error{};
 };

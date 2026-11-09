@@ -52,6 +52,8 @@ class HDF5_Storage
 
     void create_folder_branch( const ps::ParameterSpace& pspace, const std::string& termination );
     void create_file( const ps::ParameterSpace& pspace, const std::string& filename_suffix );
+    void store_correlation_set(const CorrelationSet& values,hid_t group,
+        const std::string& suffix,const std::string& info);
     void store_correlation( const ContourCorrelation& correlations,
                             const hid_t group_id,
                             const std::string& dataset_name,

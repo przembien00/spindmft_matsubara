@@ -81,8 +81,9 @@ class ParameterSpace
   RealType partition_imaginary_tolerance{RealType{1e-8}};
   size_t num_blocks{};
   std::string gaussian_factorization{"dense"};
+  RealType gaussian_chebyshev_tolerance{RealType{1e-3}};
+  size_t gaussian_chebyshev_max_degree{16384};
   std::array<RealType,3> gaussian_noise_weights{RealType{1.},RealType{2.},RealType{8.}};
-  RealType fft_cross_frequency_cutoff{RealType{-1.}};
   size_t real_time_steps_per_interval() const
   { return real_time_substeps; }
   std::string spin_insertion_strategy{"closed-contour"};

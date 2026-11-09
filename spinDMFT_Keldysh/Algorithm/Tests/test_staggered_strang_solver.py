@@ -42,13 +42,14 @@ def main():
                 assert result.returncode == 0 and len(files) == 1, result.stdout
                 with h5py.File(files[0]) as f:
                     p = f["parameters"].attrs
+                    assert "fft_cross_frequency_cutoff" not in p
                     staggered = True
                     assert text(p["real_time_evolution"]) == "staggered-strang"
                     assert text(p["propagator"]) == "staggered-strang"
                     factor = next((x.split("=", 1)[1] for x in options if x.startswith("--gaussianFactorization=")),
                                   "dense")
                     assert text(p["gaussian_factorization"]) == factor
-                    assert ("__prop=staggered-strang" in files[0].name) == staggered
+                    assert "__prop=" not in files[0].name
                     q = int(scalar(p["real_time_substeps"]))
                     if staggered:
                         assert "direct joint" in text(p["real_time_field_interpolation"])
@@ -60,6 +61,13 @@ def main():
                         array = f["results"][key][()]
                         assert array.shape[0] == nr and np.isfinite(array).all(), key
                     assert np.max(f["runtimedata"].attrs["gaussian_factor_reconstruction_errors"]) < 1e-8
+                    if factor == "chebyshev":
+                        r = f["runtimedata"].attrs
+                        assert np.max(r["gaussian_largest_factorization_dimensions"]) == 0
+                        assert np.min(r["gaussian_polynomial_degrees"]) >= 16
+                        assert np.all(r["gaussian_covariance_approximation_errors"] <=
+                                      float(scalar(p["gaussian_chebyshev_tolerance"])) *
+                                      r["gaussian_spectral_bounds"] * (1+1e-10))
             checked.append(name)
 
         run("default", [])
@@ -69,6 +77,20 @@ def main():
         run("substeps", [*option, "--realTimeSubsteps=3", "--spinInsertionStrategy=prefix"])
         run("short_grid", [*option, "--numRealTimeSteps=1"])
         run("weighted", [*option, "--gaussianFactorization=weighted-dense", "--gaussianWeightM=0.1"])
+        run("chebyshev", ["--gaussianFactorization=chebyshev"])
+        run("chebyshev_symmetric", ["--gaussianFactorization=chebyshev", "--cstype=A", "--Babs=0"])
+        run("chebyshev_closed", ["--gaussianFactorization=chebyshev", "--correlationNormalization=closed-contour"])
+        run("chebyshev_fft", ["--gaussianFactorization=chebyshev", "--realTimeSubsteps=5"])
+        run("chebyshev_pcn", ["--gaussianFactorization=chebyshev", "--samplingStrategy=pcn"],
+            "chebyshev requires samplingStrategy=independent")
+        run("chebyshev_bad_tolerance", ["--gaussianFactorization=chebyshev", "--gaussianChebyshevTolerance=0"],
+            "Chebyshev tolerance must lie")
+        run("chebyshev_bad_degree", ["--gaussianFactorization=chebyshev", "--gaussianChebyshevMaxDegree=15"],
+            "Chebyshev tolerance must lie")
+        run("chebyshev_insufficient_degree", ["--gaussianFactorization=chebyshev", "--gaussianChebyshevMaxDegree=16"],
+            "Chebyshev covariance error bound exceeds")
+        run("chebyshev_option_dense", ["--gaussianChebyshevTolerance=0.01"],
+            "gaussianChebyshev options require gaussianFactorization=chebyshev")
         run("pcn", [*option, "--samplingStrategy=pcn", "--mhBurnIn=2", "--realTimeSubsteps=2"])
         run("pcn_closed", [*option, "--samplingStrategy=pcn", "--mhBurnIn=2", "--correlationNormalization=closed-contour"])
         run("harmonic", [*option, "--bath=harmonic", "--bathCoupling=0.05"])
@@ -77,9 +99,10 @@ def main():
         run("bad_evolution", ["--realTimeEvolution=unknown"], "realTimeEvolution must be")
         run("zero_substeps", [*option, "--realTimeSubsteps=0"], "requires realTimeSubsteps >= 1")
         run("short_imaginary", [*option, "--numImagTimeSteps=2"], "requires numImagTimeSteps >= 3")
-        run("fft", [*option, "--gaussianFactorization=fft"], "requires dense or weighted-dense")
+        run("fft", [*option, "--gaussianFactorization=fft"], "gaussianFactorization must be dense or weighted-dense")
+        run("removed_cutoff_default", [*option, "--fftCrossFrequencyCutoff=-1"], "unrecognised option")
         run("counterterm", [*option, "--contactCounterterm"], "unrecognised option")
-        run("cutoff", [*option, "--fftCrossFrequencyCutoff=1"], "incompatible with staggered-strang")
+        run("cutoff", [*option, "--fftCrossFrequencyCutoff=1"], "unrecognised option")
         run("weighted_pcn", [*option, "--gaussianFactorization=weighted-dense", "--samplingStrategy=pcn"],
             "weighted-dense requires samplingStrategy=independent")
     print(f"Passed {len(checked)} solver checks: {', '.join(checked)}")

@@ -115,7 +115,6 @@ void HDF5_Storage::create_file( const ps::ParameterSpace& pspace )
     {
         filename += "__mag=constant";
     }
-    filename += "__prop=staggered-strang";
     if(pspace.real_time_substeps>1)
         filename += "__substeps="+std::to_string(pspace.real_time_substeps);
 
@@ -131,6 +130,13 @@ void HDF5_Storage::create_file( const ps::ParameterSpace& pspace )
                 << ',' << pspace.gaussian_noise_weights[1]
                 << ',' << pspace.gaussian_noise_weights[2];
         filename += weights.str();
+    }
+    if(pspace.gaussian_factorization=="chebyshev")
+    {
+        std::ostringstream accuracy;
+        accuracy << "__gauss=chebyshev__tol=" << std::setprecision(std::numeric_limits<RealType>::max_digits10)
+                 << pspace.gaussian_chebyshev_tolerance;
+        filename+=accuracy.str();
     }
     if( pspace.filename_extension != "" )
     {
@@ -277,15 +283,22 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
             "joint V_M,eta,nu covariance after inverse diagonal weighting");
     }
     hdf5r::store_string( ps_group_id, "gaussian_execution",
-        "exact-zero covariance blocks; identical block factors reused with independent latents; original global rank cutoff; sample-major independent batches of up to 32" );
+        pspace.gaussian_factorization=="chebyshev"
+        ?"compressed stationary lag tables; zero-padded FFT products (direct on short grids); unrefined mixed primitive with transpose interpolation; fixed Chebyshev map per iteration; exact zero rows projected; uncut matrix function, no dense numerical rank cutoff"
+        :"exact-zero covariance blocks; identical block factors reused with independent latents; original global rank cutoff; sample-major independent batches of up to 32" );
+    if(pspace.gaussian_factorization=="chebyshev")
+    {
+        hdf5r::store_scalar(ps_group_id,"gaussian_chebyshev_tolerance",pspace.gaussian_chebyshev_tolerance);
+        hdf5r::store_scalar(ps_group_id,"gaussian_chebyshev_max_degree",pspace.gaussian_chebyshev_max_degree);
+        hdf5r::store_string(ps_group_id,"gaussian_chebyshev_error_definition",
+            "gaussian_covariance_approximation_errors is an absolute operator-norm bound for each of E[zz^T]-Gamma and E[zz^dagger]-sqrt(Gamma Gamma^dagger), including a roundoff allowance; at most gaussian_chebyshev_tolerance times gaussian_spectral_bounds. Spectral bound is the maximum absolute row-sum upper bound. Reconstruction errors are zero because no dense factor is formed; polynomial errors are separate. Does not include the dense reference numerical-rank-cutoff difference.");
+    }
     hdf5r::store_string( ps_group_id, "observable_execution",
         "reusable contiguous numerators; spin-1/2 fixed-size contractions; pCN cached rejected states retain full statistical accounting" );
     hdf5r::store_string( ps_group_id, "covariance_construction",
-        pspace.gaussian_factorization=="fft"
-        ?"streamed canonical covariance; raw transpose diagnostic; no dense physical covariance"
+        pspace.gaussian_factorization=="chebyshev"
+        ?"canonical lag tables and coarse mixed primitive; no dense matrix or factor; streamed raw transpose diagnostic"
         :"canonical triangle with streamed raw transpose diagnostic" );
-    hdf5r::store_scalar( ps_group_id, "fft_cross_frequency_cutoff",
-                         pspace.fft_cross_frequency_cutoff );
     hdf5r::store_scalar(ps_group_id,"real_time_substeps",pspace.real_time_substeps);
     hdf5r::store_string(ps_group_id,"real_time_evolution",pspace.real_time_evolution);
     hdf5r::store_string(ps_group_id,"staggered_field_layout",
@@ -303,7 +316,7 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
     hdf5r::store_string( ps_group_id, "propagator_definition",
         "Q_n=exp(-i h nu_n dot S/4), P_n=exp(-i h H_eta(midpoint)); U=Q_(n+1) P_n Q_n, B=Q_n P_n^(-1) Q_(n+1); shared boundary half kicks; Matsubara Gauss-CF4 preparation; second order for smooth prescribed fields, averaged thermal-contour weak order unvalidated" );
     hdf5r::store_string( ps_group_id, "gaussian_factorization_options",
-        "dense: joint Matsubara, midpoint eta and boundary nu Takagi factorization; weighted-dense: diagonal weighting of the same joint covariance before Takagi, inverse scaled to physical fields" );
+        "dense: joint Matsubara, midpoint eta and boundary nu Takagi factorization; weighted-dense: diagonal weighting before Takagi; chebyshev: compressed unweighted matrix-function sampling with bounded numerical error, independent sampling only" );
     hdf5r::store_string( ps_group_id, "correlation_normalization",
                          pspace.correlation_normalization );
     hdf5r::store_string( ps_group_id, "magnetization_normalization",
@@ -405,6 +418,8 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
     hdf5r::store_list( rtd_group_id, "branch_identity_errors",      rtdata.branch_identity_errors );
     hdf5r::store_list( rtd_group_id, "gaussian_factor_reconstruction_errors",rtdata.gaussian_factor_reconstruction_errors );
     hdf5r::store_list( rtd_group_id, "gaussian_covariance_approximation_errors",rtdata.gaussian_covariance_approximation_errors );
+    hdf5r::store_list( rtd_group_id, "gaussian_polynomial_degrees",rtdata.gaussian_polynomial_degrees );
+    hdf5r::store_list( rtd_group_id, "gaussian_spectral_bounds",rtdata.gaussian_spectral_bounds );
     hdf5r::store_list( rtd_group_id, "gaussian_factor_latent_dimensions",      rtdata.gaussian_factor_latent_dimensions );
     hdf5r::store_list( rtd_group_id, "gaussian_largest_factorization_dimensions",rtdata.gaussian_largest_factorization_dimensions );
     hdf5r::store_list( rtd_group_id, "average_phase_magnitudes",    rtdata.average_phase_magnitudes );

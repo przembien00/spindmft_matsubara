@@ -16,10 +16,6 @@
 namespace spinDMFT::Functions
 {
 
-// Reflection tau -> beta-tau on an edge grid with distinct 0+ and beta-
-// endpoints. num_intervals is the index of the beta endpoint.
-size_t one_sided_edge_reflection_index( size_t point, size_t num_intervals );
-
 using ComplexFieldVector = blaze::StaticVector<ComplexType,3UL,blaze::columnVector>;
 using ComplexDynamicMatrix = blaze::DynamicMatrix<ComplexType,blaze::rowMajor>;
 
@@ -33,8 +29,7 @@ struct TakagiFactor
     std::vector<RealType> singular_values{};
 };
 
-// Read-only physical covariance view. The callable is used only during
-// factor construction, permitting FFT setup without a dense physical matrix.
+// Read-only physical covariance view used during covariance construction.
 struct CovarianceSource
 {
     size_t dimension{};
@@ -98,6 +93,8 @@ class JointComplexGaussianSampler
     virtual RealType covariance_approximation_error() const { return RealType{}; }
     virtual size_t latent_dimension() const = 0;
     virtual size_t largest_factorization_dimension() const { return size(); }
+    virtual size_t polynomial_degree() const { return 0; }
+    virtual RealType spectral_bound() const { return RealType{}; }
     virtual size_t size() const = 0;
 };
 
@@ -164,72 +161,11 @@ class WeightedDenseComplexGaussianSampler : public JointComplexGaussianSampler
     std::normal_distribution<RealType> m_standard_normal{RealType{0.},RealType{1.}};
 };
 
-// Frequency-space sampler. The first N_tau Matsubara values (0+ through
-// beta-dtau) and the doubled-real axis are transformed with unitary FFTs. The
-// distinct beta- endpoint remains untransformed in the dense Matsubara block.
-// After each draw the inverse FFT is applied and only the physical contour is
-// returned.
-class FFTDenseComplexGaussianSampler : public JointComplexGaussianSampler
-{
- public:
-    using LatentVector = JointComplexGaussianSampler::LatentVector;
-    using FieldVector = JointComplexGaussianSampler::FieldVector;
-
-    FFTDenseComplexGaussianSampler( const CovarianceSource& covariance,
-                                    size_t num_matsubara_intervals,
-                                    size_t num_real_points,
-                                    RealType delta_real_time,
-                                    RealType cross_frequency_cutoff, size_t real_time_substeps=1 );
-    ~FFTDenseComplexGaussianSampler() override;
-
-    LatentVector draw_latent( std::mt19937& engine ) override;
-    FieldVector field_from_latent( const LatentVector& latent ) override;
-    FieldVector draw( std::mt19937& engine ) override;
-    ContourFieldSample contour_field_from_latent(
-        const LatentVector& latent, bool include_real_gauss_fields ) override;
-    std::vector<ContourFieldSample> draw_contour_batch(
-        std::mt19937& engine,size_t count,bool include_real_gauss_fields ) override;
-    RealType reconstruction_error() const override { return m_reconstruction_error; }
-    RealType covariance_approximation_error() const override
-    { return m_covariance_approximation_error; }
-    size_t latent_dimension() const override { return m_latent_dimension; }
-    size_t largest_factorization_dimension() const override
-    { return m_largest_factorization_dimension; }
-    size_t size() const override { return m_physical_size; }
-
- private:
-    struct FFTPlans;
-    struct FrequencyFactors;
-    ContourFieldSample contour_field_from_frequency(
-        size_t sample,bool include_real_gauss_fields );
-
-    size_t m_num_matsubara_intervals{};
-    size_t m_num_matsubara_points{};
-    size_t m_num_real_points{};
-    size_t m_embedded_real_points{};
-    size_t m_real_time_substeps{1};
-    size_t m_physical_size{};
-    size_t m_latent_dimension{};
-    RealType m_reconstruction_error{};
-    RealType m_covariance_approximation_error{};
-    size_t m_largest_factorization_dimension{};
-    std::unique_ptr<FrequencyFactors> m_frequency_factors{};
-    std::unique_ptr<FFTPlans> m_fft{};
-    std::normal_distribution<RealType> m_standard_normal{ RealType{0.}, RealType{1.} };
-};
-
-std::unique_ptr<JointComplexGaussianSampler> make_complex_gaussian_sampler(
-    const CovarianceSource& covariance, size_t num_matsubara_intervals,
-    size_t num_real_points, RealType delta_real_time, RealType cross_frequency_cutoff, size_t real_time_substeps=1 );
-
 std::unique_ptr<JointComplexGaussianSampler> make_complex_gaussian_sampler(
     const std::string& algorithm,
     const ComplexDynamicMatrix& covariance,
     size_t num_matsubara_intervals,
     size_t num_real_points,
-    RealType delta_real_time=RealType{1.},
-    RealType cross_frequency_cutoff=RealType{-1.},
-    const std::array<RealType,3>& weights={RealType{1.},RealType{2.},RealType{8.}},
-    size_t real_time_substeps=1 );
+    const std::array<RealType,3>& weights={RealType{1.},RealType{2.},RealType{8.}} );
 
 }

@@ -64,8 +64,6 @@ def read_magnetization(path: Path) -> MagnetizationData:
             raise ValueError(f"Unexpected antithetic setting in {path}")
         if not _decode(parameters["spin_insertion_strategy"]).startswith("prefix:"):
             raise ValueError(f"Unexpected insertion strategy in {path}")
-        if not np.isclose(float(parameters["fft_cross_frequency_cutoff"]), 10.0):
-            raise ValueError(f"Unexpected FFT cutoff in {path}")
 
         beta = float(parameters["beta"])
         num_real_steps = int(parameters["num_RealTimeSteps"])

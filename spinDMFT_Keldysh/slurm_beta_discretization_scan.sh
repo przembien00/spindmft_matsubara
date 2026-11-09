@@ -63,8 +63,7 @@ run_args=(
     --numImagTimeSteps="${num_imag}"
     --numRealTimeSteps="${num_real}"
     --Tmax=15
-    --gaussianFactorization=fft
-    --fftCrossFrequencyCutoff=10
+    --gaussianFactorization=dense
     --numSamplesPerCore="${samples_per_core}"
     --project="${project}"
     --fileext="numImagTimeSteps=${num_imag}__numRealTimeSteps=${num_real}"

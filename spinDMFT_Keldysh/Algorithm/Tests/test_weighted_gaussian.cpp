@@ -98,7 +98,7 @@ int main()
     const Matrix F0=factor(dense),C0=F0*blaze::ctrans(F0);
     for(const Weights w:{Weights{1.,2.,2.},Weights{1.,2.,8.},Weights{1.,8.,2.},Weights{0.01,2.,2.}})
     {
-        auto sampler=f::make_complex_gaussian_sampler("weighted-dense",G,1,3,0.1,-1.,w);
+        auto sampler=f::make_complex_gaussian_sampler("weighted-dense",G,1,3,w);
         const Matrix F=factor(*sampler),actual=F*blaze::trans(F),C=F*blaze::ctrans(F);
         const RealType error=residual(actual,G),bound=lower_bound(G,w);
         failures+=require(error<1e-11,"weighted factor preserves every physical covariance block");

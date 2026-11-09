@@ -3,6 +3,7 @@
 #include<algorithm>
 #include<cmath>
 #include<limits>
+#include<optional>
 #include<stdexcept>
 
 #include<Physics/Spin.h>
@@ -146,7 +147,13 @@ RealType tensor_max_difference( const CorrTen& lhs, const CorrTen& rhs )
 }
 
 PreparedMeanField::PreparedMeanField(const ps::ParameterSpace& pspace,const MeanFieldTrajectory& mean)
-    :m_edges(mean),m_steps(pspace.num_RealTimeSteps),m_substeps(pspace.real_time_substeps)
+    :PreparedMeanField(pspace,mean,mean.empty()?FieldVector{}:mean.front())
+{}
+
+PreparedMeanField::PreparedMeanField(const ps::ParameterSpace& pspace,const MeanFieldTrajectory& mean,
+    const FieldVector& imaginary_mean)
+    :m_edges(mean),m_imaginary_mean(imaginary_mean),m_origin_rotation(IDENTITY),
+     m_steps(pspace.num_RealTimeSteps),m_substeps(pspace.real_time_substeps)
 {
     if(m_edges.size()!=pspace.num_RealTimePoints||m_edges.empty()
         ||m_steps!=m_edges.size()-1)
@@ -157,6 +164,30 @@ PreparedMeanField::PreparedMeanField(const ps::ParameterSpace& pspace,const Mean
     if(m_steps>std::numeric_limits<size_t>::max()/q)
         throw std::invalid_argument("prepared mean substep grid overflows");
     const size_t nodes=m_steps*q;
+    const RealType h=pspace.delta_real_t/RealType(q);
+    if(!pspace.pulses.empty())m_pulse_fields.resize(nodes,FieldVector{});
+    for(const auto& pulse:pspace.pulses)
+    {
+        if(pulse.time==RealType{})m_origin_rotation=pulse_rotation(pulse)*m_origin_rotation;
+        else
+        {
+            if(!(h>RealType{})||pulse.time>pspace.Tmax||pulse.time<RealType{})
+                throw std::invalid_argument("pulse lies outside the propagation grid");
+            RealType x=pulse.time/h;
+            if(std::abs(x-std::round(x))<=RealType{32.}*std::numeric_limits<RealType>::epsilon()*RealType(nodes))
+                x=std::round(x);
+            const size_t micro=std::min(nodes-1,std::max(size_t{1},static_cast<size_t>(std::ceil(x)))-1);
+            const RealType offset=x==std::floor(x)?h
+                :std::min(h,std::max(RealType{},pulse.time-RealType(micro)*h));
+            if(offset==h&&(micro+1)%q==0)
+            {
+                // exp[-i h (H-phi/h n.S)] carries the requested positive
+                // pulse angle in the same exponential as the magnetic field.
+                for(size_t c=0;c<3;++c)m_pulse_fields[micro][c]-=pulse.angle/h*pulse.axis[c];
+            }
+            else m_pulses.push_back({micro,offset,pulse_rotation(pulse)});
+        }
+    }
     m_midpoints.resize(nodes);
     for(size_t interval=0;interval<m_steps;++interval)for(size_t j=0;j<q;++j)
     {
@@ -167,6 +198,53 @@ PreparedMeanField::PreparedMeanField(const ps::ParameterSpace& pspace,const Mean
             ?cubic_interval_value(m_edges,interval,midpoint)
             :FieldVector((RealType{1.}-midpoint)*m_edges[interval]
                          +midpoint*m_edges[interval+1]);
+    }
+}
+
+Operator pulse_rotation(const ps::Pulse& pulse)
+{
+    const ComplexFieldVector axis{ComplexType{pulse.axis[0],0.},
+        ComplexType{pulse.axis[1],0.},ComplexType{pulse.axis[2],0.}};
+    // S already includes the spin-1/2 factor: R=cos(phi/2)I+i sin(phi/2)n.sigma.
+    if(S_X.rows()==2)return spin_half_field_exponential(axis,ComplexType{},ComplexType{0.,pulse.angle});
+    return general_matrix_exponential(ComplexType{0.,pulse.angle}*spin_scalar_product(axis));
+}
+
+void rotate_prepared_origin(const ps::ParameterSpace& pspace,CorrelationSet& q,Magnetization& m)
+{
+    Operator rotation=IDENTITY;
+    bool changed=false;
+    for(const auto& pulse:pspace.pulses)if(pulse.time==RealType{})
+    {rotation=pulse_rotation(pulse)*rotation;changed=true;}
+    if(!changed)return;
+    const std::array<Operator,3> spins{Operator(S_X),Operator(S_Y),Operator(S_Z)};
+    RealType coefficients[3][3]{};
+    for(size_t a=0;a<3;++a)for(size_t c=0;c<3;++c)
+        coefficients[a][c]=std::real(blaze::trace(blaze::ctrans(rotation)*spins[a]*rotation*spins[c])
+                                     /blaze::trace(spins[c]*spins[c]));
+    const auto old_re=q.Re.front(),old_im=q.Im.front();
+    const auto mr=m.Re.front().expand(),mi=m.Im.front().expand();
+    for(size_t a=0;a<3;++a)
+    {
+        m.Re.front()[a]=RealType{};m.Im.front()[a]=RealType{};
+        for(size_t c=0;c<3;++c)
+        {m.Re.front()[a]+=coefficients[a][c]*mr[c];m.Im.front()[a]+=coefficients[a][c]*mi[c];}
+        for(size_t b=0;b<3;++b)
+        {
+            const size_t target=tensor_direction_index(q.Re.front(),a,b);
+            auto& re=q.Re.front()[target];auto& im=q.Im.front()[target];
+            for(size_t tau=0;tau<q.imaginary_points;++tau)
+            {re[tau]=RealType{};im[tau]=RealType{};}
+            for(size_t c=0;c<3;++c)
+            {
+                const size_t source=tensor_direction_index(old_re,c,b);
+                for(size_t tau=0;tau<q.imaginary_points;++tau)
+                {
+                    re[tau]+=coefficients[a][c]*old_re[source][tau];
+                    im[tau]+=coefficients[a][c]*old_im[source][tau];
+                }
+            }
+        }
     }
 }
 
@@ -404,12 +482,33 @@ CorrelationSet generate_initial_correlations( const ps::ParameterSpace& pspace,
                 values[tau]=edge_Im[source][tau]*envelope;
         });
     }
+    if(!pspace.time_translation_invariant&&result.Re.size()>1)
+    {
+        // Use the old stationary seed only as an initial guess. Subsequent
+        // iterations measure both real-time arguments independently.
+        CorrelationSet full{pspace.correlation_symmetry_type,pspace.num_TimePoints,
+                            result.Re.size(),true};
+        for(size_t t=0;t<result.Re.size();++t)
+            for(size_t p=0;p<result.Re[t].size();++p)
+            {
+                const auto ab=result.Re[t].get_direction_pair(p);
+                for(size_t tau=0;tau<pspace.num_TimePoints;++tau)
+                {full.Re[t][p][tau]=result.Re[t][p][tau];full.Im[t][p][tau]=result.Im[t][p][tau];}
+                for(size_t s=0;s<result.Re.size();++s)for(bool greater:{true,false})
+                {
+                    const auto v=contour::real_time_value(result,greater,RealType(t),RealType(s),ab[0],ab[1]);
+                    const size_t slot=full.real_offset(greater)+s;
+                    full.Re[t][p][slot]=std::real(v);full.Im[t][p][slot]=std::imag(v);
+                }
+            }
+        return full;
+    }
     return result;
 }
 
 CorrelationSet connected_contour_primitive(
     const CorrelationSet& correlations,
-    const Magnetization& magnetization )
+    const Magnetization& magnetization,const Magnetization* thermal_magnetization )
 {
     if( correlations.Re.empty() || correlations.Im.size()!=correlations.Re.size()
         ||magnetization.Re.size()!=correlations.Re.size()
@@ -423,6 +522,8 @@ CorrelationSet connected_contour_primitive(
     CorrelationSet connected=correlations;
     const auto full_Re=magnetization.Re.expand();
     const auto full_Im=magnetization.Im.expand();
+    const auto thermal_Re=thermal_magnetization?thermal_magnetization->Re.front().expand():full_Re.front();
+    const auto thermal_Im=thermal_magnetization?thermal_magnetization->Im.front().expand():full_Im.front();
     for( size_t t=0;t<connected.Re.size();++t )
     {
         if( connected.Im[t].size()!=connected.Re[t].size() )
@@ -432,11 +533,17 @@ CorrelationSet connected_contour_primitive(
             const auto direction=connected.Re[t].get_direction_pair(p);
             if( connected.Im[t][p].size()!=connected.Re[t][p].size() )
                 throw std::invalid_argument("inconsistent complex contour primitive grid");
-            const ComplexType disconnected=
-                ComplexType{full_Re[t][direction[0]],full_Im[t][direction[0]]}
-               *ComplexType{full_Re.front()[direction[1]],full_Im.front()[direction[1]]};
+            const ComplexType first_mean{full_Re[t][direction[0]],full_Im[t][direction[0]]};
+            const ComplexType mixed_disconnected=first_mean
+                *ComplexType{thermal_Re[direction[1]],thermal_Im[direction[1]]};
             for( size_t tau=0;tau<connected.Re[t][p].size();++tau )
             {
+                ComplexType disconnected=mixed_disconnected;
+                if(correlations.full_two_time&&tau>=correlations.imaginary_points)
+                {
+                    const size_t s=(tau-correlations.imaginary_points)%correlations.Re.size();
+                    disconnected=first_mean*ComplexType{full_Re[s][direction[1]],full_Im[s][direction[1]]};
+                }
                 const ComplexType full{correlations.Re[t][p][tau],
                                        correlations.Im[t][p][tau]};
                 const ComplexType value=full-disconnected;
@@ -451,7 +558,7 @@ CorrelationSet connected_contour_primitive(
 namespace
 {
 SelfConsistentField covariance_from_primitive( const ps::ParameterSpace& pspace,
-    const CorrelationSet& primitive,const bool prescribed )
+    const CorrelationSet& primitive,const bool prescribed,const CorrelationSet* thermal=nullptr )
 {
     if(pspace.uses_staggered_strang()&&pspace.real_time_substeps==0)
         throw std::invalid_argument("staggered Strang requires positive substeps");
@@ -485,8 +592,10 @@ SelfConsistentField covariance_from_primitive( const ps::ParameterSpace& pspace,
             const auto first=staggered_layout.decode(row),second=staggered_layout.decode(col);
             const size_t pair=3*first.component+second.component;
             ComplexType value{};
+            const auto& source=thermal&&first.sector==contour::StaggeredSector::Matsubara
+                &&second.sector==contour::StaggeredSector::Matsubara?*thermal:primitive;
             for(const auto& term:rotations[pair])
-                value+=term.coefficient*contour::staggered_correlation(primitive,
+                value+=term.coefficient*contour::staggered_correlation(source,
                     {first.sector,first.point,term.c},{second.sector,second.point,term.d},q);
             // Static classical noise is common precession noise. It has no
             // response or response--Matsubara block.
@@ -519,11 +628,15 @@ SelfConsistentField covariance_from_primitive( const ps::ParameterSpace& pspace,
 
 SelfConsistentField self_consistent_equations(
     const ps::ParameterSpace& pspace, const CorrelationSet& correlations,
-    const Magnetization& magnetization )
+    const Magnetization& magnetization,const ThermalReference* thermal )
 {
+    if(correlations.Re.size()>1
+        &&correlations.full_two_time==pspace.time_translation_invariant)
+        throw std::invalid_argument("real-time correlation representation does not match timeTranslationInvariant");
+    const auto mm=thermal?connected_contour_primitive(thermal->correlations,thermal->magnetization):CorrelationSet{};
     SelfConsistentField result=covariance_from_primitive(pspace,
-        connected_contour_primitive(correlations,magnetization),
-        false);
+        connected_contour_primitive(correlations,magnetization,thermal?&thermal->magnetization:nullptr),
+        false,thermal?&mm:nullptr);
     const auto physical_magnetization=magnetization.Re.expand();
     result.mean_time.resize(magnetization.Re.size());
     for(size_t t=0;t<magnetization.Re.size();++t)
@@ -531,6 +644,8 @@ SelfConsistentField self_consistent_equations(
         result.mean_time[t]=pspace.JL*(
             pspace.spin_model.coupling_matrix*physical_magnetization[t]);
     }
+    result.imaginary_mean=thermal?FieldVector(pspace.JL*(pspace.spin_model.coupling_matrix
+        *thermal->magnetization.Re.front().expand())):result.mean_time.front();
     return result;
 }
 
@@ -660,8 +775,8 @@ void build_contour_trajectory_impl( const ps::ParameterSpace& pspace,
         const auto late=cubic_interval_value(
             imaginary_fields,k,RealType{0.5}+offset);
         imaginary_steps[k]=gauss_cfet4_step<Matrix>(
-            pspace,early,mean_field_time.front(),
-            late,mean_field_time.front(),
+            pspace,early,mean_nodes?mean_nodes->imaginary_mean():mean_field_time.front(),
+            late,mean_nodes?mean_nodes->imaginary_mean():mean_field_time.front(),
             ComplexType{-pspace.delta_t,RealType{0.}});
     }
     auto& prefix=workspace.prefix;
@@ -682,6 +797,12 @@ void complete_contour_trajectory_impl( const ps::ParameterSpace& pspace,
     BasicTrajectoryWorkspace<Matrix>& workspace, const FinalTraceMode final_trace,
     const PreparedMeanField* mean_nodes, const bool matsubara_preparation )
 {
+    std::optional<PreparedMeanField> pulse_nodes;
+    if(!matsubara_preparation&&!pspace.pulses.empty()&&!mean_nodes)
+    {
+        pulse_nodes.emplace(pspace,mean_field_time);
+        mean_nodes=&*pulse_nodes;
+    }
     const size_t num_real_points=matsubara_preparation?size_t{1}:pspace.num_RealTimePoints;
     const size_t num_real_steps=matsubara_preparation?size_t{}:pspace.num_RealTimeSteps;
     const bool staggered=!matsubara_preparation&&pspace.uses_staggered_strang();
@@ -703,6 +824,11 @@ void complete_contour_trajectory_impl( const ps::ParameterSpace& pspace,
     result.forward_steps.resize(num_real_points);
     result.backward_steps.resize(num_real_points);
     result.forward_steps.front()=IDENTITY; result.backward_steps.front()=IDENTITY;
+    if(!matsubara_preparation&&!pspace.pulses.empty())
+    {
+        result.forward_steps.front()=mean_nodes->origin_rotation();
+        result.backward_steps.front()=blaze::ctrans(mean_nodes->origin_rotation());
+    }
     const size_t q=pspace.real_time_steps_per_interval();
     const RealType h=pspace.delta_real_t/static_cast<RealType>(q);
     const contour::StaggeredLayout staggered_layout{pspace.num_TimePoints,std::max(size_t{1},num_real_steps*q)};
@@ -721,6 +847,7 @@ void complete_contour_trajectory_impl( const ps::ParameterSpace& pspace,
         return general_matrix_exponential(step*H);
     };
     Matrix response_left;
+    size_t pulse_index{};
     if(staggered)
         response_left=exponential(staggered_field(contour::StaggeredSector::Nu,0),ComplexType{0.,-h/4},false);
     for( size_t t=1;t<num_real_points;++t )
@@ -738,15 +865,42 @@ void complete_contour_trajectory_impl( const ps::ParameterSpace& pspace,
                 ?cubic_interval_value(mean_field_time,interval,midpoint)
                 :FieldVector((RealType{1.}-midpoint)*mean_field_time[interval]
                              +midpoint*mean_field_time[interval+1]);
-            const auto eta=total_field(pspace,staggered_field(contour::StaggeredSector::Eta,micro),mean);
+            auto eta=total_field(pspace,staggered_field(contour::StaggeredSector::Eta,micro),mean);
+            if(mean_nodes&&!mean_nodes->pulse_fields().empty())
+                for(size_t c=0;c<3;++c)eta[c]+=mean_nodes->pulse_fields()[micro][c];
             // Actual inverse for complex fields, never a Hermitian adjoint.
+            const auto precess=[&](RealType duration)
+            {
+                std::pair<Matrix,Matrix> maps;
+                if(pspace.num_HilbertSpaceDimension==2&&H_REST_IS_SCALAR)
+                    maps.first=spin_half_field_exponential_impl<Matrix>(
+                        eta,H_REST_SCALAR,ComplexType{0.,-duration},&maps.second);
+                else maps={exponential(eta,ComplexType{0.,-duration},true),
+                           exponential(eta,ComplexType{0.,duration},true)};
+                return maps;
+            };
+            const auto has_pulse=[&]()
+            {return mean_nodes&&pulse_index<mean_nodes->pulses().size()
+                    &&mean_nodes->pulses()[pulse_index].microstep==micro;};
             std::pair<Matrix,Matrix> precession;
-            if(pspace.num_HilbertSpaceDimension==2&&H_REST_IS_SCALAR)
-                precession.first=spin_half_field_exponential_impl<Matrix>(
-                    eta,H_REST_SCALAR,ComplexType{0.,-h},&precession.second);
-            else
-                precession={exponential(eta,ComplexType{0.,-h},true),
-                            exponential(eta,ComplexType{0.,h},true)};
+            if(has_pulse()&&mean_nodes->pulses()[pulse_index].offset<h)
+            {
+                precession={Matrix(IDENTITY),Matrix(IDENTITY)};
+                RealType elapsed{};
+                while(has_pulse()&&mean_nodes->pulses()[pulse_index].offset<h)
+                {
+                    const auto& pulse=mean_nodes->pulses()[pulse_index++];
+                    const auto segment=precess(pulse.offset-elapsed);
+                    const Matrix rotation(pulse.rotation),inverse(blaze::ctrans(pulse.rotation));
+                    precession.first=rotation*segment.first*precession.first;
+                    precession.second=precession.second*segment.second*inverse;
+                    elapsed=pulse.offset;
+                }
+                const auto segment=precess(h-elapsed);
+                precession.first=segment.first*precession.first;
+                precession.second=precession.second*segment.second;
+            }
+            else precession=precess(h);
             const auto& P=precession.first;
             const auto& Pinv=precession.second;
             const Matrix response_right=exponential(staggered_field(contour::StaggeredSector::Nu,micro+1),
@@ -754,6 +908,14 @@ void complete_contour_trajectory_impl( const ps::ParameterSpace& pspace,
             forward_step=response_right*P*response_left;
             backward_step=response_left*Pinv*response_right;
             response_left=response_right;
+            // Pulses at nonmeasurement substep edges remain explicit kicks.
+            // Measurement-edge pulses were folded into eta above.
+            while(has_pulse())
+            {
+                const auto& pulse=mean_nodes->pulses()[pulse_index++];
+                forward_step=Matrix(pulse.rotation)*forward_step;
+                backward_step=backward_step*Matrix(blaze::ctrans(pulse.rotation));
+            }
 
             // Store only the composed native interval; measurements stay on its edges.
             if(j==0)
@@ -771,7 +933,7 @@ void complete_contour_trajectory_impl( const ps::ParameterSpace& pspace,
     if(final_trace==FinalTraceMode::Compute)
     {
         Matrix final_density=result.imaginary_density_operator;
-        for( size_t t=1;t<num_real_points;++t )
+        for( size_t t=0;t<num_real_points;++t )
             final_density=result.forward_steps[t]*final_density
                         *result.backward_steps[t];
         result.final_closed_contour_trace=blaze::trace(final_density);
@@ -878,7 +1040,8 @@ void measure_observables_impl( const rtd::RunTimeData& rtdata,
     const size_t ni=rtdata.num_imaginary_edge_points();
     const size_t nc=rtdata.num_correlation_components();
     const size_t nm=rtdata.num_magnetization_components();
-    measurement.begin(trajectory.partition_function,nt,nc,ni,nm);
+    const size_t row=rtdata.correlation_row_size();
+    measurement.begin(trajectory.partition_function,nt,nc,row,nm);
     std::array<bool,3> measured{},inserted{};
     for( size_t p=0;p<nc;++p )
     {
@@ -899,7 +1062,8 @@ void measure_observables_impl( const rtd::RunTimeData& rtdata,
     const Matrix identity(IDENTITY);
     const std::array<Matrix,3> spins{Matrix(S_X),Matrix(S_Y),Matrix(S_Z)};
     const Matrix rho(trajectory.imaginary_density_operator);
-    Matrix density=rho,forward=identity,backward_prefix=identity;
+    Matrix forward(trajectory.forward_steps.front()),backward_prefix(trajectory.backward_steps.front());
+    Matrix density=forward*rho*backward_prefix;
     std::array<Matrix,3> measured_spins{};
     const auto contract=[](const auto& a,const auto& b)
     {
@@ -908,6 +1072,45 @@ void measure_observables_impl( const rtd::RunTimeData& rtdata,
                   +a(1,0)*b(0,1)+a(1,1)*b(1,1);
         else return trace_product(a,b);
     };
+    if(rtdata.measures_two_time())
+    {
+        auto& values=workspace.two_time_correlations;
+        values.resize(nt*nc*2*nt);
+        Matrix early_density=density;
+        for(size_t s=0;s<nt;++s)
+        {
+            if(s>0)early_density=trajectory.forward_steps[s]*early_density*trajectory.backward_steps[s];
+            std::array<Matrix,3> greater,lesser;
+            for(size_t c=0;c<3;++c)
+            {
+                greater[c]=spins[c]*early_density;
+                lesser[c]=early_density*spins[c];
+            }
+            for(size_t t=s;t<nt;++t)
+            {
+                if(t>s)for(size_t c=0;c<3;++c)
+                {
+                    greater[c]=trajectory.forward_steps[t]*greater[c]*trajectory.backward_steps[t];
+                    lesser[c]=trajectory.forward_steps[t]*lesser[c]*trajectory.backward_steps[t];
+                }
+                for(size_t p=0;p<nc;++p)
+                {
+                    const auto ab=rtdata.correlation_direction(p);
+                    const size_t forward_slot=(t*nc+p)*2*nt+s;
+                    values[forward_slot]=contract(spins[ab[0]],greater[ab[1]]);
+                    values[forward_slot+nt]=contract(spins[ab[0]],lesser[ab[1]]);
+                    if(t!=s)
+                    {
+                        // Exchange both composite indices and ordering;
+                        // no conjugation of complex stochastic trajectories.
+                        const size_t reverse_slot=(s*nc+p)*2*nt+t;
+                        values[reverse_slot]=contract(spins[ab[1]],lesser[ab[0]]);
+                        values[reverse_slot+nt]=contract(spins[ab[1]],greater[ab[0]]);
+                    }
+                }
+            }
+        }
+    }
     for( size_t t=0;t<nt;++t )
     {
         if( t>0 )
@@ -930,15 +1133,17 @@ void measure_observables_impl( const rtd::RunTimeData& rtdata,
             {
                 const auto& packed=workspace.spin_half_insertions[direction[1]];
                 const ComplexType b00=b(0,0),b10=b(1,0),b01=b(0,1),b11=b(1,1);
-                measurement.correlations(t,p,nc,ni,[&](size_t tau)
+                measurement.correlations(t,p,nc,row,[&](size_t tau)
                 {
+                    if(tau>=ni)return workspace.two_time_correlations[(t*nc+p)*2*nt+tau-ni];
                     const auto& a=packed[tau];
                     return a[0]*b00+a[1]*b10+a[2]*b01+a[3]*b11;
                 });
             }
             else
-                measurement.correlations(t,p,nc,ni,[&](size_t tau)
-                    {return contract(trajectory.imaginary_edge_insertions[direction[1]][tau],b);});
+                measurement.correlations(t,p,nc,row,[&](size_t tau)
+                    {return tau>=ni?workspace.two_time_correlations[(t*nc+p)*2*nt+tau-ni]
+                        :contract(trajectory.imaginary_edge_insertions[direction[1]][tau],b);});
         }
     }
     measurement.end();
@@ -1108,7 +1313,7 @@ IterationResidual iteration_residual(
                              const contour::ContourCorrelation& raw_values,
                              const contour::ContourCorrelation& errors )
     {
-        for( size_t t=frozen_origin?1:0;t<raw_values.size();++t )
+        for( size_t t=0;t<raw_values.size();++t )
         {
             if( old_values[t].size()!=raw_values[t].size()
                 ||errors[t].size()!=raw_values[t].size() )
@@ -1120,12 +1325,15 @@ IterationResidual iteration_residual(
                     throw std::invalid_argument("iteration residual inputs have different grids");
                 for( size_t tau=0;tau<raw_values[t][p].size();++tau )
                 {
+                    if(frozen_origin&&t==0&&tau<raw_correlations.imaginary_points)continue;
                     // At t=0 the tau=0 and tau=beta values can be exact spin
                     // identities with genuinely zero sampling variance.  Do
                     // not turn last-bit ratio arithmetic at those two
                     // endpoints into an infinite standardized residual.
-                    const bool exact_endpoint=t==0
-                        &&(tau==0||tau+1==raw_values[t][p].size());
+                    const bool exact_endpoint=(t==0
+                        &&(tau==0||tau+1==raw_correlations.imaginary_points))
+                        ||(raw_correlations.full_two_time&&tau>=raw_correlations.imaginary_points
+                            &&(tau-raw_correlations.imaginary_points)%raw_values.size()==t);
                     const RealType roundoff_scale=exact_endpoint
                         ?std::max({RealType{1.},
                                    std::abs(old_values[t][p][tau]),

@@ -63,7 +63,6 @@ RunTimeData::RunTimeData( const ps::ParameterSpace& pspace, int my_rank )
       m_self_consistency(pspace.self_consistency),
       m_harmonic_bath(pspace.uses_harmonic_bath()),
       m_pcn(pspace.sampling_strategy=="pcn"),
-      m_fft(pspace.gaussian_factorization=="fft"),
       m_closed_contour_observable_normalization(
           pspace.correlation_normalization=="closed-contour"),
       m_iteration_error_sigma_threshold(pspace.iteration_error_sigma_threshold),
@@ -238,12 +237,14 @@ ComplexType RunTimeData::edge_value(
 void RunTimeData::record_complex_field_diagnostics(
     RealType symmetry_error,RealType branch_error,RealType factor_error,
     RealType approximation_error,size_t latent_dimension,
-    size_t largest_factorization_dimension )
+    size_t largest_factorization_dimension,size_t polynomial_degree,RealType spectral_bound )
 {
     covariance_symmetry_errors.push_back(symmetry_error);
     branch_identity_errors.push_back(branch_error);
     gaussian_factor_reconstruction_errors.push_back(factor_error);
     gaussian_covariance_approximation_errors.push_back(approximation_error);
+    gaussian_polynomial_degrees.push_back(static_cast<unsigned int>(polynomial_degree));
+    gaussian_spectral_bounds.push_back(spectral_bound);
     gaussian_factor_latent_dimensions.push_back(
         static_cast<unsigned int>(latent_dimension));
     gaussian_largest_factorization_dimensions.push_back(
@@ -889,10 +890,6 @@ void RunTimeData::finalize_iteration_step()
              print::round_value_to_string(effective_sample_sizes.back(),m_num_print_digits))
           <<print::quantity_to_output_line(36,"branch transpose residual",
              print::round_value_to_string(branch_identity_errors.back(),m_num_print_digits));
-        if( m_fft )
-            std::cout<<print::quantity_to_output_line(36,"Gaussian covariance truncation",
-                 print::round_value_to_string(
-                     gaussian_covariance_approximation_errors.back(),m_num_print_digits));
         std::cout
           <<print::quantity_to_output_line(36,"largest Gaussian factor block",
              std::to_string(gaussian_largest_factorization_dimensions.back()))

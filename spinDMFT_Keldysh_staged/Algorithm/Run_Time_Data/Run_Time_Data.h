@@ -105,7 +105,7 @@ class RunTimeData
         RealType* total_im=m_correlations->Im[t][c].data();
         RealType* block_re=m_blocks[m_current_block].correlations.Re[t][c].data();
         RealType* block_im=m_blocks[m_current_block].correlations.Im[t][c].data();
-        for(size_t tau=0;tau<m_num_imaginary_edge_points;++tau)
+        for(size_t tau=0;tau<m_correlation_row_size;++tau)
         {
             const ComplexType value=evaluate(tau);
             const RealType re=std::real(value),im=std::imag(value);
@@ -121,6 +121,8 @@ class RunTimeData
     size_t num_correlation_components() const { return m_corr_directions.size(); }
     IndexPair correlation_direction( size_t p ) const { return m_corr_directions[p]; }
     size_t num_real_time_points() const { return m_num_real_points; }
+    bool measures_two_time() const { return m_full_two_time&&!m_matsubara_preparation; }
+    size_t correlation_row_size() const { return m_correlation_row_size; }
     size_t num_imaginary_edge_points() const { return m_num_imaginary_edge_points; }
 
     void record_complex_field_diagnostics( RealType covariance_symmetry_error,
@@ -147,7 +149,7 @@ class RunTimeData
     {
         ComplexBlockSums() = default;
         ComplexBlockSums( char symmetry, size_t num_imaginary_edge_points,
-                          size_t num_real_points );
+                          size_t num_real_points, bool two_time );
         ComplexType partition{};
         RealType partition_abs{};
         CorrelationSet correlations{};
@@ -157,14 +159,16 @@ class RunTimeData
 
     LoopStatistics& loop() { return m_matsubara_preparation?preparation:real_time; }
     const LoopStatistics& loop() const { return m_matsubara_preparation?preparation:real_time; }
-    size_t m_real_time_points{}, m_real_samples_per_core{}, m_real_iteration_limit{};
+    size_t m_real_time_points{};
+    bool m_full_two_time{};
+    size_t m_real_samples_per_core{}, m_real_iteration_limit{};
     size_t m_preparation_samples_per_core{}, m_preparation_iteration_limit{};
     size_t m_requested_num_blocks{};
 
     int m_my_rank{};
     size_t m_num_print_digits{};
     char m_symmetry{};
-    size_t m_num_imaginary_edge_points{};
+    size_t m_num_imaginary_edge_points{},m_correlation_row_size{};
     size_t m_num_real_points{};
     size_t m_num_samples_per_core{};
     size_t m_num_cores{};

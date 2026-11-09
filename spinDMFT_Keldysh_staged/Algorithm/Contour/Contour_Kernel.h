@@ -6,6 +6,11 @@
 
 namespace spinDMFT::Contour
 {
+// Cgreater_ab(t,s)=<S_a(t)S_b(s)>, Clesser_ab(t,s)=<S_b(s)S_a(t)>.
+// Coordinates are in measurement-grid units. Interpolate the two arguments
+// independently in full-two-time mode; retain lag interpolation otherwise.
+ComplexType real_time_value(const CorrelationSet& correlations, bool greater,
+    RealType t, RealType s, size_t a, size_t b);
 
 ComplexType edge_value( const CorrelationSet& correlations, size_t real_time,
                         size_t first_spin, size_t second_spin,
@@ -20,7 +25,8 @@ ComplexType lesser_value( const CorrelationSet& correlations,
                           std::ptrdiff_t time_difference );
 
 // Raw contour-ordered spin correlation C^{AB}_{ab}. This function reconstructs
-// every branch block from the single edge-grid primitive X(t,tau).
+// mixed/MM blocks from X(t,tau), and real-time blocks from either its
+// stationary endpoints or the independently measured two-time tensors.
 ComplexType branch_correlation( const CorrelationSet& correlations,
                                 const ContourLayout& layout,
                                 const ContourIndex& first,

@@ -69,6 +69,8 @@ void HDF5_Storage::create_file( const ps::ParameterSpace& pspace, const std::str
     // create filename:
     std::string prefix{"staged__"};
     if(pspace.sampling_strategy=="pcn")prefix+="jointMpcn_absZ__";
+    if(!pspace.pulses.empty())prefix+="pulsed__";
+    if(!pspace.time_translation_invariant)prefix+="two_time__";
     std::string filename = prefix+pspace.spin_model.compact_info( pspace.num_PrintDigits ); // spin model info
     if( pspace.spin != "1/2" ) // add spin value to filename if unequal to 1/2
     {
@@ -117,14 +119,8 @@ void HDF5_Storage::create_file( const ps::ParameterSpace& pspace, const std::str
     {
         filename += "__mag=constant";
     }
-    // Include the requested evolution even if preparation failed before the
-    // real-time stage, so those outputs also retain their run identity.
-    if(pspace.real_time_evolution=="staggered-strang")
-    {
-        filename += "__prop=staggered-strang";
-        if(pspace.real_time_substeps>1)
-            filename += "__substeps="+std::to_string(pspace.real_time_substeps);
-    }
+    if(pspace.real_time_substeps>1)
+        filename += "__substeps="+std::to_string(pspace.real_time_substeps);
     const std::string extension=pspace.filename_extension+filename_suffix;
     if( !extension.empty() )
     {
@@ -254,6 +250,16 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
         hdf5r::store_string(ps_group_id,"pcn_row_space_rank_rule",
             "singular value > epsilon*max(2*nM,q)*largest singular value; relative reconstruction checked; rebuilt and chain burned in each iteration");
     hdf5r::store_scalar(ps_group_id,"real_time_substeps",pspace.real_time_substeps);
+    hdf5r::store_string(ps_group_id,"time_translation_invariant",
+        hdf5r::bool_to_string(pspace.time_translation_invariant));
+    hdf5r::store_string(ps_group_id,"pulse_sequence_file",pspace.pulse_sequence_file);
+    hdf5r::store_scalar(ps_group_id,"number_of_pulses",pspace.pulses.size());
+    hdf5r::store_string(ps_group_id,"pulse_rotation","Positive angle convention +i angle axis.S, hbar=1; measurement-edge pulses enter H as -angle/h*axis.S; other pulses use R=exp(+i angle axis.S)");
+    hdf5r::store_string(ps_group_id,"measurement_grid_pulse_discretization","Nonzero measurement-edge pulses add to the Hamiltonian in the last propagation substep ending at that edge; h=delta_real_t/real_time_substeps; coincident field vectors sum");
+    hdf5r::store_string(ps_group_id,"pulse_measurement_order","measurement-edge pulse fields act before measurement; off-grid pulses retain timed rotation/file order; t=0 remains a post-preparation instantaneous rotation");
+    hdf5r::store_string(ps_group_id,"real_time_correlation_representation",
+        pspace.time_translation_invariant?"stationary mixed-primitive endpoints at t1-t2"
+            :"independently measured Cgreater(t1,t2) and Clesser(t1,t2); tensor-product interpolation on both real-time arguments");
     hdf5r::store_scalar(ps_group_id,"delta_real_propagation_t",
         pspace.delta_real_t/static_cast<RealType>(pspace.real_time_steps_per_interval()));
     {
@@ -365,21 +371,11 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
         statistics.closed_contour_residual_Im_sample_stds );
     hdf5r::store_list( rtd_group_id, "closed_contour_residual_abs_sample_stds",
         statistics.closed_contour_residual_abs_sample_stds );
-    store_correlation( statistics.contour_sample_stds.Re, rtd_group_id,
-        "Re_correlation_sample_stds",
-        "Standard errors of edge-grid Re X; axes t,direction_pair,tau_edge." + contour_err_remark );
-    store_correlation( statistics.contour_sample_stds.Im, rtd_group_id,
-        "Im_correlation_sample_stds",
-        "Standard errors of edge-grid Im X; axes t,direction_pair,tau_edge." + contour_err_remark );
-    if( pspace.sampling_strategy=="pcn" )
-    {
-        store_correlation( statistics.contour_tau_int.Re, rtd_group_id,
-            "Re_correlation_tau_int",
-            "Integrated autocorrelation time in pCN steps inferred from batch-mean variance inflation; axes t,direction_pair,tau_edge." );
-        store_correlation( statistics.contour_tau_int.Im, rtd_group_id,
-            "Im_correlation_tau_int",
-            "Integrated autocorrelation time in pCN steps inferred from batch-mean variance inflation; axes t,direction_pair,tau_edge." );
-    }
+    store_correlation_set(statistics.contour_sample_stds,rtd_group_id,
+        "_sample_stds","Standard errors. "+contour_err_remark);
+    if(pspace.sampling_strategy=="pcn")
+        store_correlation_set(statistics.contour_tau_int,rtd_group_id,"_tau_int",
+            "Integrated autocorrelation time in pCN steps inferred from batch-mean variance inflation.");
 
     // Components forbidden by the symmetry are exact zeros.
     hdf5r::store_2D_tensor<RealType>( rtd_group_id, "Re_magnetization_sample_stds",
@@ -417,12 +413,7 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
     for( size_t t=0;t<real_times.size();++t ) real_times[t]=t*pspace.delta_real_t;
     hdf5r::store_list( results_group_id, "imaginary_time_edges", imaginary_edges );
     hdf5r::store_list( results_group_id, "real_times", real_times );
-    store_correlation( correlations.Re, results_group_id,
-        "Re_correlation",
-        "Re X^{ab}(t,tau_edge)=Re <S_b(-i tau_edge) S_a(t)>; axes t,direction_pair(a,b),tau_edge." );
-    store_correlation( correlations.Im, results_group_id,
-        "Im_correlation",
-        "Im X^{ab}(t,tau_edge); axes t,direction_pair(a,b),tau_edge." );
+    store_correlation_set(correlations,results_group_id,"","Raw spin correlations.");
     hdf5r::store_2D_tensor<RealType>( results_group_id, "Re_magnetization",
         H5_REAL_TYPE, magnetization.Re.expand(),
         "Re m_a(t); axes are real_time, spin_component(x,y,z)." );
@@ -430,6 +421,28 @@ void HDF5_Storage::store_main( const ps::ParameterSpace& pspace,
         H5_REAL_TYPE, magnetization.Im.expand(),
         "Im m_a(t); axes are real_time, spin_component(x,y,z)." );
     H5Gclose( results_group_id );
+    if(!pspace.pulse_sequence_file.empty())
+    {
+        const hid_t group=H5Gcreate(m_file_id,"pulses",H5P_DEFAULT,H5P_DEFAULT,H5P_DEFAULT);
+        const size_t n=pspace.pulses.size();
+        std::vector<RealType> times(n),angles(n),axes(3*n);
+        for(size_t i=0;i<n;++i)
+        {
+            times[i]=pspace.pulses[i].time;angles[i]=pspace.pulses[i].angle;
+            for(size_t c=0;c<3;++c)axes[3*i+c]=pspace.pulses[i].axis[c];
+        }
+        const auto write=[&](const char* name,const std::vector<RealType>& values,
+            const std::vector<hsize_t>& shape)
+        {
+            const hid_t space=H5Screate_simple(static_cast<int>(shape.size()),shape.data(),nullptr);
+            const hid_t dataset=H5Dcreate(group,name,H5_REAL_TYPE,space,H5P_DEFAULT,H5P_DEFAULT,H5P_DEFAULT);
+            if(!values.empty())H5Dwrite(dataset,H5_REAL_TYPE,H5S_ALL,H5S_ALL,H5P_DEFAULT,values.data());
+            H5Dclose(dataset);H5Sclose(space);
+        };
+        write("times",times,{n});write("angles",angles,{n});write("axes",axes,{n,3});
+        hdf5r::store_string(group,"info","Effective sequence: unit axes, radians, times snapped to propagation edges only within roundoff; valid as pulseSequence input.");
+        H5Gclose(group);
+    }
 }
 
 void HDF5_Storage::store_preparation(const ps::ParameterSpace& p,
@@ -538,6 +551,34 @@ void HDF5_Storage::store_correlation( const ContourCorrelation& correlations,
     if( !m_storing_permission ){ return; }
     hdf5r::store_3D_tensor<RealType>( group_id, dataset_name, H5_REAL_TYPE,
                                      correlations, dataset_info );
+}
+
+void HDF5_Storage::store_correlation_set(const CorrelationSet& values,hid_t group,
+    const std::string& suffix,const std::string& info)
+{
+    const size_t nt=values.Re.size(),ni=values.imaginary_points;
+    const auto store_part=[&](const ContourCorrelation& part,const std::string& prefix,
+        size_t offset,size_t count,const std::string& kind,const std::string& description)
+    {
+        ContourCorrelation sliced(nt,spinDMFT::Contour::CorrTen{part.front().get_symmetry(),count});
+        for(size_t t=0;t<nt;++t)for(size_t p=0;p<part[t].size();++p)
+            for(size_t k=0;k<count;++k)sliced[t][p][k]=part[t][p][offset+k];
+        store_correlation(sliced,group,prefix+"_correlation"+kind+suffix,info+" "+description);
+    };
+    for(bool real:{true,false})
+    {
+        const auto& part=real?values.Re:values.Im;
+        const std::string prefix=real?"Re":"Im";
+        store_part(part,prefix,0,ni,"",
+            "X^{ab}(t,tau)=<S_b(-i tau) S_a(t)>; axes t,direction_pair(a,b),tau_edge.");
+        if(values.full_two_time)
+        {
+            store_part(part,prefix,values.real_offset(true),nt,"_greater",
+                "Cgreater_ab(t1,t2)=<S_a(t1) S_b(t2)>; axes t1,direction_pair(a,b),t2.");
+            store_part(part,prefix,values.real_offset(false),nt,"_lesser",
+                "Clesser_ab(t1,t2)=<S_b(t2) S_a(t1)>; axes t1,direction_pair(a,b),t2.");
+        }
+    }
 }
 
 // finalize, i.e., close file

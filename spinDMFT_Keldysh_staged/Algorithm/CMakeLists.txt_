@@ -178,6 +178,12 @@ if(BUILD_TESTING)
         Run_Time_Data/Ratio_Statistics.cpp Parameter_Space/Parameter_Space.cpp)
     target_link_libraries(test_staged_pcn ${LINK_LIBS})
     add_test(NAME staged_pcn COMMAND test_staged_pcn)
+    add_executable(test_pulses Tests/test_pulses.cpp
+        Functions/Functions.cpp Functions/Complex_Gaussian.cpp Functions/Staged_Solver.cpp
+        Contour/Contour_Kernel.cpp Run_Time_Data/Run_Time_Data.cpp
+        Run_Time_Data/Ratio_Statistics.cpp)
+    target_link_libraries(test_pulses ${LINK_LIBS})
+    add_test(NAME pulses COMMAND test_pulses)
 endif()
 
 if(BUILD_TESTING)
@@ -192,6 +198,14 @@ if(BUILD_TESTING)
             add_test(NAME staged_pcn_solver COMMAND ${STAGED_TEST_PYTHON} -B
                 ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_staged_pcn_solver.py
                 $<TARGET_FILE:spinDMFT_Keldysh_staged_${USE_TYPE}>)
+            add_test(NAME two_time_solver COMMAND ${STAGED_TEST_PYTHON} -B
+                ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_two_time_solver.py
+                $<TARGET_FILE:spinDMFT_Keldysh_staged_${USE_TYPE}>)
+            set_tests_properties(two_time_solver PROPERTIES TIMEOUT 180)
+            add_test(NAME pulse_solver COMMAND ${STAGED_TEST_PYTHON} -B
+                ${CMAKE_CURRENT_SOURCE_DIR}/Tests/test_pulse_solver.py
+                $<TARGET_FILE:spinDMFT_Keldysh_staged_${USE_TYPE}>)
+            set_tests_properties(pulse_solver PROPERTIES TIMEOUT 180)
             set_tests_properties(staged_pcn_solver PROPERTIES TIMEOUT 180)
             set_tests_properties(staged_solver PROPERTIES TIMEOUT 120)
         else()

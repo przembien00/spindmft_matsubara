@@ -125,7 +125,7 @@ def main():
                 assert f['results/Re_correlation'].ndim == 3
                 evolution = next((v.split('=', 1)[1] for v in options
                                   if v.startswith('--realTimeEvolution=')), args.evolution)
-                assert ('__prop=staggered-strang' in files[0].name) == (evolution == 'staggered-strang')
+                assert '__prop=' not in files[0].name
                 if evolution == 'staggered-strang' and p['num_RealTimeSteps'] > 0:
                     q = int(p['real_time_substeps'])
                     assert q >= 1

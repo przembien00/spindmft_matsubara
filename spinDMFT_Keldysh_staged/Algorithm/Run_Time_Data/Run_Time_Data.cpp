@@ -42,14 +42,15 @@ bool finite( ComplexType value )
 }
 
 RunTimeData::ComplexBlockSums::ComplexBlockSums(
-    char symmetry, size_t num_imaginary_edge_points, size_t num_real_points )
-    : correlations(symmetry,num_imaginary_edge_points,num_real_points),
+    char symmetry, size_t num_imaginary_edge_points, size_t num_real_points, bool two_time )
+    : correlations(symmetry,num_imaginary_edge_points,num_real_points,two_time),
       magnetization(symmetry,num_real_points),
       closure(num_real_points,ComplexType{})
 {}
 
 RunTimeData::RunTimeData(const ps::ParameterSpace& pspace,int my_rank)
     : m_real_time_points(pspace.num_RealTimePoints),
+      m_full_two_time(!pspace.time_translation_invariant),
       m_real_samples_per_core(pspace.num_SamplesPerCore),
       m_real_iteration_limit(pspace.Iteration_Limit),
       m_preparation_samples_per_core(pspace.num_PreparationSamplesPerCore),
@@ -83,6 +84,7 @@ void RunTimeData::configure_iteration(bool matsubara_preparation)
 {
     m_matsubara_preparation=matsubara_preparation;
     m_num_real_points=matsubara_preparation?size_t{1}:m_real_time_points;
+    m_correlation_row_size=m_num_imaginary_edge_points+(measures_two_time()?2*m_num_real_points:0);
     m_num_samples_per_core=matsubara_preparation
         ?m_preparation_samples_per_core:m_real_samples_per_core;
     m_iteration_limit=matsubara_preparation?m_preparation_iteration_limit:m_real_iteration_limit;
@@ -97,9 +99,9 @@ void RunTimeData::configure_iteration(bool matsubara_preparation)
     if(statistics.contour_sample_stds.Re.empty())
     {
         statistics.contour_sample_stds=CorrelationSet{
-            m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
+            m_symmetry,m_num_imaginary_edge_points,m_num_real_points,measures_two_time()};
         statistics.contour_tau_int=CorrelationSet{
-            m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
+            m_symmetry,m_num_imaginary_edge_points,m_num_real_points,measures_two_time()};
     }
     m_samples_seen=0; m_current_block=0;
     m_total=TotalSampleSums{};
@@ -107,20 +109,20 @@ void RunTimeData::configure_iteration(bool matsubara_preparation)
     m_correlations=nullptr;m_magnetization=nullptr;
     if(m_pcn)
         m_sample_squares=CorrelationSet{
-            m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
+            m_symmetry,m_num_imaginary_edge_points,m_num_real_points,measures_two_time()};
     m_current_sample=CorrelationSet{};
     m_partition_second_moments={};
     if(m_pcn)m_ratio_cross_moments.assign(
-        m_num_real_points*m_corr_directions.size()*m_num_imaginary_edge_points,{});
+        m_num_real_points*m_corr_directions.size()*m_correlation_row_size,{});
     m_blocks.assign(m_num_blocks,ComplexBlockSums{
-        m_symmetry,m_num_imaginary_edge_points,m_num_real_points});
+        m_symmetry,m_num_imaginary_edge_points,m_num_real_points,measures_two_time()});
 }
 
 void RunTimeData::begin_iteration_accumulation(CorrelationSet& correlations,
     Magnetization& magnetization,bool matsubara_preparation)
 {
     configure_iteration(matsubara_preparation);
-    correlations=CorrelationSet{m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
+    correlations=CorrelationSet{m_symmetry,m_num_imaginary_edge_points,m_num_real_points,measures_two_time()};
     magnetization=Magnetization{m_symmetry,m_num_real_points};
     m_correlations=&correlations;
     m_magnetization=&magnetization;
@@ -199,7 +201,7 @@ void RunTimeData::accumulate_edge_correlation(
     {
         if(m_current_sample.Re.empty())
             m_current_sample=CorrelationSet{
-                m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
+                m_symmetry,m_num_imaginary_edge_points,m_num_real_points,measures_two_time()};
         m_current_sample.Re[t][p][tau]+=re;
         m_current_sample.Im[t][p][tau]+=im;
     }
@@ -210,14 +212,14 @@ void RunTimeData::end_sample()
     if( m_pcn && !m_current_sample.Re.empty() )
         for( size_t t=0;t<m_num_real_points;++t )
             for( size_t p=0;p<m_corr_directions.size();++p )
-                for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau )
+                for( size_t tau=0;tau<m_correlation_row_size;++tau )
                 {
                     const RealType re=m_current_sample.Re[t][p][tau];
                     const RealType im=m_current_sample.Im[t][p][tau];
                     m_sample_squares.Re[t][p][tau]+=re*re;
                     m_sample_squares.Im[t][p][tau]+=im*im;
                     accumulate_ratio_cross_moments(
-                        (t*m_corr_directions.size()+p)*m_num_imaginary_edge_points+tau,re,im);
+                        (t*m_corr_directions.size()+p)*m_correlation_row_size+tau,re,im);
                     m_current_sample.Re[t][p][tau]=RealType{};
                     m_current_sample.Im[t][p][tau]=RealType{};
                 }
@@ -236,7 +238,7 @@ void RunTimeData::accumulate_sample( const spinDMFT::Functions::MeasuredSample& 
                                       const RealType normalization )
 {
     const size_t nt=m_num_real_points,nc=m_corr_directions.size();
-    const size_t nm=m_mag_directions.size(),ni=m_num_imaginary_edge_points;
+    const size_t nm=m_mag_directions.size(),ni=m_correlation_row_size;
     if( sample.correlations.size()!=nt*nc*ni
         ||sample.magnetization.size()!=nt*nm||sample.closure.size()!=nt )
         throw std::invalid_argument("cached observable dimensions differ from accumulator");
@@ -320,7 +322,7 @@ void RunTimeData::mpi_reduce_and_normalize()
     if( m_samples_seen!=m_num_samples_per_core )
         throw std::runtime_error("the production sweep did not accumulate the requested samples");
     const size_t corr_count=m_num_real_points*m_corr_directions.size()
-                           *m_num_imaginary_edge_points;
+                           *m_correlation_row_size;
     const size_t mag_count=m_num_real_points*m_mag_directions.size();
 
     // Reduce every iteration total in one contiguous collective.  The previous
@@ -337,7 +339,7 @@ void RunTimeData::mpi_reduce_and_normalize()
     totals[total_offset++]=m_total.partition_abs_sq;
     for( size_t t=0;t<m_num_real_points;++t )
         for( size_t p=0;p<m_corr_directions.size();++p )
-            for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau )
+            for( size_t tau=0;tau<m_correlation_row_size;++tau )
             {
                 totals[total_offset++]=m_correlations->Re[t][p][tau];
                 totals[total_offset++]=m_correlations->Im[t][p][tau];
@@ -356,7 +358,7 @@ void RunTimeData::mpi_reduce_and_normalize()
     if( m_pcn )
         for( size_t t=0;t<m_num_real_points;++t )
             for( size_t p=0;p<m_corr_directions.size();++p )
-                for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau )
+                for( size_t tau=0;tau<m_correlation_row_size;++tau )
                 {
                     totals[total_offset++]=m_sample_squares.Re[t][p][tau];
                     totals[total_offset++]=m_sample_squares.Im[t][p][tau];
@@ -378,7 +380,7 @@ void RunTimeData::mpi_reduce_and_normalize()
     m_total.partition_abs_sq=totals[total_offset++];
     for( size_t t=0;t<m_num_real_points;++t )
         for( size_t p=0;p<m_corr_directions.size();++p )
-            for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau )
+            for( size_t tau=0;tau<m_correlation_row_size;++tau )
             {
                 m_correlations->Re[t][p][tau]=totals[total_offset++];
                 m_correlations->Im[t][p][tau]=totals[total_offset++];
@@ -397,7 +399,7 @@ void RunTimeData::mpi_reduce_and_normalize()
     if( m_pcn )
         for( size_t t=0;t<m_num_real_points;++t )
             for( size_t p=0;p<m_corr_directions.size();++p )
-                for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau )
+                for( size_t tau=0;tau<m_correlation_row_size;++tau )
                 {
                     m_sample_squares.Re[t][p][tau]=totals[total_offset++];
                     m_sample_squares.Im[t][p][tau]=totals[total_offset++];
@@ -440,7 +442,7 @@ void RunTimeData::mpi_reduce_and_normalize()
     loop().denominator_constancy_residuals.push_back(closure_residual);
 
     loop().contour_sample_stds=CorrelationSet{
-        m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
+        m_symmetry,m_num_imaginary_edge_points,m_num_real_points,measures_two_time()};
     auto& standard_errors=loop().contour_sample_stds;
     loop().closed_contour_residual_Re_sample_stds.assign(m_num_real_points,RealType{});
     loop().closed_contour_residual_Im_sample_stds.assign(m_num_real_points,RealType{});
@@ -521,7 +523,7 @@ void RunTimeData::mpi_reduce_and_normalize()
                 size_t flat{};
                 for( size_t t=0;t<m_num_real_points;++t )
                     for( size_t p=0;p<m_corr_directions.size();++p )
-                        for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau,++flat )
+                        for( size_t tau=0;tau<m_correlation_row_size;++tau,++flat )
                         {
                             ComplexType sum{};
                             for( size_t b=0;b<merge;++b )
@@ -578,7 +580,7 @@ void RunTimeData::mpi_reduce_and_normalize()
                 size_t flat{};
                 for( size_t t=0;t<m_num_real_points;++t )
                     for( size_t p=0;p<m_corr_directions.size();++p )
-                        for( size_t tau=0;tau<m_num_imaginary_edge_points;
+                        for( size_t tau=0;tau<m_correlation_row_size;
                              ++tau,++flat )
                         {
                             ComplexType sum{};
@@ -625,7 +627,7 @@ void RunTimeData::mpi_reduce_and_normalize()
             size_t flat{};
             for( size_t t=0;t<m_num_real_points;++t )
                 for( size_t p=0;p<m_corr_directions.size();++p )
-                    for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau,++flat )
+                    for( size_t tau=0;tau<m_correlation_row_size;++tau,++flat )
                     {
                         const auto value=errors(corr_base+flat);
                         if( use_for_report )
@@ -675,17 +677,17 @@ void RunTimeData::mpi_reduce_and_normalize()
         }
 
         loop().contour_tau_int=CorrelationSet{
-            m_symmetry,m_num_imaginary_edge_points,m_num_real_points};
+            m_symmetry,m_num_imaginary_edge_points,m_num_real_points,measures_two_time()};
         RealType largest_tau{};
         for( size_t t=0;t<m_num_real_points;++t )
             for( size_t p=0;p<m_corr_directions.size();++p )
-                for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau )
+                for( size_t tau=0;tau<m_correlation_row_size;++tau )
                 {
                     // The ratio influence includes fluctuations of the
                     // complex phase denominator. Numerator variance alone
                     // is not invariant to likelihood normalization and
                     // gives incorrect tau/ESS for phase reweighting.
-                    const size_t flat=(t*m_corr_directions.size()+p)*m_num_imaginary_edge_points+tau;
+                    const size_t flat=(t*m_corr_directions.size()+p)*m_correlation_row_size+tau;
                     const auto& cross=m_ratio_cross_moments[flat];
                     const ComplexType inv=global_sample_count/m_total.partition;
                     const ComplexType g=estimate(edge_value(*m_correlations,t,p,tau));
@@ -769,7 +771,7 @@ void RunTimeData::mpi_reduce_and_normalize()
         size_t flat{};
         for( size_t t=0;t<m_num_real_points;++t )
             for( size_t p=0;p<m_corr_directions.size();++p )
-                for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau,++flat )
+                for( size_t tau=0;tau<m_correlation_row_size;++tau,++flat )
                 {
                     const ComplexType total=edge_value(
                         (*m_correlations),t,p,tau);
@@ -827,7 +829,7 @@ void RunTimeData::mpi_reduce_and_normalize()
     size_t flat{};
     for( size_t t=0;t<m_num_real_points;++t )
         for( size_t p=0;p<m_corr_directions.size();++p )
-            for( size_t tau=0;tau<m_num_imaginary_edge_points;++tau,++flat )
+            for( size_t tau=0;tau<m_correlation_row_size;++tau,++flat )
             {
                 const auto value=errors(corr_base+flat);
                 standard_errors.Re[t][p][tau]=value[0];
@@ -856,7 +858,7 @@ void RunTimeData::normalize_observables()
     for(size_t t=0;t<m_num_real_points;++t)
     {
         for(size_t p=0;p<m_corr_directions.size();++p)
-            for(size_t tau=0;tau<m_num_imaginary_edge_points;++tau)
+            for(size_t tau=0;tau<m_correlation_row_size;++tau)
             {
                 const ComplexType value=exact_complex_ratio(
                     edge_value(*m_correlations,t,p,tau),m_total.partition,m_total.partition_abs);

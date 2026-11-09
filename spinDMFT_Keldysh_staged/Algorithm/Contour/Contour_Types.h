@@ -161,13 +161,24 @@ struct CorrelationSet
 {
     CorrelationSet() = default;
     CorrelationSet( const char symmetry, const size_t num_imaginary_points,
-                    const size_t num_real_points )
-        : Re( num_real_points, CorrTen{ symmetry, num_imaginary_points } ),
-          Im( num_real_points, CorrTen{ symmetry, num_imaginary_points } )
+                    const size_t num_real_points, bool two_time=false )
+        : Re( num_real_points, CorrTen{ symmetry, num_imaginary_points
+                                      +(two_time?2*num_real_points:0) } ),
+          Im( num_real_points, CorrTen{ symmetry, num_imaginary_points
+                                      +(two_time?2*num_real_points:0) } ),
+          imaginary_points(num_imaginary_points), full_two_time(two_time)
     {}
 
+    // Each [t1, direction] row packs X(t1,tau), Cgreater(t1,t2),
+    // Clesser(t1,t2). This shares normalization, MPI and ratio-error machinery.
+    // HDF5 exports these as separate tensors with physical axes.
     ContourCorrelation Re{};
     ContourCorrelation Im{};
+    size_t imaginary_points{};
+    bool full_two_time{false};
+    size_t row_size() const { return imaginary_points+(full_two_time?2*Re.size():0); }
+    size_t real_offset(bool greater) const
+    { return imaginary_points+(greater?0:Re.size()); }
 };
 
 }

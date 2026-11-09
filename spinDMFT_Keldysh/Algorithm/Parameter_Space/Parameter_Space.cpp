@@ -172,7 +172,13 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "number of contiguous blocks per core; pCN errors use a multi-scale batch-means plateau"
     )(
     "gaussianFactorization", bpo::value<std::string>()->default_value("dense"),
-    "complex pseudo-covariance factorization: dense (default) or weighted-dense (independent sampling only)"
+    "complex pseudo-covariance sampler: dense (default), weighted-dense or chebyshev (latter two independent sampling only)"
+    )(
+    "gaussianChebyshevTolerance", bpo::value<RealType>()->default_value(RealType{1e-3}),
+    "chebyshev: uniform absolute error bound for each complex covariance divided by the certified spectral upper bound"
+    )(
+    "gaussianChebyshevMaxDegree", bpo::value<size_t>()->default_value(size_t{16384}),
+    "chebyshev: maximum polynomial degree; fail if the requested covariance accuracy cannot be reached"
     )(
     "gaussianWeightM", bpo::value<RealType>()->default_value(RealType{1.}),
     "positive Matsubara noise weight for weighted-dense"
@@ -182,9 +188,6 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     )(
     "gaussianWeightKappa", bpo::value<RealType>()->default_value(RealType{8.}),
     "positive kappa=(V_+-V_-)/2 noise weight for weighted-dense; (M,eta,kappa)=(1,2,2) recovers canonical dense"
-    )(
-    "fftCrossFrequencyCutoff", bpo::value<RealType>()->default_value(RealType{-1.}),
-    "for gaussianFactorization=fft, retain dense Matsubara-real coupling for |omega| up to this cutoff; a negative value disables truncation"
     )(
     "spinInsertionStrategy", bpo::value<std::string>()->default_value("prefix"),
     "real-time spin insertion: closed-contour uses B_-(T,0) U_+(t,T) S U_+(t,0); prefix uses U_+(0,t) S B_-(t,0)"
@@ -374,12 +377,21 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     if( partition_imaginary_tolerance<RealType{0.} )
         throw std::invalid_argument("partitionImagTolerance must be non-negative");
     gaussian_factorization  = vm["gaussianFactorization"].as<std::string>();
-    if(gaussian_factorization=="fft")
-        throw std::invalid_argument("staggered-strang requires dense or weighted-dense factorization; FFT field interpolation does not preserve its causal covariance");
-    if( gaussian_factorization!="dense" && gaussian_factorization!="fft"
-        && gaussian_factorization!="weighted-dense" )
+    if( gaussian_factorization!="dense"
+        && gaussian_factorization!="weighted-dense" && gaussian_factorization!="chebyshev" )
         throw std::invalid_argument(
-            "gaussianFactorization must be dense, fft, or weighted-dense" );
+            "gaussianFactorization must be dense or weighted-dense or chebyshev" );
+    gaussian_chebyshev_tolerance=vm["gaussianChebyshevTolerance"].as<RealType>();
+    gaussian_chebyshev_max_degree=vm["gaussianChebyshevMaxDegree"].as<size_t>();
+    if(!std::isfinite(gaussian_chebyshev_tolerance)||gaussian_chebyshev_tolerance<=RealType{}
+        ||gaussian_chebyshev_tolerance>=RealType{1}
+        ||gaussian_chebyshev_max_degree<16||gaussian_chebyshev_max_degree>1048576)
+        throw std::invalid_argument("Chebyshev tolerance must lie in (0,1) and maximum degree in [16,1048576]");
+    if(gaussian_factorization!="chebyshev"
+        &&(!vm["gaussianChebyshevTolerance"].defaulted()||!vm["gaussianChebyshevMaxDegree"].defaulted()))
+        throw std::invalid_argument("gaussianChebyshev options require gaussianFactorization=chebyshev");
+    if(gaussian_factorization=="chebyshev"&&sampling_strategy!="independent")
+        throw std::invalid_argument("chebyshev requires samplingStrategy=independent");
     const std::array<const char*,3> weight_options{
         "gaussianWeightM","gaussianWeightEta","gaussianWeightKappa"};
     for(size_t i=0;i<weight_options.size();++i)
@@ -393,11 +405,6 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     if(gaussian_factorization=="weighted-dense"&&sampling_strategy!="independent")
         throw std::invalid_argument(
             "weighted-dense requires samplingStrategy=independent; pCN weight positivity is not established for this ensemble");
-    fft_cross_frequency_cutoff=vm["fftCrossFrequencyCutoff"].as<RealType>();
-    if(!std::isfinite(fft_cross_frequency_cutoff))
-        throw std::invalid_argument("fftCrossFrequencyCutoff must be finite; use -1 to disable truncation");
-    if(!vm["fftCrossFrequencyCutoff"].defaulted())
-        throw std::invalid_argument("fftCrossFrequencyCutoff is incompatible with staggered-strang");
     if(num_TimePoints<4)
         throw std::invalid_argument("staggered-strang Matsubara preparation requires numImagTimeSteps >= 3");
     spin_insertion_strategy=vm["spinInsertionStrategy"].as<std::string>();
@@ -567,11 +574,12 @@ std::string ParameterSpace::create_essentials_string() const
     << print::quantity_to_output_line( pre_colon_space, "num_Samples"   , std::to_string(num_Samples) )
     << print::quantity_to_output_line( pre_colon_space, "sampling_strategy", sampling_strategy )
     << print::quantity_to_output_line( pre_colon_space, "gaussian_factorization", gaussian_factorization );
+    if(gaussian_factorization=="chebyshev")
+        ss << print::quantity_to_output_line(pre_colon_space,"gaussian_chebyshev_tolerance",std::to_string(gaussian_chebyshev_tolerance))
+           << print::quantity_to_output_line(pre_colon_space,"gaussian_chebyshev_max_degree",std::to_string(gaussian_chebyshev_max_degree));
     if( sampling_strategy=="pcn" )
         ss << print::quantity_to_output_line( pre_colon_space, "mh_step_size", print::remove_zeros(print::round_value_to_string(mh_step_size,num_PrintDigits)) )
            << print::quantity_to_output_line( pre_colon_space, "mh_burn_in", std::to_string(mh_burn_in) );
-    if( gaussian_factorization=="fft" )
-        ss << print::quantity_to_output_line( pre_colon_space, "fft_cross_frequency_cutoff", std::to_string(fft_cross_frequency_cutoff) );
     ss
     << print::quantity_to_output_line( pre_colon_space, "propagator", "staggered-strang" )
     << print::quantity_to_output_line( pre_colon_space, "iteration_error_sigma_threshold", print::remove_zeros(print::round_value_to_string(iteration_error_sigma_threshold,num_PrintDigits)) )

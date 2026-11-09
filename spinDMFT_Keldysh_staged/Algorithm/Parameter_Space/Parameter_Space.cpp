@@ -1,6 +1,7 @@
 #include"Parameter_Space.h"
 
 #include<iomanip>
+#include<algorithm>
 #include<limits>
 #include<memory>
 #include<sstream>
@@ -106,6 +107,9 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     "beta", bpo::value<RealType>()->default_value(RealType{1.0}),
     "set the value of the inverse temperature"
     )(
+    "pulseSequence", bpo::value<std::string>()->default_value(""),
+    "HDF5 pulse file: /pulses/times [N], axes [N,3], angles [N] in radians; measurement-edge pulses add -angle/h*axis to the preceding substep field"
+    )(
     "bath", bpo::value<std::string>()->default_value("selfconsistent"),
     "field covariance source: selfconsistent or harmonic"
     )(
@@ -129,6 +133,9 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     B = (gab=0, gxx=gyy), \
     C = (gaz=0, gxx=gyy), \
     D = (no constraints)"
+    )(
+    "timeTranslationInvariant", bpo::value<bool>()->default_value(true),
+    "reconstruct real-time correlations from the lag; false measures and feeds back full Cgreater(t1,t2) and Clesser(t1,t2)"
     )(
     // ...concerning the time discretization
     "numImagTimeSteps", bpo::value<size_t>()->default_value(size_t{5}),
@@ -284,6 +291,7 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     // ========== general numerical parameters ==========
     // ...concerning the symmetry
     correlation_symmetry_type = vm["cstype"].as<char>();
+    time_translation_invariant=vm["timeTranslationInvariant"].as<bool>();
     if( uses_harmonic_bath() )
     {
         if( beta<=RealType{0.} )
@@ -329,6 +337,16 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     Tmax                = vm["Tmax"].as<RealType>();
     if( Tmax < RealType{0.} ) throw std::invalid_argument("Tmax must be non-negative");
     delta_real_t        = Tmax / static_cast<RealType>(num_RealTimeSteps);
+    pulse_sequence_file=vm["pulseSequence"].as<std::string>();
+    if(!pulse_sequence_file.empty())read_pulse_sequence();
+    if(!pulses.empty())
+    {
+        if(!vm["timeTranslationInvariant"].defaulted()&&time_translation_invariant)
+            throw std::invalid_argument("pulseSequence requires timeTranslationInvariant=false");
+        time_translation_invariant=false;
+        if(correlation_symmetry_type!='D')
+            throw std::invalid_argument("pulseSequence requires cstype=D to retain all rotated spin components");
+    }
     // ...concerning the statistics
     num_SamplesPerCore      = vm["numSamplesPerCore"].as<size_t>();
     if(num_SamplesPerCore>std::numeric_limits<size_t>::max()/get_num_Cores())
@@ -366,6 +384,8 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
     num_PreparationSamples=num_PreparationSamplesPerCore*get_num_Cores();
     if(Preparation_Iteration_Limit==0)Preparation_Iteration_Limit=Iteration_Limit;
     constant_magnetization_time=vm.count("constantMagnetization")>0;
+    if(!time_translation_invariant&&constant_magnetization_time)
+        throw std::invalid_argument("constantMagnetization is incompatible with timeTranslationInvariant=false");
     covariance_tolerance    = vm["covarianceTolerance"].as<RealType>();
     takagi_tolerance        = vm["takagiTolerance"].as<RealType>();
     minimum_phase_magnitude = vm["minimumPhaseMagnitude"].as<RealType>();
@@ -396,6 +416,73 @@ ParameterSpace::ParameterSpace( const int argC, char* const argV[], const int wo
         read_initial_correlations_from_file();
     }
 
+}
+
+void ParameterSpace::read_pulse_sequence()
+{
+    // All identifiers close on both success and validation failure.
+    struct Handle
+    {
+        hid_t id;
+        herr_t (*close)(hid_t);
+        ~Handle(){if(id>=0)close(id);}
+    };
+    Handle file{H5Fopen(pulse_sequence_file.c_str(),H5F_ACC_RDONLY,H5P_DEFAULT),H5Fclose};
+    if(file.id<0)throw std::invalid_argument("cannot open pulseSequence HDF5 file: "+pulse_sequence_file);
+    const auto read=[&](const char* name,int rank,std::vector<hsize_t>& shape)
+    {
+        const std::string path=std::string{"/pulses/"}+name;
+        if(H5Lexists(file.id,path.c_str(),H5P_DEFAULT)<=0)
+            throw std::invalid_argument("pulseSequence missing dataset "+path);
+        Handle dataset{H5Dopen(file.id,path.c_str(),H5P_DEFAULT),H5Dclose};
+        Handle space{dataset.id<0?-1:H5Dget_space(dataset.id),H5Sclose};
+        Handle type{dataset.id<0?-1:H5Dget_type(dataset.id),H5Tclose};
+        if(space.id<0||type.id<0||H5Sget_simple_extent_ndims(space.id)!=rank
+            ||(H5Tget_class(type.id)!=H5T_FLOAT&&H5Tget_class(type.id)!=H5T_INTEGER))
+            throw std::invalid_argument("pulseSequence invalid numeric dataset shape/type: "+path);
+        shape.resize(rank);H5Sget_simple_extent_dims(space.id,shape.data(),nullptr);
+        size_t count=1;
+        for(auto n:shape)
+        {
+            if(n>std::numeric_limits<size_t>::max()/std::max(size_t{1},count))
+                throw std::invalid_argument("pulseSequence dataset is too large: "+path);
+            count*=static_cast<size_t>(n);
+        }
+        std::vector<double> values(count);
+        if(count&&H5Dread(dataset.id,H5T_NATIVE_DOUBLE,H5S_ALL,H5S_ALL,H5P_DEFAULT,values.data())<0)
+            throw std::invalid_argument("cannot read pulseSequence dataset: "+path);
+        return values;
+    };
+    std::vector<hsize_t> ts,as,ns;
+    const auto times=read("times",1,ts),angles=read("angles",1,as),axes=read("axes",2,ns);
+    if(as[0]!=ts[0]||ns[0]!=ts[0]||ns[1]!=3)
+        throw std::invalid_argument("pulseSequence requires times [N], angles [N], axes [N,3]");
+    if(!std::isfinite(Tmax))throw std::invalid_argument("pulseSequence requires finite Tmax");
+    pulses.clear();pulses.reserve(times.size());
+    double previous=-1.;
+    for(size_t i=0;i<times.size();++i)
+    {
+        if(!std::isfinite(times[i])||times[i]<0.||times[i]>double(Tmax)
+            ||times[i]<previous||!std::isfinite(angles[i]))
+            throw std::invalid_argument("pulseSequence times must be finite, nondecreasing and in [0,Tmax]; angles must be finite");
+        previous=times[i];
+        const double norm=std::hypot(axes[3*i],axes[3*i+1],axes[3*i+2]);
+        if(!std::isfinite(norm)||norm==0.)
+            throw std::invalid_argument("pulseSequence axes must be finite nonzero vectors");
+        Pulse pulse; pulse.time=RealType(times[i]);pulse.angle=RealType(angles[i]);
+        if(!std::isfinite(pulse.angle))throw std::invalid_argument("pulseSequence angle exceeds working precision");
+        for(size_t c=0;c<3;++c)pulse.axis[c]=RealType(axes[3*i+c]/norm);
+        // Snap decimal representations of exact propagation-grid times to
+        // their nearest edge, within roundoff only. Preserve file ordering.
+        if(delta_real_t>RealType{})
+        {
+            const RealType h=delta_real_t/RealType(real_time_substeps);
+            const RealType nearest=std::round(pulse.time/h)*h;
+            if(std::abs(pulse.time-nearest)<=RealType{32.}*std::numeric_limits<RealType>::epsilon()*Tmax)
+                pulse.time=std::min(Tmax,std::max(RealType{},nearest));
+        }
+        pulses.push_back(pulse);
+    }
 }
 
 // method for importing the initial correlations
@@ -501,6 +588,9 @@ std::string ParameterSpace::create_essentials_string() const
     << print::quantity_to_output_line( pre_colon_space, "noise_string"  , noise.compact_info( num_PrintDigits ) )
     << print::quantity_to_output_line( pre_colon_space, "extra_interaction_string", extra_interaction.compact_info( num_PrintDigits ) )
     << print::quantity_to_output_line( pre_colon_space, "correlation_symmetry_type" , std::string(1, correlation_symmetry_type) )
+    << print::quantity_to_output_line(pre_colon_space,"time_translation_invariant",time_translation_invariant?"true":"false")
+    << print::quantity_to_output_line(pre_colon_space,"pulse_sequence_file",pulse_sequence_file.empty()?"none":pulse_sequence_file)
+    << print::quantity_to_output_line(pre_colon_space,"number_of_pulses",std::to_string(pulses.size()))
     << print::quantity_to_output_line( pre_colon_space, "num_ImagTimeSteps", std::to_string(num_TimeSteps) )
     << print::quantity_to_output_line( pre_colon_space, "delta_t"       , print::remove_zeros(print::round_value_to_string(delta_t,num_PrintDigits)) ) 
     << print::quantity_to_output_line( pre_colon_space, "num_RealTimeSteps", std::to_string(num_RealTimeSteps) )

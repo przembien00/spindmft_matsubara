@@ -128,6 +128,7 @@ int main(int argc,char* const argv[])
         :func::self_consistent_equations(parameters,preparation_correlations,
             preparation_magnetization);
     const auto& frozen=prepared_field.covariance;
+    const func::ThermalReference thermal{preparation_correlations,preparation_magnetization};
     CorrelationSet correlations;
     func::Magnetization magnetization;
     func::seed_from_preparation(parameters,preparation_correlations,
@@ -149,7 +150,7 @@ int main(int argc,char* const argv[])
         auto previous_correlations=correlations;
         auto previous_magnetization=magnetization;
         func::freeze_origin(previous_correlations,previous_magnetization,
-            preparation_correlations,preparation_magnetization);
+            preparation_correlations,preparation_magnetization,&parameters);
         if(parameters.constant_magnetization_time)
             for(size_t t=1;t<parameters.num_RealTimePoints;++t)
             {
@@ -158,7 +159,7 @@ int main(int argc,char* const argv[])
             }
         auto field=parameters.uses_harmonic_bath()?func::prescribed_harmonic_bath_field(parameters)
             :func::self_consistent_equations(parameters,previous_correlations,
-                previous_magnetization);
+                previous_magnetization,&thermal);
         const auto A=func::matsubara_block(field,parameters.num_TimePoints);
         const RealType mismatch=func::matrix_difference(A,frozen);
         runtime.frozen_errors.push_back(mismatch);
@@ -186,16 +187,17 @@ int main(int argc,char* const argv[])
             const auto* joint=dynamic_cast<const func::DenseComplexGaussianSampler*>(sampler.get());
             if(!joint)throw std::logic_error("joint Matsubara pCN requires dense joint Takagi");
             chain_sampler=std::make_unique<func::JointMatsubaraSampler>(*joint,nm);
-            chain=std::make_unique<func::MatsubaraPCNChain>(parameters,*chain_sampler,field.mean_time,engine);
+            chain=std::make_unique<func::MatsubaraPCNChain>(parameters,*chain_sampler,
+                func::MeanFieldTrajectory{field.imaginary_mean},engine);
             for(size_t i=0;i<parameters.mh_burn_in;++i)chain->step();
             burn_accepted=chain->accepted();burn_proposed=chain->proposed();
             burn_zero=chain->rejected_zero_weight();
         }
         if(!pcn)
         {
-            // One immutable deterministic trajectory per iteration, shared by
-            // all samples. Only its real-time interpolation nodes are cached.
-            const func::PreparedMeanField prepared_mean(parameters,field.mean_time);
+            // Cache deterministic means and pulse maps once per iteration,
+            // shared by all samples.
+            const func::PreparedMeanField prepared_mean(parameters,field.mean_time,field.imaginary_mean);
             const auto sample_independent=[&](auto& independent_trajectory,auto& independent_workspace)
             {
                 // Preserve sample-major RNG order and statistical blocks.
@@ -228,7 +230,7 @@ int main(int argc,char* const argv[])
         }
         else
         {
-            const func::PreparedMeanField prepared_mean(parameters,field.mean_time);
+            const func::PreparedMeanField prepared_mean(parameters,field.mean_time,field.imaginary_mean);
             func::ContourTrajectory trajectory;
             func::TrajectoryWorkspace trajectory_workspace;
             for(size_t index=0;index<parameters.num_SamplesPerCore;++index)

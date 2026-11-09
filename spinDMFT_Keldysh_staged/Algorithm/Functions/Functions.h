@@ -33,9 +33,23 @@ using MeanFieldTrajectory = std::vector<FieldVector>;
 struct SelfConsistentField
 {
     MeanFieldTrajectory mean_time{};
+    FieldVector imaginary_mean{};
     ComplexDynamicMatrix covariance{};
     RealType covariance_symmetry_error{};
 };
+
+// The initial thermal state is at 0-; a pulse at zero makes the real-time
+// origin 0+. Keep the imaginary branch and mixed disconnected term anchored
+// to the equilibrium preparation rather than the rotated real-time origin.
+struct ThermalReference
+{
+    const CorrelationSet& correlations;
+    const Magnetization& magnetization;
+};
+
+Operator pulse_rotation(const ps::Pulse& pulse);
+void rotate_prepared_origin(const ps::ParameterSpace& pspace,
+    CorrelationSet& correlations,Magnetization& magnetization);
 
 // Frobenius difference normalized by max(||b||, 1).
 RealType matrix_difference( const ComplexDynamicMatrix& a, const ComplexDynamicMatrix& b );
@@ -50,24 +64,28 @@ CorrelationSet generate_initial_correlations( const ps::ParameterSpace& pspace,
                                               const CorrelationSet* prepared=nullptr );
 
 // The stored mixed primitive is X^{ab}(t,tau)=<S_b(-i tau) S_a(t)>.
-// Its connected counterpart therefore subtracts the unconjugated product
-// m_a(t)m_b(0). The imaginary-branch one-point function is represented by
+// Its connected counterpart subtracts m_a(t)m_b(0); packed real-time
+// greater/lesser pairs subtract m_a(t1)m_b(t2), without conjugation.
+// The imaginary-branch one-point function is represented by
 // its equilibrium value at the contour origin.
 CorrelationSet connected_contour_primitive(
     const CorrelationSet& correlations,
-    const Magnetization& magnetization );
+    const Magnetization& magnetization,
+    const Magnetization* thermal_magnetization=nullptr );
 
 // Build E[V V^T] for [V_M(tau_k),V_+(t_n),V_-(t_n)], k=0,...,N_tau,
 // retaining distinct 0+ and beta- Matsubara variables.
 // The covariance is
 // complex symmetric (unconjugated), and its branch blocks are reconstructed
-// from the edge-grid mixed primitive before the upper triangle is mirrored.
+// from the mixed primitive and optional full two-time greater/lesser pairs
+// before the upper triangle is mirrored.
 // A single origin slice builds only the Matsubara covariance; a real-time
 // trajectory builds the complete joint covariance.
 SelfConsistentField self_consistent_equations(
     const ps::ParameterSpace& pspace,
     const CorrelationSet& correlations,
-    const Magnetization& magnetization );
+    const Magnetization& magnetization,
+    const ThermalReference* thermal=nullptr );
 
 // Analytic mixed primitive of one thermal oscillator
 // X=g(a+a^dagger), coupled to bathComponent.  Its endpoints are K lesser at
@@ -92,8 +110,9 @@ struct BasicContourTrajectory
     ComplexType final_closed_contour_trace{};
     Matrix imaginary_density_operator{};
     std::array<std::vector<Matrix>,3> imaginary_edge_insertions{};
-    // One-step real-branch maps. Measurements build B_-(T,0) U_+(t,T)
-    // suffixes and sweep U_+(t,0), inserting S between them at each t.
+    // One-step real-branch maps; entry zero holds any origin pulse rotation
+    // and its adjoint (identity without origin pulses). Measurements sweep
+    // the prefix maps, inserting S at each measured time after its pulses.
     std::vector<Matrix> forward_steps{};
     std::vector<Matrix> backward_steps{};
 };
@@ -110,18 +129,29 @@ using TrajectoryWorkspace = BasicTrajectoryWorkspace<Operator>;
 using SpinHalfContourTrajectory = BasicContourTrajectory<SpinHalfOperator>;
 using SpinHalfTrajectoryWorkspace = BasicTrajectoryWorkspace<SpinHalfOperator>;
 
-// Immutable snapshot of one iteration's deterministic mean, including its
-// propagation-node values. Own the edges as well so nodes cannot silently
-// become stale when the caller updates the next iteration's mean trajectory.
+// Immutable snapshot of one iteration's deterministic real/imaginary means,
+// propagation-node values and pulse maps. Own the edges as well so nodes
+// cannot become stale when the caller updates the next iteration's mean.
 class PreparedMeanField
 {
  public:
     PreparedMeanField(const ps::ParameterSpace& pspace,const MeanFieldTrajectory& mean);
+    PreparedMeanField(const ps::ParameterSpace& pspace,const MeanFieldTrajectory& mean,
+        const FieldVector& imaginary_mean);
     void validate_grid(const ps::ParameterSpace& pspace) const;
     const MeanFieldTrajectory& edges() const { return m_edges; }
     const MeanFieldTrajectory& midpoints() const { return m_midpoints; }
+    const FieldVector& imaginary_mean() const { return m_imaginary_mean; }
+    const MeanFieldTrajectory& pulse_fields() const { return m_pulse_fields; }
+    struct PulseMap { size_t microstep; RealType offset; Operator rotation; };
+    const std::vector<PulseMap>& pulses() const { return m_pulses; }
+    const Operator& origin_rotation() const { return m_origin_rotation; }
  private:
     MeanFieldTrajectory m_edges,m_midpoints;
+    FieldVector m_imaginary_mean{};
+    MeanFieldTrajectory m_pulse_fields;
+    std::vector<PulseMap> m_pulses;
+    Operator m_origin_rotation;
     size_t m_steps,m_substeps;
 };
 
@@ -190,8 +220,9 @@ ContourTrajectory compute_contour_trajectory(
     const JointComplexGaussianSampler::ContourFieldSample& field_sample,
     const MeanFieldTrajectory& mean_field_time );
 
-// Unnormalized observables in contiguous [t,component,tau] / [t,component]
-// order. Cached pCN states are accumulated once for every Markov step.
+// Unnormalized observables in contiguous [t,component,packed_row] /
+// [t,component] order; row layout is documented in CorrelationSet.
+// Cached pCN states are accumulated once for every Markov step.
 struct MeasuredSample
 {
     ComplexType partition{};
@@ -201,6 +232,7 @@ struct MeasuredSample
 struct MeasurementWorkspace
 {
     std::array<std::vector<std::array<ComplexType,4>>,3> spin_half_insertions;
+    std::vector<ComplexType> two_time_correlations;
 };
 
 template<typename Matrix>
@@ -209,7 +241,8 @@ void measure_contour_observables( const rtd::RunTimeData& layout,
     MeasurementWorkspace& workspace );
 
 // Same estimators, streamed directly into independent total/block sums.
-// Does not materialize a MeasuredSample; pCN callers must use the buffered API.
+// Does not materialize a MeasuredSample; full two-time measurement keeps its
+// real-pair scratch buffer. pCN callers must use the buffered API.
 template<typename Matrix>
 void measure_and_accumulate_independent(rtd::RunTimeData& data,
     const BasicContourTrajectory<Matrix>& trajectory,MeasurementWorkspace& workspace);

@@ -64,26 +64,6 @@ if(Boost_FOUND)
     set(LINK_LIBS ${LINK_LIBS} ${Boost_LIBRARIES})
 endif()
 
-# Retain FFTW for frequency-space covariance transforms and future block acceleration.
-find_library(FFTW3_DOUBLE_LIB NAMES fftw3 HINTS ${FFTW3_ROOT}/lib /opt/homebrew/lib /usr/local/lib /usr/lib)
-find_library(FFTW3_FLOAT_LIB NAMES fftw3f HINTS ${FFTW3_ROOT}/lib /opt/homebrew/lib /usr/local/lib /usr/lib)
-find_path(FFTW3_INCLUDE_DIR NAMES fftw3.h HINTS ${FFTW3_ROOT}/include /opt/homebrew/include /usr/local/include /usr/include)
-if(NOT FFTW3_INCLUDE_DIR)
-    message(FATAL_ERROR "FFTW3 headers not found; set FFTW3_ROOT to the FFTW installation")
-endif()
-include_directories(${FFTW3_INCLUDE_DIR})
-if(USE_TYPE STREQUAL "FLOAT")
-    if(NOT FFTW3_FLOAT_LIB)
-        message(FATAL_ERROR "FFTW3 float library not found; set FFTW3_ROOT")
-    endif()
-    set(LINK_LIBS ${LINK_LIBS} ${FFTW3_FLOAT_LIB})
-else()
-    if(NOT FFTW3_DOUBLE_LIB)
-        message(FATAL_ERROR "FFTW3 double library not found; set FFTW3_ROOT")
-    endif()
-    set(LINK_LIBS ${LINK_LIBS} ${FFTW3_DOUBLE_LIB})
-endif()
-
 # Add definitions
 add_definitions(-DUSE_${USE_TYPE})
 
@@ -95,7 +75,7 @@ set(SOURCES
     main.cpp
     Storage_Concept/Storage_Concept.cpp
     Functions/Functions.cpp
-    Functions/Complex_Gaussian.cpp
+    Functions/Complex_Gaussian.cpp Functions/Structured_Gaussian.cpp
     Functions/PCN_Chain.cpp
     Contour/Contour_Kernel.cpp
     Run_Time_Data/Run_Time_Data.cpp
@@ -133,13 +113,13 @@ include(CTest)
 if(BUILD_TESTING)
     add_executable(test_complex_gaussian
         Tests/test_complex_gaussian.cpp
-        Functions/Complex_Gaussian.cpp
+        Functions/Complex_Gaussian.cpp Functions/Structured_Gaussian.cpp
     )
     target_link_libraries(test_complex_gaussian ${LINK_LIBS})
     add_test(NAME complex_gaussian COMMAND test_complex_gaussian)
 
     add_executable(test_weighted_gaussian
-        Tests/test_weighted_gaussian.cpp Functions/Complex_Gaussian.cpp)
+        Tests/test_weighted_gaussian.cpp Functions/Complex_Gaussian.cpp Functions/Structured_Gaussian.cpp)
     target_link_libraries(test_weighted_gaussian ${LINK_LIBS})
     add_test(NAME weighted_gaussian COMMAND test_weighted_gaussian)
 
@@ -153,7 +133,7 @@ if(BUILD_TESTING)
 
     add_executable(test_keldysh_propagation
         Tests/test_keldysh_propagation.cpp
-        Functions/Functions.cpp Functions/Complex_Gaussian.cpp
+        Functions/Functions.cpp Functions/Complex_Gaussian.cpp Functions/Structured_Gaussian.cpp
         Contour/Contour_Kernel.cpp Run_Time_Data/Run_Time_Data.cpp
         Run_Time_Data/Ratio_Statistics.cpp)
     target_link_libraries(test_keldysh_propagation ${LINK_LIBS})
@@ -161,15 +141,23 @@ if(BUILD_TESTING)
 
     add_executable(test_staggered_strang
         Tests/test_staggered_strang.cpp
-        Functions/Functions.cpp Functions/Complex_Gaussian.cpp
+        Functions/Functions.cpp Functions/Complex_Gaussian.cpp Functions/Structured_Gaussian.cpp
         Contour/Contour_Kernel.cpp Run_Time_Data/Run_Time_Data.cpp
         Run_Time_Data/Ratio_Statistics.cpp)
     target_link_libraries(test_staggered_strang ${LINK_LIBS})
     add_test(NAME staggered_strang COMMAND test_staggered_strang)
 
+    add_executable(test_structured_gaussian
+        Tests/test_structured_gaussian.cpp
+        Functions/Functions.cpp Functions/Complex_Gaussian.cpp Functions/Structured_Gaussian.cpp
+        Contour/Contour_Kernel.cpp Run_Time_Data/Run_Time_Data.cpp
+        Run_Time_Data/Ratio_Statistics.cpp)
+    target_link_libraries(test_structured_gaussian ${LINK_LIBS})
+    add_test(NAME structured_gaussian COMMAND test_structured_gaussian)
+
     add_executable(test_full_contour_measurement
         Tests/test_full_contour_measurement.cpp
-        Functions/Functions.cpp Functions/Complex_Gaussian.cpp Functions/PCN_Chain.cpp
+        Functions/Functions.cpp Functions/Complex_Gaussian.cpp Functions/Structured_Gaussian.cpp Functions/PCN_Chain.cpp
         Contour/Contour_Kernel.cpp Run_Time_Data/Run_Time_Data.cpp
         Run_Time_Data/Ratio_Statistics.cpp Parameter_Space/Parameter_Space.cpp)
     target_link_libraries(test_full_contour_measurement ${LINK_LIBS})

@@ -116,10 +116,17 @@ template void measure_matsubara_sample<SpinHalfOperator>(const ps::ParameterSpac
     MeasuredSample&,MeasurementWorkspace&);
 
 void freeze_origin(CorrelationSet& q,Magnetization& magnetization,
-    const CorrelationSet& prepared,const Magnetization& prepared_magnetization)
+    const CorrelationSet& prepared,const Magnetization& prepared_magnetization,
+    const ps::ParameterSpace* parameters)
 {
-    q.Re.front()=prepared.Re.front();q.Im.front()=prepared.Im.front();
+    for(size_t p=0;p<prepared.Re.front().size();++p)
+        for(size_t tau=0;tau<prepared.imaginary_points;++tau)
+        {
+            q.Re.front()[p][tau]=prepared.Re.front()[p][tau];
+            q.Im.front()[p][tau]=prepared.Im.front()[p][tau];
+        }
     magnetization.Re.front()=prepared_magnetization.Re.front();magnetization.Im.front()=prepared_magnetization.Im.front();
+    if(parameters)rotate_prepared_origin(*parameters,q,magnetization);
 }
 
 void seed_from_preparation(const ps::ParameterSpace& p,
@@ -130,6 +137,6 @@ void seed_from_preparation(const ps::ParameterSpace& p,
     for(size_t t=0;t<p.num_RealTimePoints;++t)
     {magnetization.Re[t]=prepared_magnetization.Re.front();magnetization.Im[t]=prepared_magnetization.Im.front();}
     q=generate_initial_correlations(p,magnetization.Re,&prepared);
-    freeze_origin(q,magnetization,prepared,prepared_magnetization);
+    freeze_origin(q,magnetization,prepared,prepared_magnetization,&p);
 }
 }

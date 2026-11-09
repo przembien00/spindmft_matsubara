@@ -80,8 +80,8 @@ conditional on these accuracy checks.
    kernel, build only the `+/-` block from greater and lesser values with the
    existing equal-time `theta(0)=1/2` prescription. Apply the current
    connected subtraction and `J_Q^2 D...D` rotation. Use a sampler whose
-   dimension is `6*(N_R+1)`, with dense factorization first; adapt FFT and
-   weighted-dense only after their real-only covariance reconstruction is
+   dimension is `6*(N_R+1)`, with dense factorization; adapt
+   weighted-dense only after its real-only covariance reconstruction is
    checked. Preserve `U_+ rho_eq B_-`, never replace `B_-` by `U_+^{-1}`.
 4. **Real-only measurement and iteration.** Make a real-only trajectory and
    accumulator so each sample costs O(N_R) measurements rather than O(N_R N_M)

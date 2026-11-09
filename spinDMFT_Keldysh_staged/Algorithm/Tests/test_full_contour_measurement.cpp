@@ -275,6 +275,159 @@ int check_pcn_cache(ps::ParameterSpace p,int rank)
     return failures;
 }
 
+// Independent contour traversal for a real-time pair. No inverse of a
+// stochastic branch map is assumed.
+ComplexType pair_reference(const func::ContourTrajectory& trajectory,
+    const Observable& a,const Observable& b,size_t t,size_t s,bool greater)
+{
+    if(t<s)return pair_reference(trajectory,b,a,s,t,!greater);
+    Operator prefix=IDENTITY,backward=IDENTITY,interval=IDENTITY,return_interval=IDENTITY;
+    for(size_t k=1;k<=s;++k)
+    {prefix=trajectory.forward_steps[k]*prefix;backward=backward*trajectory.backward_steps[k];}
+    for(size_t k=s+1;k<=t;++k)
+    {interval=trajectory.forward_steps[k]*interval;return_interval=return_interval*trajectory.backward_steps[k];}
+    const Operator density=prefix*trajectory.imaginary_density_operator*backward;
+    if(greater)return blaze::trace(a*interval*b*density*return_interval);
+    return blaze::trace(a*interval*density*b*return_interval);
+}
+
+int check_two_time(ps::ParameterSpace p,int rank)
+{
+    int failures{};
+    p.time_translation_invariant=false;
+    p.sampling_strategy="independent";
+    const size_t nt=p.num_RealTimePoints,ni=p.num_TimePoints;
+    const std::array<Observable,3> spins{S_X,S_Y,S_Z};
+    const contour::StaggeredLayout grid{ni,p.num_RealTimeSteps*p.real_time_steps_per_interval()};
+    func::DenseComplexGaussianSampler::FieldVector fields(grid.dimension());
+    for(size_t i=0;i<fields.size();++i)
+        fields[i]={0.03*std::sin(RealType(i)),0.02*std::cos(RealType(i))};
+    auto tr=func::compute_contour_trajectory(p,fields,func::MeanFieldTrajectory(nt,FieldVector{}));
+    rtd::RunTimeData data(p,rank);
+    contour::CorrelationSet sums;
+    contour::Magnetization magnetization;
+    data.begin_iteration_accumulation(sums,magnetization);
+    func::MeasuredSample sample;
+    func::MeasurementWorkspace workspace;
+    const auto measure_and_check=[&]()
+    {
+        func::measure_contour_observables(data,tr,sample,workspace);
+        RealType largest{};
+        for(size_t t=0;t<nt;++t)for(size_t pair=0;pair<data.num_correlation_components();++pair)
+        {
+            const auto ab=data.correlation_direction(pair);
+            for(size_t s=0;s<nt;++s)for(bool greater:{true,false})
+            {
+                const size_t slot=(t*data.num_correlation_components()+pair)*(ni+2*nt)
+                    +ni+(greater?0:nt)+s;
+                const auto expected=pair_reference(tr,spins[ab[0]],spins[ab[1]],t,s,greater);
+                largest=std::max(largest,std::abs(sample.correlations[slot]-expected));
+            }
+        }
+        failures+=require(largest<2e-12,"two-time estimators match independent nonunitary contour traversal");
+    };
+    measure_and_check();
+    // Future maps must leave every pair before their time unchanged.
+    const auto original=sample;
+    tr.forward_steps.back()=func::general_matrix_exponential(ComplexType{0.2,0.3}*S_X)*tr.forward_steps.back();
+    tr.backward_steps.back()=func::general_matrix_exponential(ComplexType{-0.1,0.2}*S_Y)*tr.backward_steps.back();
+    measure_and_check();
+    for(size_t t=0;t+1<nt;++t)for(size_t pair=0;pair<data.num_correlation_components();++pair)
+        for(size_t s=0;s+1<nt;++s)for(bool greater:{true,false})
+        {
+            const size_t slot=(t*data.num_correlation_components()+pair)*(ni+2*nt)+ni+(greater?0:nt)+s;
+            failures+=require(std::abs(sample.correlations[slot]-original.correlations[slot])<2e-12,
+                "future branch maps leave earlier two-time pairs unchanged");
+        }
+    // An explicit pi-x pulse between grid points 1 and 2 breaks TTI.
+    tr.imaginary_density_operator=func::general_matrix_exponential(-RealType{0.7}*S_Z);
+    tr.partition_function=blaze::trace(tr.imaginary_density_operator);
+    for(size_t t=0;t<nt;++t)
+    {tr.forward_steps[t]=IDENTITY;tr.backward_steps[t]=IDENTITY;}
+    tr.forward_steps[2]=func::general_matrix_exponential(ComplexType{0.,-std::acos(-1.)}*S_X);
+    tr.backward_steps[2]=blaze::ctrans(tr.forward_steps[2]);
+    measure_and_check();
+    // Compare with the exact Heisenberg-operator expression for every pair.
+    std::vector<Operator> U(nt,IDENTITY);
+    for(size_t t=1;t<nt;++t)U[t]=tr.forward_steps[t]*U[t-1];
+    for(size_t t=0;t<nt;++t)for(size_t pair=0;pair<data.num_correlation_components();++pair)
+    {
+        const auto ab=data.correlation_direction(pair);
+        for(size_t s=0;s<nt;++s)
+        {
+            const Operator a=blaze::ctrans(U[t])*spins[ab[0]]*U[t];
+            const Operator b=blaze::ctrans(U[s])*spins[ab[1]]*U[s];
+            const size_t slot=(t*data.num_correlation_components()+pair)*(ni+2*nt)+ni+s;
+            failures+=require(std::abs(sample.correlations[slot]-blaze::trace(tr.imaginary_density_operator*a*b))<2e-12,
+                "prescribed pulse recovers exact Heisenberg two-time correlator");
+        }
+    }
+    failures+=require(std::abs(pair_reference(tr,S_Z,S_Z,1,0,true)
+        -pair_reference(tr,S_Z,S_Z,2,1,true))>0.1,"same-lag pairs across a pulse remain distinct");
+
+    auto q=func::generate_initial_correlations(p,func::generate_initial_magnetization(p).Re);
+    auto m=func::generate_initial_magnetization(p);
+    for(size_t t=0;t<nt;++t)for(size_t c=0;c<m.Re[t].size();++c)
+    {m.Re[t][c]=0.02*(t+1)*(c+1);m.Im[t][c]=-0.01*(c+1);}
+    const auto connected=func::connected_contour_primitive(q,m);
+    for(size_t t=0;t<nt;++t)for(size_t s=0;s<nt;++s)for(bool greater:{true,false})
+    {
+        const auto actual=contour::real_time_value(connected,greater,RealType(t),RealType(s),0,2);
+        const auto expected=contour::real_time_value(q,greater,RealType(t),RealType(s),0,2)
+            -ComplexType{m.Re[t][0],m.Im[t][0]}*ComplexType{m.Re[s][2],m.Im[s][2]};
+        failures+=require(std::abs(actual-expected)<2e-12,"connected pairs subtract m_a(t1)m_b(t2)");
+    }
+    // Alter a pair with t1=0: it is live, unlike the frozen X(0,tau).
+    auto errors=q;for(auto* part:{&errors.Re,&errors.Im})for(auto& tensor:*part)
+        for(size_t pair=0;pair<tensor.size();++pair)for(auto& x:tensor[pair])x=1.;
+    auto changed=q;changed.Re[0][0][ni+2]+=0.2;
+    auto magnetization_errors=m;
+    for(size_t t=0;t<nt;++t)for(size_t c=0;c<m.Re[t].size();++c)
+    {magnetization_errors.Re[t][c]=1.;magnetization_errors.Im[t][c]=1.;}
+    const auto residual=func::iteration_residual(q,changed,errors,m,m,magnetization_errors,true);
+    failures+=require(std::abs(residual.absolute-0.2)<2e-12,
+        "frozen origin excludes only mixed preparation, retaining real-time pairs with t1=0");
+
+    // Nonstationary polynomial kernel: exact two-argument interpolation,
+    // causal response support, and dependence on absolute times in feedback.
+    for(size_t t=0;t<nt;++t)for(size_t pair=0;pair<q.Re[t].size();++pair)
+        for(size_t s=0;s<nt;++s)
+        {
+            q.Re[t][pair][ni+s]=1.+RealType(t+s);
+            q.Re[t][pair][ni+nt+s]=1.+RealType(t+s);
+            q.Im[t][pair][ni+s]=RealType(t*t)-RealType(s*s);
+            q.Im[t][pair][ni+nt+s]=-q.Im[t][pair][ni+s];
+        }
+    const auto field=func::self_consistent_equations(p,q,m);
+    const auto eta=[&](size_t i){return grid.flat(contour::StaggeredSector::Eta,i,0);};
+    const auto last=p.num_RealTimeSteps*p.real_time_steps_per_interval()-1;
+    failures+=require(std::abs(field.covariance(eta(0),eta(0))-field.covariance(eta(last),eta(last)))>0.1,
+        "self-consistent eta covariance uses absolute times");
+    failures+=require(std::abs(contour::real_time_value(q,true,0.5,1.5,0,0)-ComplexType{3.,-2.})<2e-12,
+        "two-time interpolation retains both coordinates");
+    for(size_t substeps:{size_t{1},size_t{3}})
+        for(size_t i=0;i<p.num_RealTimeSteps*substeps;++i)
+            for(size_t j=0;j<=p.num_RealTimeSteps*substeps;++j)
+            {
+                const RealType t=(RealType(i)+0.5)/RealType(substeps),s=RealType(j)/RealType(substeps);
+                const auto actual=contour::staggered_correlation(q,
+                    {contour::StaggeredSector::Eta,i,0},{contour::StaggeredSector::Nu,j,0},substeps);
+                const ComplexType expected=j<=i?ComplexType{0.,2*(t*t-s*s)}:ComplexType{};
+                failures+=require(std::abs(actual-expected)<2e-12,
+                    "two-time response interpolates both arguments then applies exact causal support");
+                failures+=require(actual==contour::staggered_correlation(q,
+                    {contour::StaggeredSector::Nu,j,0},{contour::StaggeredSector::Eta,i,0},substeps),
+                    "two-time response covariance is complex symmetric");
+            }
+    auto changed_real=q;
+    changed_real.Re[0][0][ni]=19.;
+    const auto changed_field=func::self_consistent_equations(p,changed_real,m);
+    for(size_t i=0;i<3*ni;++i)for(size_t j=0;j<3*ni;++j)
+        failures+=require(changed_field.covariance(i,j)==field.covariance(i,j),
+            "real-time contacts cannot change the frozen Matsubara covariance");
+    return failures;
+}
+
 int main( int argc, char** argv )
 {
     MPI_Init(&argc,&argv);
@@ -291,6 +444,11 @@ int main( int argc, char** argv )
     p.Tmax=RealType{0.6}; p.delta_real_t=p.Tmax/p.num_RealTimeSteps;
     int failures{};
     func::initialize_matrices(p);
+    failures+=check_two_time(p,rank);
+    auto nonstationary=p;nonstationary.time_translation_invariant=false;
+    failures+=check_fused_accumulation<Operator>(nonstationary,rank);
+    failures+=check_fused_accumulation<func::SpinHalfOperator>(nonstationary,rank);
+    failures+=check_pcn_cache(nonstationary,rank);
     {
         auto stopping=p;stopping.Iteration_Limit=10;
         rtd::RunTimeData data(stopping,rank);

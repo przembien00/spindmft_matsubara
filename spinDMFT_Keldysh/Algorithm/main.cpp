@@ -54,18 +54,24 @@ int main( const int argC, char* const argV[] )
         +(my_pspace.uses_harmonic_bath()?"Sampling Step ":"Iteration Step ")+it_str+
         " ------------------------\n" );
 
+    const bool materialize_covariance=my_pspace.gaussian_factorization!="chebyshev";
     const func::SelfConsistentField field = my_pspace.uses_harmonic_bath()
-        ?func::prescribed_harmonic_bath_field(my_pspace,my_pspace.gaussian_factorization!="fft")
+        ?func::prescribed_harmonic_bath_field(my_pspace,materialize_covariance)
         :func::self_consistent_equations(
             my_pspace,my_correlations,
-            my_magnetization_Re,my_magnetization_Im,
-            my_pspace.gaussian_factorization!="fft");
+            my_magnetization_Re,my_magnetization_Im,materialize_covariance);
     auto sampler=func::make_contour_gaussian_sampler(my_pspace,field);
+    if(my_pspace.gaussian_factorization=="chebyshev")
+        print::print_R0(my_rank,"Chebyshev degree: "+std::to_string(sampler->polynomial_degree())
+            +"; spectral upper bound: "+std::to_string(sampler->spectral_bound())
+            +"; absolute error bound for each complex covariance: "
+            +std::to_string(sampler->covariance_approximation_error())+"\n");
     my_rtdata.record_complex_field_diagnostics(
         field.covariance_symmetry_error, field.branch_identity_error,
         sampler->reconstruction_error(),
         sampler->covariance_approximation_error(),
-        sampler->latent_dimension(),sampler->largest_factorization_dimension() );
+        sampler->latent_dimension(),sampler->largest_factorization_dimension(),
+        sampler->polynomial_degree(),sampler->spectral_bound() );
 
     std::mt19937 engine{ static_cast<uint>( rd::throw_seed(
         my_rtdata.generated_seed, my_rtdata.num_Iterations, my_rank ) ) };

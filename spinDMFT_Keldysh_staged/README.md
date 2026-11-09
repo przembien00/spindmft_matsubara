@@ -67,6 +67,150 @@ real-time measurement spacing is `Tmax/numRealTimeSteps`.
 Covariance construction always produces a dense matrix: the Matsubara matrix
 for preparation and the full joint matrix for real-time sampling.
 
+## Full two-time correlations
+
+The default `--timeTranslationInvariant=true` reconstructs the real-time bath
+from the endpoints of the mixed primitive at the lag `t1-t2`. For a driven
+calculation, select
+
+```sh
+--timeTranslationInvariant=false --cstype=D
+```
+
+This measures both `Cgreater_ab(t1,t2)=<S_a(t1) S_b(t2)>` and
+`Clesser_ab(t1,t2)=<S_b(t2) S_a(t1)>` on the full real-time measurement grid.
+The self-consistent eta--eta noise and causal eta--nu response use these
+two-time tensors, with interpolation in each time argument before imposing
+causal support. Connected correlations subtract `m_a(t1)*m_b(t2)`.
+Both tensors participate in MPI reduction, complex partition-sum normalization,
+statistical errors and convergence checks, for independent sampling and pCN.
+The measured magnetization remains time dependent; combining this mode with
+`--constantMagnetization` is rejected. Spin-component symmetry is still
+controlled separately by `--cstype`; use `D` for a generic drive that breaks
+the reduced spin symmetries.
+
+The initial thermal preparation remains an equilibrium Matsubara calculation.
+Only `X(0,tau)` and the origin magnetization are frozen in feedback; real-time
+pairs involving the origin remain live. The first real-time guess is seeded
+from the stationary preparation. The prescribed harmonic bath retains its
+analytic stationary covariance, while spin observables are measured in full.
+
+Filenames in this mode include `two_time__`. The mixed datasets retain their
+existing names and axes. Additional `/results/Re_correlation_greater`,
+`Im_correlation_greater`, `Re_correlation_lesser` and `Im_correlation_lesser`
+have axes `[t1,direction_pair(a,b),t2]`; both time axes use
+`/results`' `real_times` attribute. `/runtimedata` contains matching
+`*_sample_stds` datasets and, for pCN, `*_tau_int` datasets. The parameter
+attribute `time_translation_invariant` records `yes` or `no`.
+Observable storage, statistical-block storage and pair measurement now grow
+quadratically with the number of real-time points; the Gaussian field grid
+and its dense factorization dimension are unchanged.
+
+This option supplies the two-time measurement and feedback needed for drives.
+Pulse files automatically select it, as described below. Continuous
+time-dependent external-field input is not yet provided.
+Regression tests include prescribed pulse maps and nonunitary branch maps,
+exact thermal-spin two-time correlations, both samplers, and frozen-MM feedback:
+
+```sh
+python3 -B Algorithm/Tests/test_two_time_solver.py ./executable_DOUBLE.out
+python3 -B Algorithm/Tests/test_two_time_solver.py ./executable_DOUBLE.out --mpi-ranks=2
+```
+
+## Pulse sequences
+
+Supply `--pulseSequence=sequence.hdf5`. The file contains three numeric datasets:
+
+| Dataset | Shape | Meaning |
+|---|---|---|
+| `/pulses/times` | `[N]` | Pulse times in the same units as `Tmax` |
+| `/pulses/axes` | `[N,3]` | Rotation-axis vectors `(x,y,z)`; normalized on input |
+| `/pulses/angles` | `[N]` | Rotation angles in radians |
+
+Times must be finite, nondecreasing, and in `[0,Tmax]`. Coincident off-grid
+or origin pulses retain row order; coincident measurement-grid pulses add
+as Hamiltonian field vectors. Axis vectors must be
+finite and nonzero, and angles must be finite. An empty sequence is allowed.
+Nonempty sequences automatically select `timeTranslationInvariant=false`;
+explicit `true`, `--constantMagnetization`, and `--cstype` values other than
+`D` are rejected.
+
+With `hbar=1`, the positive angle convention is `+i angle axis.S`.
+For a pulse at a nonzero measurement time, the last propagation substep
+ending at that time uses
+
+```text
+h = delta_real_t / realTimeSubsteps
+H_eff = H - (angle/h) axis.S
+P = exp(-i h H_eff)
+```
+
+The pulse field is added to the magnetic, mean and sampled precession fields
+in the same exponential. It is included on both forward and inverse-precession
+branches, with the original response kicks retained. Multiple pulses at the
+same measurement time contribute the sum of their `-(angle/h) axis` vectors.
+They do not create separate rotation matrices. For noncommuting background
+and pulse terms this is a finite-width field pulse over `h`; its finite-step
+result differs from a separate instantaneous rotation. Increasing
+`realTimeSubsteps` narrows that width while retaining its integrated angle.
+
+Off-grid pulses and pulses at `t=0` use the instantaneous forward rotation
+`R=exp(+i angle axis.S)` and backward rotation `R^dagger`.
+The spin matrices already contain their spin normalization: for spin 1/2,
+`R=cos(angle/2) I + i sin(angle/2) axis.sigma`. No additional factor of two
+is applied to the angle. This positive-exponent convention corresponds to
+the negative of the angle in the usual active `exp(-i angle axis.S)` convention.
+
+A pulse off the measurement grid and strictly within a Strang microstep splits that step's precession
+into the elapsed and remaining durations, retaining its sampled midpoint
+field and original response-boundary kicks. A pulse exactly on an internal
+substep edge that is not a measurement time acts after the complete preceding
+step, including its response kick. Decimal times that differ from an edge
+only by floating-point roundoff are snapped to it. Multiple pulses within
+one step keep their individual times and order. `--realTimeSubsteps` refines
+the propagation grid without changing the listed physical pulse times.
+
+A pulse at `t=0` follows thermal preparation and precedes every real-time
+measurement. The real-time origin is therefore `0+`; the imaginary branch
+and its mean remain anchored at the pre-pulse state `0-`. Mixed correlations
+retain their imaginary-branch spin in that pre-pulse preparation, while both
+arguments of real-time greater/lesser correlations refer to the driven state.
+Consequently, mixed endpoints need not equal real-time pairs with `t2=0`
+when a zero-time pulse is present. A pulse at `Tmax` contributes to the last
+substep's Hamiltonian and affects the final measurement.
+The Matsubara pCN acceptance weight is unaffected by pulses.
+
+The supplied helper creates a sequence (and refuses to overwrite an existing file):
+
+```sh
+python3 write_pulse_sequence.py echo.hdf5 \
+  --pulse 0.0 y 1.5707963267948966 \
+  --pulse 0.5 x 3.141592653589793
+mpirun -n 1 ./executable_DOUBLE.out --pulseSequence=echo.hdf5 --cstype=D \
+  --numImagTimeSteps=20 --numRealTimeSteps=40 --Tmax=1 \
+  --numSamplesPerCore=10000 --preparationSamplesPerCore=20000
+```
+
+The axis argument can also be a vector such as `1,1,0`. To construct files
+directly in Python, write the three datasets with h5py; `axes` must have
+shape `(N,3)` even for an empty sequence. Output filenames include `pulsed__`.
+The result file records the source path, rotation/measurement convention,
+and a `/pulses` group containing the normalized, effective sequence; the
+result file itself can be passed back as `--pulseSequence` input.
+
+As elsewhere in the solver, bath correlations and the deterministic mean are
+interpolated from the measurement grid. Resolve pulse neighborhoods with an
+appropriate measurement grid when checking self-consistent discretization errors.
+Driven-spin tests compare against the combined Hamiltonian exponentials at
+measurement times and timed rotations elsewhere, including noncommuting axes,
+spin 1/2 and spin 1, both samplers, origin/final pulses, and substeps. Separate
+nonunitary-map and finite-bath tests check branch ordering and frozen preparation:
+
+```sh
+python3 -B Algorithm/Tests/test_pulse_solver.py ./executable_DOUBLE.out
+python3 -B Algorithm/Tests/test_pulse_solver.py ./executable_DOUBLE.out --mpi-ranks=2
+```
+
 `--preparationSamplesPerCore=0` uses `--numSamplesPerCore`; similarly,
 `--preparationIterlimit=0` uses `--iterlimit`.
 Preparation uses the `spinDMFT_cplx_field` stopping rule: the largest component
@@ -221,9 +365,8 @@ is `3*(numImagTimeSteps+1+2*N+1)`, so increasing q increases factorization
 cost. At least three imaginary-time intervals are needed for the unchanged
 Gauss-CF4 preparation; one real-time interval is allowed.
 
-Output filenames include `__prop=staggered-strang` and, for q greater than
-one, `__substeps=q`. HDF5 records the evolution, field layout, covariance and
-maps. The frozen MM check continues to run each real-time iteration.
+Output filenames include `__substeps=q` for q greater than one. HDF5 records
+the evolution, field layout, covariance and maps. The frozen MM check continues to run each real-time iteration.
 
 Tests cover exact causal support, joint reconstruction,
 the branch-equivalent conjugated covariance, shared kicks, general spin,

@@ -477,6 +477,34 @@ SelfConsistentField covariance_from_primitive( const ps::ParameterSpace& pspace,
     result.covariance_symmetry_error=RealType{};
     result.covariance_source=CovarianceSource(n,[raw](size_t i,size_t j)
     {return i<=j?raw(i,j):raw(j,i);});
+    if(pspace.gaussian_factorization=="chebyshev")
+    {
+        using Block=StructuredContourCovariance::Block;
+        using Sector=contour::StaggeredSector;
+        const size_t m=pspace.num_TimePoints,N=pspace.num_RealTimeSteps,intervals=N*q;
+        std::vector<Block> ml(m),sl(intervals),rl(intervals),mixed((N+1)*m);
+        const auto& source=result.covariance_source;
+        for(size_t lag=0;lag<m;++lag)for(size_t a=0;a<3;++a)for(size_t b=0;b<3;++b)
+            ml[lag][3*a+b]=source(staggered_layout.flat(Sector::Matsubara,lag,a),
+                staggered_layout.flat(Sector::Matsubara,0,b));
+        for(size_t lag=0;lag<intervals;++lag)for(size_t a=0;a<3;++a)for(size_t b=0;b<3;++b)
+        {
+            sl[lag][3*a+b]=source(staggered_layout.flat(Sector::Eta,lag,a),
+                staggered_layout.flat(Sector::Eta,0,b));
+            rl[lag][3*a+b]=source(staggered_layout.flat(Sector::Eta,lag,a),
+                staggered_layout.flat(Sector::Nu,0,b));
+        }
+        for(size_t t=0;t<=N;++t)for(size_t tau=0;tau<m;++tau)
+            for(size_t a=0;a<3;++a)for(size_t b=0;b<3;++b)
+            {
+                ComplexType v{};
+                for(const auto& term:rotations[3*a+b])
+                    v+=term.coefficient*contour::edge_value(*values,t,term.c,term.d,tau);
+                mixed[t*m+tau][3*a+b]=scale*v+ComplexType{noise[3*a+b],RealType{}};
+            }
+        result.structured_covariance=std::make_shared<StructuredContourCovariance>(
+            m,N,q,std::move(ml),std::move(sl),std::move(rl),std::move(mixed));
+    }
     return result;
 }
 }
@@ -486,6 +514,13 @@ std::unique_ptr<JointComplexGaussianSampler> make_contour_gaussian_sampler(
 {
     const contour::StaggeredLayout layout{pspace.num_TimePoints,
         pspace.num_RealTimeSteps*pspace.real_time_steps_per_interval()};
+    if(pspace.gaussian_factorization=="chebyshev")
+    {
+        if(!field.structured_covariance)
+            throw std::invalid_argument("Chebyshev sampling requires the compressed contour covariance");
+        return std::make_unique<ChebyshevComplexGaussianSampler>(field.structured_covariance,
+            pspace.gaussian_chebyshev_tolerance,pspace.gaussian_chebyshev_max_degree);
+    }
     if(field.covariance.rows()!=layout.dimension())
         throw std::invalid_argument("staggered sampling requires its joint dense covariance");
     if(pspace.gaussian_factorization=="dense")

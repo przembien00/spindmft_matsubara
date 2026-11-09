@@ -15,6 +15,12 @@ namespace spinDMFT::Parameter_Space
 // ======================= NAMESPACES ============================
 namespace ph = Physics;
 
+struct Pulse
+{
+    RealType time{};
+    FieldVector axis{}; // Unit vector; angles are in radians.
+    RealType angle{};   // Positive angle: integrated generator +i angle axis.S.
+};
 
 // ===============================================================
 // ============== HEADER FOR PARAMETER SPACE CLASS ===============
@@ -33,6 +39,7 @@ class ParameterSpace
   // PUBLIC METHODS
   size_t get_num_Cores() const{ return static_cast<size_t>(world_size); }
   void read_initial_correlations_from_file();
+  void read_pulse_sequence();
   std::string create_essentials_string() const;
 
   // PUBLIC MEMBERS
@@ -57,6 +64,7 @@ class ParameterSpace
   // ========== general numerical parameters ==========
   // ...concerning the symmetry
   char correlation_symmetry_type{};
+  bool time_translation_invariant{true};
 
   // ...concerning the time discretization
   size_t num_TimeSteps{};
@@ -70,6 +78,8 @@ class ParameterSpace
   size_t num_RealTimePoints{};
   RealType delta_real_t{};
   RealType Tmax{};
+  std::string pulse_sequence_file{};
+  std::vector<Pulse> pulses{};
 
   // ...concerning the statistics
   size_t num_SamplesPerCore{};
