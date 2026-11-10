@@ -8,8 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
-# The existing dense joint Gaussian implementation is compiled directly, so
-# changes/fixes in the staged solver are shared without copying its source.
+# Gaussian sampling and the single-site reference kernel live in cpp_libs.
 find_package(MPI REQUIRED COMPONENTS CXX)
 find_package(HDF5 REQUIRED COMPONENTS C)
 find_package(LAPACK REQUIRED)
@@ -22,8 +21,8 @@ add_library(cluster_keldysh
     Functions/Functions.cpp Functions/Initialization.cpp Functions/Staged_Solver.cpp
     Run_Time_Data/Run_Time_Data.cpp Functions/Sampling.cpp
     Storage_Concept/Storage_Concept.cpp Time_Measure/Time_Measure.cpp
-    ../../spinDMFT_Keldysh_staged/Algorithm/Functions/Joint_Matsubara_PCN.cpp
-    ../../spinDMFT_Keldysh_staged/Algorithm/Functions/Complex_Gaussian.cpp)
+    ../../cpp_libs/Complex_Gaussian/Joint_Matsubara_PCN.cpp
+    ../../cpp_libs/Complex_Gaussian/Complex_Gaussian.cpp)
 target_compile_definitions(cluster_keldysh PUBLIC USE_DOUBLE)
 target_include_directories(cluster_keldysh PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
     ../../cpp_libs ${BLAZE_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
@@ -35,7 +34,7 @@ set_target_properties(CspinDMFT_Keldysh_DOUBLE PROPERTIES
 include(CTest)
 if(BUILD_TESTING)
     add_executable(test_cluster Tests/test_cluster.cpp
-        ../../spinDMFT_Keldysh_staged/Algorithm/Contour/Contour_Kernel.cpp)
+        ../../cpp_libs/Keldysh_Contour/Contour_Kernel.cpp)
     target_link_libraries(test_cluster PRIVATE cluster_keldysh)
     add_test(NAME cluster_core COMMAND test_cluster)
     find_package(Python3 QUIET COMPONENTS Interpreter)
@@ -49,3 +48,5 @@ if(BUILD_TESTING)
         endif()
     endif()
 endif()
+
+include(../../cpp_testing/AlgorithmIndependence.cmake)

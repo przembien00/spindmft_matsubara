@@ -1,5 +1,4 @@
 /Algorithm/build/
 /executable_*.out
-/Configuration_Data/
 /Data/*
 !/Data/.gitkeep

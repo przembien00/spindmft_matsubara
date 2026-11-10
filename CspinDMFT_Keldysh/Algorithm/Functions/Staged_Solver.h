@@ -1,6 +1,6 @@
 #pragma once
 #include "../Run_Time_Data/Run_Time_Data.h"
-#include "../../../spinDMFT_Keldysh_staged/Algorithm/Functions/Joint_Matsubara_PCN.h"
+#include <Complex_Gaussian/Joint_Matsubara_PCN.h>
 namespace CspinDMFT::Functions {
 // One pCN chain on the current joint Gaussian law's Matsubara row space.
 // Main controls burn-in and the production loop. Each production draw also

@@ -262,7 +262,7 @@ Products are unconjugated. Weights are stored per source-pair orientation:
 pairs are measured explicitly. No manual factor of two is needed. A symmetric
 mirror entry for an unlisted reverse pair is allowed and is not counted again.
 Other lattice-symmetry multiplicities remain folded into representative weights.
-See [the configuration convention](../CspinDMFT_finite_T/Configuration/README.md)
+See [the configuration convention](Configuration/README.md)
 for migration of external legacy files. The joint field
 basis is `[V_M(tau_k), eta(t_(n+1/2)), nu(t_n)]`, with `3*N` components per
 node. Causal support is enforced at the actual staggered nodes; smooth

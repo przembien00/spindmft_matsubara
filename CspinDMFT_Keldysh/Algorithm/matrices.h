@@ -1,5 +1,5 @@
 #pragma once
-#include "../../spinDMFT_Keldysh_staged/Algorithm/Functions/Complex_Gaussian.h"
+#include <Complex_Gaussian/Complex_Gaussian.h>
 namespace CspinDMFT {
 using C = ComplexType;
 using Matrix = spinDMFT::Functions::ComplexDynamicMatrix;

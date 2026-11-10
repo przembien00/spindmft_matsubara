@@ -4,7 +4,7 @@
 #include <filesystem>
 #include <chrono>
 #include "Storage_Concept/HDF5_Utilities.h"
-#include "../../../spinDMFT_Keldysh_staged/Algorithm/Contour/Contour_Kernel.h"
+#include <Keldysh_Contour/Contour_Kernel.h>
 using namespace CspinDMFT;
 namespace {
 void require(bool ok,const char* message) { if(!ok) throw std::runtime_error(message); }
@@ -216,7 +216,7 @@ int main() {
         for(size_t i=0;i<field.size();++i)near(field[i],expected_field[i],1e-12,"sector field inverse scaling");
         for(const auto& sample:sector_sampler.draw_contour_batch(sampler_engine,3))
             require(sample.edge_field.size()==layout.dimension(),"sector batch field size");
-        // Match the owning staged implementation on every one-site staggered block.
+        // Match the shared single-site implementation on every one-site staggered block.
         namespace ct=spinDMFT::Contour;
         ct::CorrelationSet single('D',5,4);
         ContourCorrelations scalar(4,1,5,'D');
