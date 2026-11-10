@@ -1,4 +1,16 @@
 cmake_minimum_required(VERSION 3.16)
+# Select the cluster toolchain before project() detects the compilers.
+# Cache defaults preserve explicit -D overrides and builds on other machines.
+if(EXISTS "/cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/bin/gcc"
+   AND EXISTS "/cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/bin/g++"
+   AND EXISTS "/cluster/sfw/openmpi/gcc9.2.x/4.0.3/mpi_thread_multiple/bin/mpicxx")
+    set(CMAKE_C_COMPILER "/cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/bin/gcc"
+        CACHE FILEPATH "C compiler")
+    set(CMAKE_CXX_COMPILER "/cluster/sfw/gcc/9.2.0-static-gmp-mpfr-mpc-isl/bin/g++"
+        CACHE FILEPATH "C++ compiler")
+    set(MPI_CXX_COMPILER "/cluster/sfw/openmpi/gcc9.2.x/4.0.3/mpi_thread_multiple/bin/mpicxx"
+        CACHE FILEPATH "MPI C++ wrapper")
+endif()
 project(CspinDMFT_Keldysh LANGUAGES C CXX)
 if(POLICY CMP0167)
     cmake_policy(SET CMP0167 NEW)
@@ -13,7 +25,6 @@ find_package(MPI REQUIRED COMPONENTS CXX)
 find_package(HDF5 REQUIRED COMPONENTS C)
 find_package(LAPACK REQUIRED)
 find_package(Boost REQUIRED COMPONENTS program_options)
-find_path(BLAZE_INCLUDE_DIR blaze/Math.h HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../../cpp_libs REQUIRED)
 add_library(cluster_keldysh
     Parameter_Space/Parameter_Space.cpp
     Mean_Field_Models/Mean_Field_Models.cpp
@@ -25,7 +36,9 @@ add_library(cluster_keldysh
     ../../cpp_libs/Complex_Gaussian/Complex_Gaussian.cpp)
 target_compile_definitions(cluster_keldysh PUBLIC USE_DOUBLE)
 target_include_directories(cluster_keldysh PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
-    ../../cpp_libs ${BLAZE_INCLUDE_DIR} ${HDF5_INCLUDE_DIRS})
+    ../../cpp_libs ${HDF5_INCLUDE_DIRS})
+# Replace this example with the directory containing blaze/Math.h.
+target_include_directories(cluster_keldysh PUBLIC "/work/mprzbien/libraries/blaze-3.8")
 target_link_libraries(cluster_keldysh PUBLIC MPI::MPI_CXX ${HDF5_LIBRARIES} ${LAPACK_LIBRARIES} Boost::program_options)
 add_executable(CspinDMFT_Keldysh_DOUBLE main.cpp)
 target_link_libraries(CspinDMFT_Keldysh_DOUBLE PRIVATE cluster_keldysh Boost::program_options)
