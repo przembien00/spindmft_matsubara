@@ -1,6 +1,7 @@
 #pragma once
 
 #include<array>
+#include<functional>
 #include<complex>
 #include<cstddef>
 #include<memory>
@@ -29,6 +30,15 @@ struct TakagiFactor
 };
 
 struct GaussianBlockFactors;
+
+// Exactly symmetric covariance evaluated on demand. value(i,j) must equal
+// value(j,i); no dense D-by-D storage is required. The provider must remain
+// valid only during sampler construction, which retains just the factors.
+struct SymmetricCovarianceSource
+{
+    size_t dimension{};
+    std::function<ComplexType(size_t,size_t)> value;
+};
 
 // Autonne--Takagi factorization of a complex symmetric pseudo-covariance.
 // A nonsymmetric input is rejected instead of being projected. The factor is
@@ -77,17 +87,23 @@ class DenseComplexGaussianSampler : public JointComplexGaussianSampler
     using LatentVector = JointComplexGaussianSampler::LatentVector;
     using FieldVector = JointComplexGaussianSampler::FieldVector;
 
-    // Reject nonfinite or excessive physical reconstruction residuals at construction.
+    // With check_reconstruction=true, reject excessive physical residuals.
+    // When disabled, reconstruction_error() returns NaN (not evaluated).
     explicit DenseComplexGaussianSampler(const ComplexDynamicMatrix& covariance,
-        RealType takagi_tolerance=RealType{1e-8});
+        RealType takagi_tolerance=RealType{1e-8},bool check_reconstruction=true);
     // Preserve a diagonal sampling objective in another field basis. The
     // returned draws reconstruct the original, unweighted pseudo-covariance.
     DenseComplexGaussianSampler(const ComplexDynamicMatrix& covariance,
-        const std::vector<RealType>& weights, RealType takagi_tolerance=RealType{1e-8});
+        const std::vector<RealType>& weights, RealType takagi_tolerance=RealType{1e-8},bool check_reconstruction=true);
 
     // Fixed contour scaling: Matsubara=1, eta=2, nu=1/2, without a weight vector.
     DenseComplexGaussianSampler(const ComplexDynamicMatrix& covariance,
-        size_t matsubara_size,size_t eta_size,RealType takagi_tolerance);
+        size_t matsubara_size,size_t eta_size,RealType takagi_tolerance,bool check_reconstruction=true);
+
+    explicit DenseComplexGaussianSampler(const SymmetricCovarianceSource& covariance,
+        RealType takagi_tolerance=RealType{1e-8},bool check_reconstruction=true);
+    DenseComplexGaussianSampler(const SymmetricCovarianceSource& covariance,
+        size_t matsubara_size,size_t eta_size,RealType takagi_tolerance,bool check_reconstruction=true);
 
     LatentVector draw_latent( std::mt19937& engine ) override;
     FieldVector field_from_latent( const LatentVector& latent ) override;
@@ -107,7 +123,9 @@ class DenseComplexGaussianSampler : public JointComplexGaussianSampler
  private:
     void validate_reconstruction(RealType tolerance) const;
     void initialize_weighted(const ComplexDynamicMatrix&,RealType tolerance);
+    void initialize_weighted(const SymmetricCovarianceSource&,RealType tolerance);
     RealType weight_root(size_t row) const;
+    bool m_check_reconstruction=true;
     bool m_contour_scaling=false;
     size_t m_matsubara_size=0,m_eta_end=0;
     std::shared_ptr<GaussianBlockFactors> m_factors;
