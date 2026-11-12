@@ -18,6 +18,7 @@ struct BasicSample {
 };
 using PreparationSample=BasicSample<MatsubaraCorrelations>;
 using RealTimeSample=BasicSample<ContourCorrelations>;
+// partition_only returns just the partition; all observable containers are empty.
 template<class Correlations>
 BasicSample<Correlations> measure(const Model&,const ParameterSpace&,const Layout&,const Field&,const std::vector<C>& mean,bool partition_only=false);
 template<class Correlations>

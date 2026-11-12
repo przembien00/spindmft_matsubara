@@ -52,6 +52,12 @@ Correlations isolated_correlations_impl(const Model& model,const ParameterSpace&
     Correlations result=make_correlations<Correlations>(nt,model.sites,p.num_TimeSteps+1,p.correlation_symmetry_type,model.correlation_categories);
     Matrix rho=exponential(-p.beta*model.hamiltonian);
     C z=blaze::trace(rho);
+    std::vector<Matrix> left(result.imaginary_points),right(result.imaginary_points);
+    for(size_t k=0;k<result.imaginary_points;++k) {
+        const double tau=p.beta*double(k)/double(p.num_TimeSteps);
+        left[k]=exponential(-(p.beta-tau)*model.hamiltonian);
+        right[k]=exponential(-tau*model.hamiltonian);
+    }
     for(size_t t=0;t<nt;++t) {
         Matrix u=exponential(C(0,-p.delta_real_t*double(t))*model.hamiltonian);
         Matrix v=exponential(C(0,p.delta_real_t*double(t))*model.hamiltonian);
@@ -59,9 +65,7 @@ Correlations isolated_correlations_impl(const Model& model,const ParameterSpace&
             const auto i=ij[0],j=ij[1];
             Matrix spin=v*model.operators[3*i+ab[0]]*u;
             for(size_t k=0;k<result.imaginary_points;++k) {
-                double tau=p.beta*double(k)/double(p.num_TimeSteps);
-                Matrix left=exponential(-(p.beta-tau)*model.hamiltonian),right=exponential(-tau*model.hamiltonian);
-                Matrix insertion=left*model.operators[3*j+ab[1]]*right;
+                Matrix insertion=left[k]*model.operators[3*j+ab[1]]*right[k];
                 set_correlation(result,t,3*i+ab[0],3*j+ab[1],k,contract(insertion,spin)/z);
             }
         }
@@ -70,7 +74,10 @@ Correlations isolated_correlations_impl(const Model& model,const ParameterSpace&
 }
 MatsubaraCorrelations generate_initial_correlations(const Model& model,const ParameterSpace& p) {
     if(p.init_corr_mode=="import") return import_initial_correlations(model,p);
-    auto result=isolated_correlations_impl<MatsubaraCorrelations>(model,p,1);
+    auto result=(p.init_diag_corr=="isolated" || p.init_nondiag_corr=="isolated")
+        ?isolated_correlations_impl<MatsubaraCorrelations>(model,p,1)
+        :make_correlations<MatsubaraCorrelations>(1,model.sites,p.num_TimeSteps+1,
+            p.correlation_symmetry_type,model.correlation_categories);
     std::function<double(double)> diagonal=[](double) { return 0.; };
     std::function<double(double)> offdiagonal=[](double) { return 0.; };
     if(p.init_diag_corr!="zero" && p.init_diag_corr!="isolated")
@@ -130,23 +137,42 @@ BasicSample<Correlations> measure(const Model& model,const ParameterSpace& p,con
         }
         return h;
     };
+    const double root=std::sqrt(3.),early=(3.-2.*root)/12.,late=(3.+2.*root)/12.,h=p.beta/double(ni-1);
+    const auto imaginary_step=[&](size_t k) {
+        Matrix a=imag_h(double(k)+.5-root/6.),b=imag_h(double(k)+.5+root/6.);
+        return Matrix(exponential(-h*(early*a+late*b))*exponential(-h*(late*a+early*b)));
+    };
+    if(partition_only) {
+        Matrix product=model.identity;
+        for(size_t k=0;k+1<ni;++k) product=imaginary_step(k)*product;
+        return BasicSample<Correlations>{make_correlations<Correlations>(1,0,0,'A'),
+            make_magnetization<MagnetizationFor<Correlations>>(1,0,'A'),{},blaze::trace(product)};
+    }
     std::vector<Matrix> steps(ni-1),prefix(ni),suffix(ni);
     prefix[0]=model.identity; suffix.back()=model.identity;
-    double root=std::sqrt(3.),early=(3.-2.*root)/12.,late=(3.+2.*root)/12.,h=p.beta/double(ni-1);
     for(size_t k=0;k+1<ni;++k) {
-        Matrix a=imag_h(double(k)+.5-root/6.),b=imag_h(double(k)+.5+root/6.);
-        steps[k]=exponential(-h*(early*a+late*b))*exponential(-h*(late*a+early*b));
+        steps[k]=imaginary_step(k);
         prefix[k+1]=steps[k]*prefix[k];
     }
     for(size_t k=ni-1;k-->0;) suffix[k]=suffix[k+1]*steps[k];
     auto correlations=make_correlations<Correlations>(nt,model.sites,ni,p.correlation_symmetry_type,model.correlation_categories);
     auto magnetization=make_magnetization<MagnetizationFor<Correlations>>(nt,model.sites,p.correlation_symmetry_type);
-    if(partition_only) return BasicSample<Correlations>{std::move(correlations),std::move(magnetization),{},blaze::trace(prefix.back())};
-    std::vector<Matrix> insertions(nc*ni);
-    for(size_t b=0;b<nc;++b) for(size_t k=0;k<ni;++k) insertions[b*ni+k]=suffix[k]*model.operators[b]*prefix[k];
+    // Only requested right-hand operators need Matsubara insertions. Empty
+    // matrices for unused components carry no Hilbert-space-sized allocation.
+    std::vector<bool> right_needed(nc),left_needed(nc);
+    for(auto ij:correlations.categories) for(auto ab:correlations.directions) {
+        left_needed[3*ij[0]+ab[0]]=true;
+        right_needed[3*ij[1]+ab[1]]=true;
+    }
+    for(size_t i=0;i<model.sites;++i) for(size_t a:magnetization.directions) left_needed[3*i+a]=true;
+    std::vector<Matrix> insertions(nc*ni),transformed(nc);
+    for(size_t b=0;b<nc;++b) if(right_needed[b])
+        for(size_t k=0;k<ni;++k) insertions[b*ni+k]=suffix[k]*model.operators[b]*prefix[k];
     BasicSample<Correlations> sample{std::move(correlations),std::move(magnetization),std::vector<C>(nt),blaze::trace(prefix.back())};
     Matrix forward=model.identity,backward=model.identity;
     const double dt=p.delta_real_t/double(p.real_time_substeps);
+    Matrix boundary;
+    if(nt>1) boundary=exponential(C(0,-dt/4.)*node_h(Sector::Nu,0,false));
     for(size_t t=0;t<nt;++t) {
         if(t) for(size_t j=0;j<p.real_time_substeps;++j) {
             size_t micro=(t-1)*p.real_time_substeps+j;
@@ -154,21 +180,22 @@ BasicSample<Correlations> measure(const Model& model,const ParameterSpace& p,con
             const double fraction=(double(j)+.5)/double(p.real_time_substeps);
             for(size_t a=0;a<nc;++a)
                 eta+=((1.-fraction)*mean[(t-1)*nc+a]+fraction*mean[t*nc+a])*model.operators[a];
-            Matrix left=exponential(C(0,-dt/4.)*node_h(Sector::Nu,micro,false));
+            const Matrix& left=boundary;
             Matrix right=exponential(C(0,-dt/4.)*node_h(Sector::Nu,micro+1,false));
             Matrix u=right*exponential(C(0,-dt)*eta)*left;
             Matrix b=left*exponential(C(0,dt)*eta)*right;
             forward=u*forward; backward=backward*b;
+            boundary=std::move(right);
         }
         Matrix closed=forward*prefix.back()*backward;
         sample.closure[t]=blaze::trace(closed);
-        for(size_t i=0;i<model.sites;++i) for(size_t a:sample.magnetization.directions) {
-            Matrix insertion=backward*model.operators[3*i+a]*forward;
-            set_magnetization(sample.magnetization,t,3*i+a,contract(prefix.back(),insertion));
-        }
+        for(size_t a=0;a<nc;++a) if(left_needed[a])
+            transformed[a]=backward*model.operators[a]*forward;
+        for(size_t i=0;i<model.sites;++i) for(size_t a:sample.magnetization.directions)
+            set_magnetization(sample.magnetization,t,3*i+a,contract(prefix.back(),transformed[3*i+a]));
         for(auto ij:sample.correlations.categories) for(auto ab:sample.correlations.directions) {
             const auto i=ij[0],j=ij[1];
-            Matrix insertion=backward*model.operators[3*i+ab[0]]*forward;
+            const Matrix& insertion=transformed[3*i+ab[0]];
             for(size_t k=0;k<ni;++k)
                 set_correlation(sample.correlations,t,3*i+ab[0],3*j+ab[1],k,contract(insertions[(3*j+ab[1])*ni+k],insertion));
         }

@@ -56,7 +56,8 @@ bool RunTimeData::record(const ParameterSpace& p,const Model& model,const Correl
     ++statistics.num_Iterations;
     double ceiling=0.;
     for(double s:model.spins) ceiling=std::max(ceiling,std::max(s,s*s));
-    bool diagnostics=statistics.average_phase>=p.minimum_phase_magnitude && statistics.factorization_error<=p.takagi_tolerance
+    bool diagnostics=statistics.average_phase>=p.minimum_phase_magnitude
+        && (!p.check_gaussian_reconstruction || statistics.factorization_error<=p.takagi_tolerance)
         && statistics.covariance_error<=p.covariance_tolerance;
     for(size_t i=0;i<model.sites;++i) for(auto a:magnetization_directions(p.correlation_symmetry_type)) {
         double floor=128.*std::numeric_limits<double>::epsilon();

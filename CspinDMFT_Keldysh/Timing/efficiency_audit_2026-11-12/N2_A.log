@@ -1,0 +1,93 @@
+[Przemeks-MacBook-Pro][[53006,0],0][btl_tcp_component.c:1021:mca_btl_tcp_component_create_listen] bind() failed: Operation not permitted (1)
+[1;32mID of this Run: 614[0m
+The following correlations enter the self consistency (numbering starts at 1): 1-1,1-2
+I don't perform self-consistent iterations in this simulation!
+init_diag_corr                     : imagtime
+init_nondiag_corr                  : zero
+mf_model                           : CorrelationReplica
+config_file                        : /Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5
+num_Spins                          : 2
+num_HilbertSpaceDimension          : 4
+uncoupled_spins                    : false
+spin_list                          : 1/2,1/2
+J                                  : 2x2-Matrix
+(            0      -0.4082 )
+(      -0.4082            0 )
+spinspin_cmodel info               : spinmodel=ISO
+spinmf_cmodel info                 : spinmodel=ISO
+chemical_shift info                : 0,0
+rescale_meanfield                  : 1
+rescale_spinspin                   : 1
+beta                               : 5
+noise_string                       : noise=none
+bath                               : selfconsistent
+extra_interaction_string           : none
+correlation_symmetry_type          : A
+time_translation_invariant         : true
+num_ImagTimeSteps                  : 50
+delta_imag_t                       : 0.1
+num_RealTimeSteps                  : 150
+real_time_substeps                 : 1
+delta_real_propagation_t           : 0.066667
+Tmax                               : 10
+delta_real_t                       : 0.0667
+num_Cores                          : 1
+num_Samples                        : 4
+num_SamplesPerCore                 : 4
+num_PreparationSamples             : 4
+num_PreparationSamplesPerCore      : 4
+sampling_strategy                  : independent
+staged_field_sampling              : full-contour Takagi
+iteration_error_mode               : relative
+iteration_error_sigma_threshold    : 5
+Preparation_Iteration_Limit        : 20
+Iteration_Limit                    : 20
+information_text                   : 
+[1;33minitialization done (0)[0m : it took me 0.000533542 seconds
+
+--- Matsubara iteration 1 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.00229604 seconds
+[1;33mestimated duration of Monte-Carlo simulation[0m : 0.001148 seconds
+[============                                      ] 25%[=========================                         ] 50%[=====================================             ] 75%[==================================================] 100%
+[1;33mMatsubara sampling done (0)[0m : it took me 0.00106817 seconds
+[1;33mMPI communication done (0)[0m : it took me 1.4834e-05 seconds
+Iteration step finished:
+raw Matsubara absolute residual     : 0.5046
+largest standardized residual       : 2540.0658
+absolute Matsubara threshold        : 0.3608
+average phase magnitude             : 0.9998
+complex-weight N_eff                : 3.9927
+largest Gaussian factor block       : 51
+closed-contour trace residual       : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1.9791e-05 seconds
+[1;33mMatsubara self consistency done (0)[0m : it took me 0.00340196 seconds
+
+Matsubara preparation frozen. Starting joint-Takagi mixed/real-time iteration.
+
+--- Mixed/real-time iteration 1 ---
+[1;33mjoint field distribution done (0)[0m : it took me 0.326571 seconds
+AUDIT batch=1 draw_seconds_per_sample=1.68828125e-05 max_field_difference=0
+AUDIT batch=8 draw_seconds_per_sample=1.03359375e-05 max_field_difference=1.615587134e-27
+AUDIT batch=32 draw_seconds_per_sample=1.40234375e-05 max_field_difference=1.615587134e-27
+AUDIT batch=64 draw_seconds_per_sample=1.3828125e-05 max_field_difference=1.615587134e-27
+AUDIT measure_seconds_per_sample=0.0011229375 checksum=8316.4808298
+AUDIT imaginary_ms=0.11275 insertions_ms=0.0466875 real_propagation_ms=0.6450625 observables_ms=0.3065625
+AUDIT dimension=2112 latent=306 largest_block=702 peak_rss_platform_units=350879744
+[1;33mestimated duration of Monte-Carlo simulation[0m : 0.0048 seconds
+[============                                      ] 25%[=========================                         ] 50%[=====================================             ] 75%[==================================================] 100%
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.0321532 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.000723583 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.3904
+largest standardized residual       : 109929.2694
+standardized residual threshold     : 5.0000
+average phase magnitude             : 0.9224
+complex-weight N_eff                : 2.2101
+largest Gaussian factor block       : 702
+closed-contour trace residual       : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 0.000265 seconds
+[1;33mreal-time self consistency done (0)[0m : it took me 0.359716 seconds
+[1;31mdata file already exists!
+successfully created Data/Efficiency_audit_2026-11-12/spinmodel=ISO__config=Cubic_3D_N=2_NN_J=-0.40825__beta=5__unifield=0_N2_AX.hdf5 instead[0m
+[1;33mstoring done (0)[0m        : it took me 0.00117096 seconds
+[1;36meverything done (0)[0m     : in total it took me 0.364994 seconds

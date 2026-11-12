@@ -147,6 +147,7 @@ void HDF5_Storage::store_main(const ParameterSpace& p,const Model& m,const Run_T
     integer(ps,"Iteration_Limit",p.Iteration_Limit); integer(ps,"Preparation_Iteration_Limit",p.Preparation_Iteration_Limit);
     string(ps,"iteration_error_mode",p.iteration_error_mode); scalar(ps,"iteration_error_sigma_threshold",p.iteration_error_sigma_threshold);
     scalar(ps,"absolute_iteration_error_threshold",runtime.preparation_threshold(p,m));
+    string(ps,"check_gaussian_reconstruction",p.check_gaussian_reconstruction?"yes":"no");
     scalar(ps,"covariance_tolerance",p.covariance_tolerance); scalar(ps,"takagi_tolerance",p.takagi_tolerance); scalar(ps,"minimum_phase_magnitude",p.minimum_phase_magnitude);
     scalar(ps,"corrperiods",p.correlation_periods); string(ps,"init_corr_mode",p.init_corr_mode); string(ps,"init_diag_corr",p.init_diag_corr); string(ps,"init_nondiag_corr",p.init_nondiag_corr);
     string(ps,"initial_correlations_src_file",p.initial_correlations_src_file); string(ps,"extrapolate_initial_spin_correlations",p.extrapolate_initial_spin_correlations?"yes":"no");

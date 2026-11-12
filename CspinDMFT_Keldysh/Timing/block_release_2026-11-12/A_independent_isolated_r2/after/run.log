@@ -1,0 +1,148 @@
+[1;32mID of this Run: 614[0m
+The following correlations enter the self consistency (numbering starts at 1): 1-1,1-2
+init_diag_corr                     : isolated
+init_nondiag_corr                  : isolated
+mf_model                           : CorrelationReplica
+config_file                        : /Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5
+num_Spins                          : 2
+num_HilbertSpaceDimension          : 4
+uncoupled_spins                    : false
+spin_list                          : 1/2,1/2
+J                                  : 2x2-Matrix
+(            0      -0.4082 )
+(      -0.4082            0 )
+spinspin_cmodel info               : spinmodel=ISO
+spinmf_cmodel info                 : spinmodel=ISO
+chemical_shift info                : 0,0
+rescale_meanfield                  : 1
+rescale_spinspin                   : 1
+beta                               : 0.5
+noise_string                       : noise=none
+bath                               : selfconsistent
+extra_interaction_string           : none
+correlation_symmetry_type          : A
+time_translation_invariant         : true
+num_ImagTimeSteps                  : 6
+delta_imag_t                       : 0.0833
+num_RealTimeSteps                  : 5
+real_time_substeps                 : 2
+delta_real_propagation_t           : 0.030000
+Tmax                               : 0.3
+delta_real_t                       : 0.06
+num_Cores                          : 2
+num_Samples                        : 64
+num_SamplesPerCore                 : 32
+num_PreparationSamples             : 64
+num_PreparationSamplesPerCore      : 32
+sampling_strategy                  : independent
+staged_field_sampling              : full-contour Takagi
+iteration_error_mode               : absolute
+iteration_error_sigma_threshold    : 5
+Preparation_Iteration_Limit        : 12
+Iteration_Limit                    : 6
+information_text                   : 
+[1;33minitialization done (0)[0m : it took me 0.000238333 seconds
+
+--- Matsubara iteration 1 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 8.85e-05 seconds
+[1;33mestimated duration of Monte-Carlo simulation[0m : 0.000992 seconds
+
+[=                                                 ] 3%
+[===                                               ] 6%
+[====                                              ] 9%
+[======                                            ] 12%
+[=======                                           ] 15%
+[=========                                         ] 18%
+[==========                                        ] 21%
+[============                                      ] 25%
+[==============                                    ] 28%
+[===============                                   ] 31%
+[=================                                 ] 34%
+[==================                                ] 37%
+[====================                              ] 40%
+[=====================                             ] 43%
+[=======================                           ] 46%
+[=========================                         ] 50%
+[==========================                        ] 53%
+[============================                      ] 56%
+[=============================                     ] 59%
+[===============================                   ] 62%
+[================================                  ] 65%
+[==================================                ] 68%
+[===================================               ] 71%
+[=====================================             ] 75%
+[=======================================           ] 78%
+[========================================          ] 81%
+[==========================================        ] 84%
+[===========================================       ] 87%
+[=============================================     ] 90%
+[==============================================    ] 93%
+[================================================  ] 96%
+[==================================================] 100%
+[1;33mMatsubara sampling done (0)[0m : it took me 0.000767584 seconds
+[1;33mMPI communication done (0)[0m : it took me 1.8208e-05 seconds
+Iteration step finished:
+raw Matsubara absolute residual     : 0.0031
+largest standardized residual       : 7.2668
+absolute Matsubara threshold        : 0.0800
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 63.9722
+largest Gaussian factor block       : 14
+closed-contour trace residual       : 0.0000
+[1;32mTerminating: fixed point and contour diagnostics converged.[0m
+[1;33miteration-step finalization done (0)[0m : it took me 1.8125e-05 seconds
+[1;33mMatsubara self consistency done (0)[0m : it took me 0.000894042 seconds
+
+Matsubara preparation frozen. Starting joint-Takagi mixed/real-time iteration.
+
+--- Mixed/real-time iteration 1 ---
+[1;33mjoint field distribution done (0)[0m : it took me 0.000948917 seconds
+[1;33mestimated duration of Monte-Carlo simulation[0m : 0.0024 seconds
+
+[=                                                 ] 3%
+[===                                               ] 6%
+[====                                              ] 9%
+[======                                            ] 12%
+[=======                                           ] 15%
+[=========                                         ] 18%
+[==========                                        ] 21%
+[============                                      ] 25%
+[==============                                    ] 28%
+[===============                                   ] 31%
+[=================                                 ] 34%
+[==================                                ] 37%
+[====================                              ] 40%
+[=====================                             ] 43%
+[=======================                           ] 46%
+[=========================                         ] 50%
+[==========================                        ] 53%
+[============================                      ] 56%
+[=============================                     ] 59%
+[===============================                   ] 62%
+[================================                  ] 65%
+[==================================                ] 68%
+[===================================               ] 71%
+[=====================================             ] 75%
+[=======================================           ] 78%
+[========================================          ] 81%
+[==========================================        ] 84%
+[===========================================       ] 87%
+[=============================================     ] 90%
+[==============================================    ] 93%
+[================================================  ] 96%
+[==================================================] 100%
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.00222658 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.00344525 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0109
+largest standardized residual       : 45.7223
+standardized residual threshold     : 5.0000
+average phase magnitude             : 1.0000
+complex-weight N_eff                : 63.9682
+largest Gaussian factor block       : 54
+closed-contour trace residual       : 0.0000
+[1;32mTerminating: fixed point and contour diagnostics converged.[0m
+[1;33miteration-step finalization done (0)[0m : it took me 3e-05 seconds
+[1;33mreal-time self consistency done (0)[0m : it took me 0.00665292 seconds
+[1;33mstoring done (0)[0m        : it took me 0.00092475 seconds
+[1;36meverything done (0)[0m     : in total it took me 0.00872217 seconds

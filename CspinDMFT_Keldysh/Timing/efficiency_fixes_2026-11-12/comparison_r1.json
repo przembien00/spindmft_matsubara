@@ -1,0 +1,877 @@
+[
+  {
+    "tag": "A_independent_default_r1",
+    "runs": [
+      {
+        "version": "before",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_fixes_2026-11-12/before.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=A",
+          "--samplingStrategy=independent",
+          "--unifield=0",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8"
+        ],
+        "returncode": 0,
+        "seconds": 0.11696437501814216,
+        "sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba"
+      },
+      {
+        "version": "after",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/executable_DOUBLE.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=A",
+          "--samplingStrategy=independent",
+          "--unifield=0",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8"
+        ],
+        "returncode": 0,
+        "seconds": 0.5232870830222964,
+        "sha256": "ecc10d7d11014daca285d04880b13141469049f8061ff6d90303676eff819a7f"
+      }
+    ],
+    "compared": 61,
+    "max_absolute_difference": 7.888609052210118e-31,
+    "differences": [
+      [
+        "runtimedata/@gaussian_factor_reconstruction_errors",
+        7.888609052210118e-31
+      ]
+    ]
+  },
+  {
+    "tag": "A_independent_isolated_r1",
+    "runs": [
+      {
+        "version": "before",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_fixes_2026-11-12/before.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=A",
+          "--samplingStrategy=independent",
+          "--unifield=0",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8",
+          "--initdcorr=isolated",
+          "--initndcorr=isolated"
+        ],
+        "returncode": 0,
+        "seconds": 0.06193204200826585,
+        "sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba"
+      },
+      {
+        "version": "after",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/executable_DOUBLE.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=A",
+          "--samplingStrategy=independent",
+          "--unifield=0",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8",
+          "--initdcorr=isolated",
+          "--initndcorr=isolated"
+        ],
+        "returncode": 0,
+        "seconds": 0.06069537496659905,
+        "sha256": "ecc10d7d11014daca285d04880b13141469049f8061ff6d90303676eff819a7f"
+      }
+    ],
+    "compared": 61,
+    "max_absolute_difference": 2.7610131682735413e-30,
+    "differences": [
+      [
+        "runtimedata/@gaussian_factor_reconstruction_errors",
+        2.7610131682735413e-30
+      ]
+    ]
+  },
+  {
+    "tag": "A_pcn_default_r1",
+    "runs": [
+      {
+        "version": "before",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_fixes_2026-11-12/before.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=A",
+          "--samplingStrategy=pcn",
+          "--unifield=0",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8"
+        ],
+        "returncode": 0,
+        "seconds": 0.06368770892731845,
+        "sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba"
+      },
+      {
+        "version": "after",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/executable_DOUBLE.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=A",
+          "--samplingStrategy=pcn",
+          "--unifield=0",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8"
+        ],
+        "returncode": 0,
+        "seconds": 0.06758612510748208,
+        "sha256": "ecc10d7d11014daca285d04880b13141469049f8061ff6d90303676eff819a7f"
+      }
+    ],
+    "compared": 61,
+    "max_absolute_difference": 1.5777218104420236e-30,
+    "differences": [
+      [
+        "runtimedata/@gaussian_factor_reconstruction_errors",
+        1.5777218104420236e-30
+      ]
+    ]
+  },
+  {
+    "tag": "A_pcn_isolated_r1",
+    "runs": [
+      {
+        "version": "before",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_fixes_2026-11-12/before.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=A",
+          "--samplingStrategy=pcn",
+          "--unifield=0",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8",
+          "--initdcorr=isolated",
+          "--initndcorr=isolated"
+        ],
+        "returncode": 0,
+        "seconds": 0.06689487490803003,
+        "sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba"
+      },
+      {
+        "version": "after",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/executable_DOUBLE.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=A",
+          "--samplingStrategy=pcn",
+          "--unifield=0",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8",
+          "--initdcorr=isolated",
+          "--initndcorr=isolated"
+        ],
+        "returncode": 0,
+        "seconds": 0.06449666700791568,
+        "sha256": "ecc10d7d11014daca285d04880b13141469049f8061ff6d90303676eff819a7f"
+      }
+    ],
+    "compared": 61,
+    "max_absolute_difference": 3.944304526105059e-30,
+    "differences": [
+      [
+        "runtimedata/@gaussian_factor_reconstruction_errors",
+        3.944304526105059e-30
+      ]
+    ]
+  },
+  {
+    "tag": "C_independent_default_r1",
+    "runs": [
+      {
+        "version": "before",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_fixes_2026-11-12/before.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=C",
+          "--samplingStrategy=independent",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8"
+        ],
+        "returncode": 0,
+        "seconds": 0.07229016604833305,
+        "sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba"
+      },
+      {
+        "version": "after",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/executable_DOUBLE.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=C",
+          "--samplingStrategy=independent",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8"
+        ],
+        "returncode": 0,
+        "seconds": 0.08310100005473942,
+        "sha256": "ecc10d7d11014daca285d04880b13141469049f8061ff6d90303676eff819a7f"
+      }
+    ],
+    "compared": 61,
+    "max_absolute_difference": 1.4199496293978212e-29,
+    "differences": [
+      [
+        "runtimedata/@gaussian_factor_reconstruction_errors",
+        1.4199496293978212e-29
+      ]
+    ]
+  },
+  {
+    "tag": "C_independent_isolated_r1",
+    "runs": [
+      {
+        "version": "before",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_fixes_2026-11-12/before.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=C",
+          "--samplingStrategy=independent",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8",
+          "--initdcorr=isolated",
+          "--initndcorr=isolated"
+        ],
+        "returncode": 0,
+        "seconds": 0.07505716697778553,
+        "sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba"
+      },
+      {
+        "version": "after",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/executable_DOUBLE.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=C",
+          "--samplingStrategy=independent",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8",
+          "--initdcorr=isolated",
+          "--initndcorr=isolated"
+        ],
+        "returncode": 0,
+        "seconds": 0.06832008296623826,
+        "sha256": "ecc10d7d11014daca285d04880b13141469049f8061ff6d90303676eff819a7f"
+      }
+    ],
+    "compared": 61,
+    "max_absolute_difference": 1.1044052673094165e-29,
+    "differences": [
+      [
+        "runtimedata/@gaussian_factor_reconstruction_errors",
+        1.1044052673094165e-29
+      ]
+    ]
+  },
+  {
+    "tag": "C_pcn_default_r1",
+    "runs": [
+      {
+        "version": "before",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_fixes_2026-11-12/before.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=C",
+          "--samplingStrategy=pcn",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8"
+        ],
+        "returncode": 0,
+        "seconds": 0.12427120807114989,
+        "sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba"
+      },
+      {
+        "version": "after",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/executable_DOUBLE.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=C",
+          "--samplingStrategy=pcn",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8"
+        ],
+        "returncode": 0,
+        "seconds": 0.09536800009664148,
+        "sha256": "ecc10d7d11014daca285d04880b13141469049f8061ff6d90303676eff819a7f"
+      }
+    ],
+    "compared": 61,
+    "max_absolute_difference": 2.7464981276174747e-26,
+    "differences": [
+      [
+        "runtimedata/@gaussian_factor_reconstruction_errors",
+        2.7464981276174747e-26
+      ]
+    ]
+  },
+  {
+    "tag": "C_pcn_isolated_r1",
+    "runs": [
+      {
+        "version": "before",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_fixes_2026-11-12/before.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=C",
+          "--samplingStrategy=pcn",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8",
+          "--initdcorr=isolated",
+          "--initndcorr=isolated"
+        ],
+        "returncode": 0,
+        "seconds": 0.07828820892609656,
+        "sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba"
+      },
+      {
+        "version": "after",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/executable_DOUBLE.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=C",
+          "--samplingStrategy=pcn",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8",
+          "--initdcorr=isolated",
+          "--initndcorr=isolated"
+        ],
+        "returncode": 0,
+        "seconds": 0.10057591600343585,
+        "sha256": "ecc10d7d11014daca285d04880b13141469049f8061ff6d90303676eff819a7f"
+      }
+    ],
+    "compared": 61,
+    "max_absolute_difference": 0.0,
+    "differences": []
+  },
+  {
+    "tag": "D_independent_default_r1",
+    "runs": [
+      {
+        "version": "before",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_fixes_2026-11-12/before.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=D",
+          "--samplingStrategy=independent",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8"
+        ],
+        "returncode": 0,
+        "seconds": 0.08868141705170274,
+        "sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba"
+      },
+      {
+        "version": "after",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/executable_DOUBLE.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=D",
+          "--samplingStrategy=independent",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8"
+        ],
+        "returncode": 0,
+        "seconds": 0.07768279197625816,
+        "sha256": "ecc10d7d11014daca285d04880b13141469049f8061ff6d90303676eff819a7f"
+      }
+    ],
+    "compared": 61,
+    "max_absolute_difference": 0.0,
+    "differences": []
+  },
+  {
+    "tag": "D_independent_isolated_r1",
+    "runs": [
+      {
+        "version": "before",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_fixes_2026-11-12/before.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=D",
+          "--samplingStrategy=independent",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8",
+          "--initdcorr=isolated",
+          "--initndcorr=isolated"
+        ],
+        "returncode": 0,
+        "seconds": 0.07751291699241847,
+        "sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba"
+      },
+      {
+        "version": "after",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/executable_DOUBLE.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=D",
+          "--samplingStrategy=independent",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8",
+          "--initdcorr=isolated",
+          "--initndcorr=isolated"
+        ],
+        "returncode": 0,
+        "seconds": 0.09241133299656212,
+        "sha256": "ecc10d7d11014daca285d04880b13141469049f8061ff6d90303676eff819a7f"
+      }
+    ],
+    "compared": 61,
+    "max_absolute_difference": 0.0,
+    "differences": []
+  },
+  {
+    "tag": "D_pcn_default_r1",
+    "runs": [
+      {
+        "version": "before",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_fixes_2026-11-12/before.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=D",
+          "--samplingStrategy=pcn",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8"
+        ],
+        "returncode": 3,
+        "seconds": 0.26070495904423296,
+        "sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba"
+      },
+      {
+        "version": "after",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/executable_DOUBLE.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=D",
+          "--samplingStrategy=pcn",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8"
+        ],
+        "returncode": 3,
+        "seconds": 0.21660604199860245,
+        "sha256": "ecc10d7d11014daca285d04880b13141469049f8061ff6d90303676eff819a7f"
+      }
+    ],
+    "compared": 61,
+    "max_absolute_difference": 0.0,
+    "differences": []
+  },
+  {
+    "tag": "D_pcn_isolated_r1",
+    "runs": [
+      {
+        "version": "before",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_fixes_2026-11-12/before.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=D",
+          "--samplingStrategy=pcn",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8",
+          "--initdcorr=isolated",
+          "--initndcorr=isolated"
+        ],
+        "returncode": 3,
+        "seconds": 0.24301924998871982,
+        "sha256": "908412be3703bd2121eb7bdf325993267761d0a6cb142b1c0c2bff3e8e35caba"
+      },
+      {
+        "version": "after",
+        "command": [
+          "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/executable_DOUBLE.out",
+          "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+          "--project=CubicLattice",
+          "--dstproject=Results",
+          "--beta=.5",
+          "--numImagTimeSteps=6",
+          "--numRealTimeSteps=5",
+          "--realTimeSubsteps=2",
+          "--Tmax=.3",
+          "--numSamplesPerCore=32",
+          "--preparationSamplesPerCore=32",
+          "--numBlocks=8",
+          "--numSamplesPerSet=3",
+          "--seed=613",
+          "--cstype=D",
+          "--samplingStrategy=pcn",
+          "--unifield=.2",
+          "--preparationIterlimit=12",
+          "--iterlimit=6",
+          "--itermode=absolute",
+          "--absiterror=.08",
+          "--mhBurnIn=8",
+          "--initdcorr=isolated",
+          "--initndcorr=isolated"
+        ],
+        "returncode": 3,
+        "seconds": 0.24079270800575614,
+        "sha256": "ecc10d7d11014daca285d04880b13141469049f8061ff6d90303676eff819a7f"
+      }
+    ],
+    "compared": 61,
+    "max_absolute_difference": 0.0,
+    "differences": []
+  }
+]

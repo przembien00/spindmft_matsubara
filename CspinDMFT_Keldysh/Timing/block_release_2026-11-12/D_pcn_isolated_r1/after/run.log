@@ -1,0 +1,606 @@
+[1;32mID of this Run: 614[0m
+The following correlations enter the self consistency (numbering starts at 1): 1-1,1-2
+init_diag_corr                     : isolated
+init_nondiag_corr                  : isolated
+mf_model                           : CorrelationReplica
+config_file                        : /Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5
+num_Spins                          : 2
+num_HilbertSpaceDimension          : 4
+uncoupled_spins                    : false
+spin_list                          : 1/2,1/2
+J                                  : 2x2-Matrix
+(            0      -0.4082 )
+(      -0.4082            0 )
+spinspin_cmodel info               : spinmodel=ISO
+spinmf_cmodel info                 : spinmodel=ISO
+chemical_shift info                : 0.20000000000000001,0.20000000000000001
+rescale_meanfield                  : 1
+rescale_spinspin                   : 1
+beta                               : 0.5
+noise_string                       : noise=none
+bath                               : selfconsistent
+extra_interaction_string           : none
+correlation_symmetry_type          : D
+time_translation_invariant         : true
+num_ImagTimeSteps                  : 6
+delta_imag_t                       : 0.0833
+num_RealTimeSteps                  : 5
+real_time_substeps                 : 2
+delta_real_propagation_t           : 0.030000
+Tmax                               : 0.3
+delta_real_t                       : 0.06
+num_Cores                          : 1
+num_Samples                        : 32
+num_SamplesPerCore                 : 32
+num_PreparationSamples             : 32
+num_PreparationSamplesPerCore      : 32
+sampling_strategy                  : pcn
+staged_field_sampling              : full-contour Takagi
+pcn_target                         : p0(a)|Z_M(L_M U a)|; fresh joint null-space draws
+mh_step_size                       : 0.3
+mh_burn_in                         : 8
+iteration_error_mode               : absolute
+iteration_error_sigma_threshold    : 5
+Preparation_Iteration_Limit        : 12
+Iteration_Limit                    : 6
+information_text                   : 
+[1;33minitialization done (0)[0m : it took me 0.000246708 seconds
+
+--- Matsubara iteration 1 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.000402625 seconds
+[1;33mestimated duration of pCN simulation[0m : 0.001504 seconds
+
+[=                                                 ] 3%
+[===                                               ] 6%
+[====                                              ] 9%
+[======                                            ] 12%
+[=======                                           ] 15%
+[=========                                         ] 18%
+[==========                                        ] 21%
+[============                                      ] 25%
+[==============                                    ] 28%
+[===============                                   ] 31%
+[=================                                 ] 34%
+[==================                                ] 37%
+[====================                              ] 40%
+[=====================                             ] 43%
+[=======================                           ] 46%
+[=========================                         ] 50%
+[==========================                        ] 53%
+[============================                      ] 56%
+[=============================                     ] 59%
+[===============================                   ] 62%
+[================================                  ] 65%
+[==================================                ] 68%
+[===================================               ] 71%
+[=====================================             ] 75%
+[=======================================           ] 78%
+[========================================          ] 81%
+[==========================================        ] 84%
+[===========================================       ] 87%
+[=============================================     ] 90%
+[==============================================    ] 93%
+[================================================  ] 96%
+[==================================================] 100%
+[1;33mMatsubara sampling done (0)[0m : it took me 0.00191908 seconds
+[1;33mMPI communication done (0)[0m : it took me 4.05e-05 seconds
+Iteration step finished:
+raw Matsubara absolute residual     : 0.0744
+largest standardized residual       : 17.4685
+absolute Matsubara threshold        : 0.0800
+sampled-Z phase magnitude           : 1.0000
+complex-weight N_eff                : 32.0000
+largest Gaussian factor block       : 28
+closed-contour trace residual       : 0.0000
+MH acceptance rate                  : 1.0000
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 2.2083e-05 seconds
+
+--- Matsubara iteration 2 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.000550584 seconds
+[1;33mestimated duration of pCN simulation[0m : 0.001376 seconds
+
+[=                                                 ] 3%
+[===                                               ] 6%
+[====                                              ] 9%
+[======                                            ] 12%
+[=======                                           ] 15%
+[=========                                         ] 18%
+[==========                                        ] 21%
+[============                                      ] 25%
+[==============                                    ] 28%
+[===============                                   ] 31%
+[=================                                 ] 34%
+[==================                                ] 37%
+[====================                              ] 40%
+[=====================                             ] 43%
+[=======================                           ] 46%
+[=========================                         ] 50%
+[==========================                        ] 53%
+[============================                      ] 56%
+[=============================                     ] 59%
+[===============================                   ] 62%
+[================================                  ] 65%
+[==================================                ] 68%
+[===================================               ] 71%
+[=====================================             ] 75%
+[=======================================           ] 78%
+[========================================          ] 81%
+[==========================================        ] 84%
+[===========================================       ] 87%
+[=============================================     ] 90%
+[==============================================    ] 93%
+[================================================  ] 96%
+[==================================================] 100%
+[1;33mMatsubara sampling done (0)[0m : it took me 0.00197888 seconds
+[1;33mMPI communication done (0)[0m : it took me 3.9583e-05 seconds
+Iteration step finished:
+raw Matsubara absolute residual     : 0.1250
+largest standardized residual       : 42.4819
+absolute Matsubara threshold        : 0.0800
+sampled-Z phase magnitude           : 1.0000
+complex-weight N_eff                : 32.0000
+largest Gaussian factor block       : 42
+closed-contour trace residual       : 0.0000
+MH acceptance rate                  : 0.9688
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1.8208e-05 seconds
+
+--- Matsubara iteration 3 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.0005465 seconds
+[1;33mestimated duration of pCN simulation[0m : 0.001408 seconds
+
+[=                                                 ] 3%
+[===                                               ] 6%
+[====                                              ] 9%
+[======                                            ] 12%
+[=======                                           ] 15%
+[=========                                         ] 18%
+[==========                                        ] 21%
+[============                                      ] 25%
+[==============                                    ] 28%
+[===============                                   ] 31%
+[=================                                 ] 34%
+[==================                                ] 37%
+[====================                              ] 40%
+[=====================                             ] 43%
+[=======================                           ] 46%
+[=========================                         ] 50%
+[==========================                        ] 53%
+[============================                      ] 56%
+[=============================                     ] 59%
+[===============================                   ] 62%
+[================================                  ] 65%
+[==================================                ] 68%
+[===================================               ] 71%
+[=====================================             ] 75%
+[=======================================           ] 78%
+[========================================          ] 81%
+[==========================================        ] 84%
+[===========================================       ] 87%
+[=============================================     ] 90%
+[==============================================    ] 93%
+[================================================  ] 96%
+[==================================================] 100%
+[1;33mMatsubara sampling done (0)[0m : it took me 0.00187538 seconds
+[1;33mMPI communication done (0)[0m : it took me 3.7417e-05 seconds
+Iteration step finished:
+raw Matsubara absolute residual     : 0.0967
+largest standardized residual       : 24.9411
+absolute Matsubara threshold        : 0.0800
+sampled-Z phase magnitude           : 1.0000
+complex-weight N_eff                : 32.0000
+largest Gaussian factor block       : 42
+closed-contour trace residual       : 0.0000
+MH acceptance rate                  : 1.0000
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1.8666e-05 seconds
+
+--- Matsubara iteration 4 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.000527208 seconds
+[1;33mestimated duration of pCN simulation[0m : 0.001408 seconds
+
+[=                                                 ] 3%
+[===                                               ] 6%
+[====                                              ] 9%
+[======                                            ] 12%
+[=======                                           ] 15%
+[=========                                         ] 18%
+[==========                                        ] 21%
+[============                                      ] 25%
+[==============                                    ] 28%
+[===============                                   ] 31%
+[=================                                 ] 34%
+[==================                                ] 37%
+[====================                              ] 40%
+[=====================                             ] 43%
+[=======================                           ] 46%
+[=========================                         ] 50%
+[==========================                        ] 53%
+[============================                      ] 56%
+[=============================                     ] 59%
+[===============================                   ] 62%
+[================================                  ] 65%
+[==================================                ] 68%
+[===================================               ] 71%
+[=====================================             ] 75%
+[=======================================           ] 78%
+[========================================          ] 81%
+[==========================================        ] 84%
+[===========================================       ] 87%
+[=============================================     ] 90%
+[==============================================    ] 93%
+[================================================  ] 96%
+[==================================================] 100%
+[1;33mMatsubara sampling done (0)[0m : it took me 0.00207192 seconds
+[1;33mMPI communication done (0)[0m : it took me 3.95e-05 seconds
+Iteration step finished:
+raw Matsubara absolute residual     : 0.1186
+largest standardized residual       : 15.6023
+absolute Matsubara threshold        : 0.0800
+sampled-Z phase magnitude           : 1.0000
+complex-weight N_eff                : 32.0000
+largest Gaussian factor block       : 42
+closed-contour trace residual       : 0.0000
+MH acceptance rate                  : 1.0000
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 1.7875e-05 seconds
+
+--- Matsubara iteration 5 ---
+[1;33mMatsubara field distribution done (0)[0m : it took me 0.000537167 seconds
+[1;33mestimated duration of pCN simulation[0m : 0.001408 seconds
+
+[=                                                 ] 3%
+[===                                               ] 6%
+[====                                              ] 9%
+[======                                            ] 12%
+[=======                                           ] 15%
+[=========                                         ] 18%
+[==========                                        ] 21%
+[============                                      ] 25%
+[==============                                    ] 28%
+[===============                                   ] 31%
+[=================                                 ] 34%
+[==================                                ] 37%
+[====================                              ] 40%
+[=====================                             ] 43%
+[=======================                           ] 46%
+[=========================                         ] 50%
+[==========================                        ] 53%
+[============================                      ] 56%
+[=============================                     ] 59%
+[===============================                   ] 62%
+[================================                  ] 65%
+[==================================                ] 68%
+[===================================               ] 71%
+[=====================================             ] 75%
+[=======================================           ] 78%
+[========================================          ] 81%
+[==========================================        ] 84%
+[===========================================       ] 87%
+[=============================================     ] 90%
+[==============================================    ] 93%
+[================================================  ] 96%
+[==================================================] 100%
+[1;33mMatsubara sampling done (0)[0m : it took me 0.00194329 seconds
+[1;33mMPI communication done (0)[0m : it took me 3.575e-05 seconds
+Iteration step finished:
+raw Matsubara absolute residual     : 0.0694
+largest standardized residual       : 25.0928
+absolute Matsubara threshold        : 0.0800
+sampled-Z phase magnitude           : 1.0000
+complex-weight N_eff                : 32.0000
+largest Gaussian factor block       : 42
+closed-contour trace residual       : 0.0000
+MH acceptance rate                  : 1.0000
+zero-modulus rejection rate         : 0.0000
+[1;32mTerminating: fixed point and contour diagnostics converged.[0m
+[1;33miteration-step finalization done (0)[0m : it took me 1.5792e-05 seconds
+[1;33mMatsubara self consistency done (0)[0m : it took me 0.0126446 seconds
+
+Matsubara preparation frozen. Starting joint-Takagi Matsubara pCN mixed/real-time iteration.
+
+--- Mixed/real-time iteration 1 ---
+[1;33mjoint field distribution done (0)[0m : it took me 0.0138668 seconds
+[1;33mestimated duration of pCN simulation[0m : 0.003776 seconds
+
+[=                                                 ] 3%
+[===                                               ] 6%
+[====                                              ] 9%
+[======                                            ] 12%
+[=======                                           ] 15%
+[=========                                         ] 18%
+[==========                                        ] 21%
+[============                                      ] 25%
+[==============                                    ] 28%
+[===============                                   ] 31%
+[=================                                 ] 34%
+[==================                                ] 37%
+[====================                              ] 40%
+[=====================                             ] 43%
+[=======================                           ] 46%
+[=========================                         ] 50%
+[==========================                        ] 53%
+[============================                      ] 56%
+[=============================                     ] 59%
+[===============================                   ] 62%
+[================================                  ] 65%
+[==================================                ] 68%
+[===================================               ] 71%
+[=====================================             ] 75%
+[=======================================           ] 78%
+[========================================          ] 81%
+[==========================================        ] 84%
+[===========================================       ] 87%
+[=============================================     ] 90%
+[==============================================    ] 93%
+[================================================  ] 96%
+[==================================================] 100%
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.00470571 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.000207375 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.1127
+largest standardized residual       : 32.8274
+standardized residual threshold     : 5.0000
+sampled-Z phase magnitude           : 1.0000
+complex-weight N_eff                : 32.0000
+largest Gaussian factor block       : 162
+closed-contour trace residual       : 0.0046
+MH acceptance rate                  : 1.0000
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 3.275e-05 seconds
+
+--- Mixed/real-time iteration 2 ---
+[1;33mjoint field distribution done (0)[0m : it took me 0.0175719 seconds
+[1;33mestimated duration of pCN simulation[0m : 0.004128 seconds
+
+[=                                                 ] 3%
+[===                                               ] 6%
+[====                                              ] 9%
+[======                                            ] 12%
+[=======                                           ] 15%
+[=========                                         ] 18%
+[==========                                        ] 21%
+[============                                      ] 25%
+[==============                                    ] 28%
+[===============                                   ] 31%
+[=================                                 ] 34%
+[==================                                ] 37%
+[====================                              ] 40%
+[=====================                             ] 43%
+[=======================                           ] 46%
+[=========================                         ] 50%
+[==========================                        ] 53%
+[============================                      ] 56%
+[=============================                     ] 59%
+[===============================                   ] 62%
+[================================                  ] 65%
+[==================================                ] 68%
+[===================================               ] 71%
+[=====================================             ] 75%
+[=======================================           ] 78%
+[========================================          ] 81%
+[==========================================        ] 84%
+[===========================================       ] 87%
+[=============================================     ] 90%
+[==============================================    ] 93%
+[================================================  ] 96%
+[==================================================] 100%
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.00543754 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.000207375 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.1159
+largest standardized residual       : 28.1077
+standardized residual threshold     : 5.0000
+sampled-Z phase magnitude           : 1.0000
+complex-weight N_eff                : 31.9997
+largest Gaussian factor block       : 162
+closed-contour trace residual       : 0.0030
+MH acceptance rate                  : 1.0000
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 3.2292e-05 seconds
+
+--- Mixed/real-time iteration 3 ---
+[1;33mjoint field distribution done (0)[0m : it took me 0.0175219 seconds
+[1;33mestimated duration of pCN simulation[0m : 0.00384 seconds
+
+[=                                                 ] 3%
+[===                                               ] 6%
+[====                                              ] 9%
+[======                                            ] 12%
+[=======                                           ] 15%
+[=========                                         ] 18%
+[==========                                        ] 21%
+[============                                      ] 25%
+[==============                                    ] 28%
+[===============                                   ] 31%
+[=================                                 ] 34%
+[==================                                ] 37%
+[====================                              ] 40%
+[=====================                             ] 43%
+[=======================                           ] 46%
+[=========================                         ] 50%
+[==========================                        ] 53%
+[============================                      ] 56%
+[=============================                     ] 59%
+[===============================                   ] 62%
+[================================                  ] 65%
+[==================================                ] 68%
+[===================================               ] 71%
+[=====================================             ] 75%
+[=======================================           ] 78%
+[========================================          ] 81%
+[==========================================        ] 84%
+[===========================================       ] 87%
+[=============================================     ] 90%
+[==============================================    ] 93%
+[================================================  ] 96%
+[==================================================] 100%
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.005168 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.000207333 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.1016
+largest standardized residual       : 18.5692
+standardized residual threshold     : 5.0000
+sampled-Z phase magnitude           : 1.0000
+complex-weight N_eff                : 31.9999
+largest Gaussian factor block       : 162
+closed-contour trace residual       : 0.0011
+MH acceptance rate                  : 1.0000
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 3.6917e-05 seconds
+
+--- Mixed/real-time iteration 4 ---
+[1;33mjoint field distribution done (0)[0m : it took me 0.0176081 seconds
+[1;33mestimated duration of pCN simulation[0m : 0.003744 seconds
+
+[=                                                 ] 3%
+[===                                               ] 6%
+[====                                              ] 9%
+[======                                            ] 12%
+[=======                                           ] 15%
+[=========                                         ] 18%
+[==========                                        ] 21%
+[============                                      ] 25%
+[==============                                    ] 28%
+[===============                                   ] 31%
+[=================                                 ] 34%
+[==================                                ] 37%
+[====================                              ] 40%
+[=====================                             ] 43%
+[=======================                           ] 46%
+[=========================                         ] 50%
+[==========================                        ] 53%
+[============================                      ] 56%
+[=============================                     ] 59%
+[===============================                   ] 62%
+[================================                  ] 65%
+[==================================                ] 68%
+[===================================               ] 71%
+[=====================================             ] 75%
+[=======================================           ] 78%
+[========================================          ] 81%
+[==========================================        ] 84%
+[===========================================       ] 87%
+[=============================================     ] 90%
+[==============================================    ] 93%
+[================================================  ] 96%
+[==================================================] 100%
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.00511442 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.00020575 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.1565
+largest standardized residual       : 44.7565
+standardized residual threshold     : 5.0000
+sampled-Z phase magnitude           : 1.0000
+complex-weight N_eff                : 31.9990
+largest Gaussian factor block       : 162
+closed-contour trace residual       : 0.0029
+MH acceptance rate                  : 1.0000
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 3.125e-05 seconds
+
+--- Mixed/real-time iteration 5 ---
+[1;33mjoint field distribution done (0)[0m : it took me 0.0172865 seconds
+[1;33mestimated duration of pCN simulation[0m : 0.003968 seconds
+
+[=                                                 ] 3%
+[===                                               ] 6%
+[====                                              ] 9%
+[======                                            ] 12%
+[=======                                           ] 15%
+[=========                                         ] 18%
+[==========                                        ] 21%
+[============                                      ] 25%
+[==============                                    ] 28%
+[===============                                   ] 31%
+[=================                                 ] 34%
+[==================                                ] 37%
+[====================                              ] 40%
+[=====================                             ] 43%
+[=======================                           ] 46%
+[=========================                         ] 50%
+[==========================                        ] 53%
+[============================                      ] 56%
+[=============================                     ] 59%
+[===============================                   ] 62%
+[================================                  ] 65%
+[==================================                ] 68%
+[===================================               ] 71%
+[=====================================             ] 75%
+[=======================================           ] 78%
+[========================================          ] 81%
+[==========================================        ] 84%
+[===========================================       ] 87%
+[=============================================     ] 90%
+[==============================================    ] 93%
+[================================================  ] 96%
+[==================================================] 100%
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.00542508 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.000206167 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.1395
+largest standardized residual       : 21.5093
+standardized residual threshold     : 5.0000
+sampled-Z phase magnitude           : 1.0000
+complex-weight N_eff                : 31.9993
+largest Gaussian factor block       : 162
+closed-contour trace residual       : 0.0063
+MH acceptance rate                  : 1.0000
+zero-modulus rejection rate         : 0.0000
+[1;33miteration-step finalization done (0)[0m : it took me 3.2208e-05 seconds
+
+--- Mixed/real-time iteration 6 ---
+[1;33mjoint field distribution done (0)[0m : it took me 0.0175826 seconds
+[1;33mestimated duration of pCN simulation[0m : 0.007712 seconds
+
+[=                                                 ] 3%
+[===                                               ] 6%
+[====                                              ] 9%
+[======                                            ] 12%
+[=======                                           ] 15%
+[=========                                         ] 18%
+[==========                                        ] 21%
+[============                                      ] 25%
+[==============                                    ] 28%
+[===============                                   ] 31%
+[=================                                 ] 34%
+[==================                                ] 37%
+[====================                              ] 40%
+[=====================                             ] 43%
+[=======================                           ] 46%
+[=========================                         ] 50%
+[==========================                        ] 53%
+[============================                      ] 56%
+[=============================                     ] 59%
+[===============================                   ] 62%
+[================================                  ] 65%
+[==================================                ] 68%
+[===================================               ] 71%
+[=====================================             ] 75%
+[=======================================           ] 78%
+[========================================          ] 81%
+[==========================================        ] 84%
+[===========================================       ] 87%
+[=============================================     ] 90%
+[==============================================    ] 93%
+[================================================  ] 96%
+[==================================================] 100%
+[1;33mmixed real-time sampling done (0)[0m : it took me 0.00522271 seconds
+[1;33mMPI communication done (0)[0m : it took me 0.000203833 seconds
+Iteration step finished:
+raw complex fixed-point residual    : 0.0914
+largest standardized residual       : 76.2518
+standardized residual threshold     : 5.0000
+sampled-Z phase magnitude           : 1.0000
+complex-weight N_eff                : 31.9989
+largest Gaussian factor block       : 162
+closed-contour trace residual       : 0.0077
+MH acceptance rate                  : 1.0000
+zero-modulus rejection rate         : 0.0000
+[1;31mTerminating because the iteration limit was reached.[0m
+[1;33miteration-step finalization done (0)[0m : it took me 3.2709e-05 seconds
+[1;33mreal-time self consistency done (0)[0m : it took me 0.133956 seconds
+[1;33mstoring done (0)[0m        : it took me 0.000977375 seconds
+[1;36meverything done (0)[0m     : in total it took me 0.147859 seconds
+[Przemeks-MacBook-Pro][[25557,0],0][btl_tcp_component.c:1021:mca_btl_tcp_component_create_listen] bind() failed: Operation not permitted (1)

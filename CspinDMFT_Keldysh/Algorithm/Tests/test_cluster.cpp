@@ -149,6 +149,12 @@ int main() {
         for(size_t i=0;i<complex_exact.values.size();++i)
             near(complex_sample.correlations.values[i]/complex_sample.partition,
                  complex_exact.values[i],2e-11,"static complex cluster fields");
+        // Partition-only pCN proposals agree with full non-Hermitian
+        // evolution and carry no observable or trajectory arrays.
+        const auto partition_sample=measure<ContourCorrelations>(model,p,layout,static_fields,std::vector<C>(24),true);
+        near(partition_sample.partition,complex_sample.partition,1e-13,"partition-only complex evolution");
+        require(partition_sample.correlations.values.empty() && partition_sample.magnetization.values.empty()
+            && partition_sample.closure.empty(),"partition-only omits observable storage");
         Model sparse_model=model; sparse_model.correlation_categories={{0,1},{0,0}};
         const auto sparse_sample=measure<ContourCorrelations>(sparse_model,p,layout,static_fields,std::vector<C>(24));
         require(sparse_sample.correlations.categories==sparse_model.correlation_categories,"configured category order");
@@ -205,6 +211,21 @@ int main() {
         }
         Sampler reference_sampler(cov,reference_weights,1e-8);
         const auto physical_factor=sector_sampler.leading_factor_rows(layout.dimension());
+        const spinDMFT::Functions::SymmetricCovarianceSource lazy{cov.rows(),[&cov](size_t i,size_t j) { return cov(i,j); }};
+        for(bool checked:{false,true}) {
+            Sampler lazy_sampler(lazy,layout.ni*layout.components,layout.intervals*layout.components,1e-8,checked);
+            const auto lazy_factor=lazy_sampler.leading_factor_rows(layout.dimension());
+            require(norm(Matrix(lazy_factor-physical_factor))==0.,"on-demand covariance preserves exact latent map");
+            require(checked?std::isfinite(lazy_sampler.reconstruction_error()):std::isnan(lazy_sampler.reconstruction_error()),
+                "disabled reconstruction is reported as unmeasured");
+        }
+        Sampler unchecked(cov,1e-30,false);
+        require(std::isnan(unchecked.reconstruction_error()),"disabled check does not enforce reconstruction tolerance");
+        Matrix nonfinite=cov; nonfinite(0,0)=std::numeric_limits<double>::quiet_NaN();
+        bool nonfinite_rejected=false;
+        try { Sampler invalid(nonfinite,1e-8,false); } catch(const std::invalid_argument&) { nonfinite_rejected=true; }
+        require(nonfinite_rejected,"nonfinite covariance remains invalid with reconstruction disabled");
+
         const auto reference_factor=reference_sampler.leading_factor_rows(layout.dimension());
         require(norm(Matrix(physical_factor*blaze::trans(physical_factor)-cov))<1e-8,"sector scaling reconstructs physical covariance");
         require(norm(Matrix(physical_factor*blaze::ctrans(physical_factor)
@@ -216,6 +237,17 @@ int main() {
         for(size_t i=0;i<field.size();++i)near(field[i],expected_field[i],1e-12,"sector field inverse scaling");
         for(const auto& sample:sector_sampler.draw_contour_batch(sampler_engine,3))
             require(sample.edge_field.size()==layout.dimension(),"sector batch field size");
+        // Scaling can underflow physical off-block couplings. The physical
+        // reconstruction diagnostic must still reject the lost covariance.
+        Matrix underflow_covariance(3,3,C{});
+        underflow_covariance(0,1)=underflow_covariance(1,0)=.01;
+        underflow_covariance(2,2)=1.;
+        bool underflow_rejected=false;
+        try {
+            const double tiny=std::numeric_limits<double>::denorm_min();
+            Sampler underflow(underflow_covariance,std::vector<double>{tiny,tiny,1.});
+        } catch(const std::runtime_error&) { underflow_rejected=true; }
+        require(underflow_rejected,"physical residual includes couplings lost during scaling");
         // Match the shared single-site implementation on every one-site staggered block.
         namespace ct=spinDMFT::Contour;
         ct::CorrelationSet single('D',5,4);
@@ -269,6 +301,14 @@ int main() {
             near(measured_preparation.correlations.values[j]/measured_preparation.partition,prepared.values[j],1e-11,"imaginary-only preparation measurement");
         for(size_t i=0;i<ml.dimension();++i) for(size_t j=0;j<ml.dimension();++j)
             near(kernel(prepared,ml.decode(i),ml.decode(j),1),kernel(exact,ml.decode(i),ml.decode(j),1),1e-13,"Matsubara and real-time origin kernels agree");
+        // Build the provider from an actually mixed bath coupling plus static
+        // noise; observable symmetry alone cannot determine field blocks.
+        representative_weights.coupling(0,1)=.17;
+        ParameterSpace noisy=p; noisy.noise=Physics::Noise("z",.2);
+        const auto lazy_bath=mfm::covariance_source(representative_weights,noisy,x,xmag,layout);
+        const auto dense_bath=mfm::self_consistent_equations(representative_weights,noisy,x,xmag,layout);
+        for(size_t i=0;i<layout.dimension();++i)for(size_t j=0;j<layout.dimension();++j)
+            near(lazy_bath.value(i,j),dense_bath(i,j),1e-15,"provider retains actual rotated bath and noise");
         // Allocation and access enforce the native A/B/C/D schemes, rather than
         // storing discarded full tensors or a one-point real-time axis.
         for(char symmetry:std::string("ABCD")) {

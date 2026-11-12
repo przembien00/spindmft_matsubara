@@ -1,6 +1,7 @@
 #include "../Run_Time_Data/Run_Time_Data.h"
 #include <mpi.h>
 #include <climits>
+#include <limits>
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -28,7 +29,7 @@ void initialize_sampling(Correlations& correlations,MagnetizationFor<Correlation
     } else while(blocks>2 && samples%blocks) --blocks;
     if(blocks && samples%blocks) blocks=1;
     if(blocks<2) throw std::invalid_argument("sample count must admit at least two equal blocks (use an even count)");
-    if(blocks>size_t(INT_MAX)/width) throw std::runtime_error("MPI block buffer exceeds supported collective count");
+    if(blocks>std::numeric_limits<size_t>::max()/width) throw std::overflow_error("sample block allocation overflows size_t");
     std::fill(correlations.values.begin(),correlations.values.end(),C{});
     std::fill(moments.values.begin(),moments.values.end(),C{});
     std::fill(statistics.closure.begin(),statistics.closure.end(),C{});
@@ -87,8 +88,6 @@ void reduce_and_normalize(Correlations& next_correlations,MagnetizationFor<Corre
     total.insert(total.end(),next_moments.values.begin(),next_moments.values.end());
     total.insert(total.end(),statistics.closure.begin(),statistics.closure.end());
     sum(total);
-    std::vector<C> pooled(local.size()*size_t(ranks));
-    MPI_Allgather(local.data(),int(local.size()),MPI_C_DOUBLE_COMPLEX,pooled.data(),int(local.size()),MPI_C_DOUBLE_COMPLEX,MPI_COMM_WORLD);
     MPI_Allreduce(MPI_IN_PLACE,&abs_z,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
     MPI_Allreduce(MPI_IN_PLACE,&abs_zsq,1,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD);
     const C z=total[0];
@@ -98,36 +97,60 @@ void reduce_and_normalize(Correlations& next_correlations,MagnetizationFor<Corre
     statistics.partition=z/double(samples*size_t(ranks)); statistics.average_phase=std::abs(z)/abs_z;
     statistics.actual_num_blocks=blocks; statistics.samples_per_block=samples/blocks; statistics.samples_per_core=samples;
     statistics.effective_sample_size=std::norm(z)/abs_zsq;
+    for(size_t j=1;j<width;++j)
+        if(!finite(total[j]/z)) throw std::runtime_error("nonfinite observable ratio");
     std::vector<double> error_re(width),error_im(width);
     size_t per_rank=blocks,block_length=samples/blocks;
-    // Independent draws use paired delete-block ratio jackknife. For pCN,
-    // retain the largest error under successive coarsening within each chain.
+    std::vector<C> average(width),variance(width);
+    // Each chain retains its own blocks. Two collective passes compute the
+    // global jackknife mean and centered variances with O(width) workspace.
     for(;;) {
         const size_t count=per_rank*size_t(ranks);
+        int invalid=0;
+        for(size_t b=0;b<per_rank;++b) {
+            const C denominator=z-local[b*width];
+            if(!finite(denominator) || std::abs(denominator)<=1e-12*std::max(abs_z,1e-300)) invalid=1;
+        }
+        MPI_Allreduce(MPI_IN_PLACE,&invalid,1,MPI_INT,MPI_MAX,MPI_COMM_WORLD);
+        if(invalid) throw std::runtime_error("unresolved jackknife denominator");
+        std::fill(average.begin(),average.end(),C{});
+        for(size_t b=0;b<per_rank;++b) {
+            const C denominator=z-local[b*width];
+            for(size_t j=1;j<width;++j) {
+                const C leave=(total[j]-local[b*width+j])/denominator;
+                if(!finite(leave)) invalid=1;
+                average[j]+=leave/double(count);
+            }
+        }
+        // A failure on any rank must be seen by all ranks before the next
+        // collective; otherwise an invalid local delete-block can deadlock.
+        MPI_Allreduce(MPI_IN_PLACE,&invalid,1,MPI_INT,MPI_MAX,MPI_COMM_WORLD);
+        if(invalid) throw std::runtime_error("nonfinite jackknife ratio");
+        sum(average);
+        std::fill(variance.begin(),variance.end(),C{});
+        for(size_t b=0;b<per_rank;++b) {
+            const C denominator=z-local[b*width];
+            for(size_t j=1;j<width;++j) {
+                const C delta=(total[j]-local[b*width+j])/denominator-average[j];
+                variance[j]+=C(std::pow(delta.real(),2),std::pow(delta.imag(),2));
+            }
+        }
+        sum(variance);
         double largest=0.;
         for(size_t j=1;j<width;++j) {
-            if(!finite(total[j]/z)) throw std::runtime_error("nonfinite observable ratio");
-            C average{}; std::vector<C> leave(count);
-            for(size_t b=0;b<count;++b) {
-                C denominator=z-pooled[b*width];
-                if(std::abs(denominator)<=1e-12*std::max(abs_z,1e-300)) throw std::runtime_error("unresolved jackknife denominator");
-                leave[b]=(total[j]-pooled[b*width+j])/denominator;
-                if(!finite(leave[b])) throw std::runtime_error("nonfinite jackknife ratio");
-                average+=leave[b]/double(count);
-            }
-            double vr=0.,vi=0.;
-            for(C value:leave) { vr+=std::pow((value-average).real(),2); vi+=std::pow((value-average).imag(),2); }
-            double re=std::sqrt(double(count-1)/double(count)*vr),im=std::sqrt(double(count-1)/double(count)*vi);
+            const double re=std::sqrt(double(count-1)/double(count)*variance[j].real());
+            const double im=std::sqrt(double(count-1)/double(count)*variance[j].imag());
             error_re[j]=std::max(error_re[j],re); error_im[j]=std::max(error_im[j],im);
             largest=std::max({largest,re,im});
         }
         statistics.blocking_lengths.push_back(double(block_length)); statistics.blocking_errors.push_back(largest);
         if(!pcn || per_rank<4 || per_rank%2) break;
+        // Coarsen adjacent blocks within this chain, never across MPI ranks.
+        // Consumed blocks are overwritten in place and reset next iteration.
         const size_t next=per_rank/2;
-        std::vector<C> coarse(size_t(ranks)*next*width,C{});
-        for(size_t rank_i=0;rank_i<size_t(ranks);++rank_i) for(size_t b=0;b<next;++b) for(size_t j=0;j<width;++j)
-            coarse[(rank_i*next+b)*width+j]=pooled[(rank_i*per_rank+2*b)*width+j]+pooled[(rank_i*per_rank+2*b+1)*width+j];
-        pooled=std::move(coarse); per_rank=next; block_length*=2;
+        for(size_t b=0;b<next;++b) for(size_t j=0;j<width;++j)
+            local[b*width+j]=local[2*b*width+j]+local[(2*b+1)*width+j];
+        per_rank=next; block_length*=2;
     }
     for(size_t j=0;j<nx;++j) { next_correlations.values[j]=total[1+j]/z; statistics.correlation_error_re.values[j]=error_re[1+j]; statistics.correlation_error_im.values[j]=error_im[1+j]; }
     for(size_t j=0;j<nm;++j) { next_moments.values[j]=total[1+nx+j]/z; statistics.magnetization_error_re.values[j]=error_re[1+nx+j]; statistics.magnetization_error_im.values[j]=error_im[1+nx+j]; }

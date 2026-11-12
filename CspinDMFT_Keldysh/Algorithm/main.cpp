@@ -21,9 +21,9 @@ int main(int argc,char** argv) {
             +std::to_string(runtime.preparation.num_Iterations+1)+" ---\n");
         const size_t samples=parameters.num_PreparationSamplesPerCore;
         // Construct the current field law before drawing any trajectories.
-        const auto covariance=mfm::self_consistent_equations(model,parameters,
-            preparation_correlations,preparation_magnetization,parameters.preparation_layout);
-        Sampler sampler(covariance,parameters.takagi_tolerance);
+        Sampler sampler(mfm::covariance_source(model,parameters,
+            preparation_correlations,preparation_magnetization,parameters.preparation_layout),
+            parameters.takagi_tolerance,parameters.check_gaussian_reconstruction);
         const auto mean=parameters.uses_harmonic_bath()?std::vector<C>(model.operators.size()):mfm::mean_field(model,preparation_magnetization);
         std::seed_seq seed{static_cast<unsigned>(parameters.generated_seed),static_cast<unsigned>(parameters.generated_seed>>32),
             static_cast<unsigned>(rank),static_cast<unsigned>(runtime.preparation.num_Iterations),0u};
@@ -98,9 +98,9 @@ int main(int argc,char** argv) {
         func::constrain_feedback(correlations,magnetization,preparation_correlations,preparation_magnetization,parameters);
         const size_t samples=parameters.num_SamplesPerCore;
         // Construct the current field law before drawing any trajectories.
-        const auto covariance=mfm::self_consistent_equations(model,parameters,correlations,magnetization,parameters.real_time_layout);
-        Sampler sampler(covariance,parameters.real_time_layout.ni*parameters.real_time_layout.components,
-            parameters.real_time_layout.intervals*parameters.real_time_layout.components,parameters.takagi_tolerance);
+        Sampler sampler(mfm::covariance_source(model,parameters,correlations,magnetization,parameters.real_time_layout),
+            parameters.real_time_layout.ni*parameters.real_time_layout.components,
+            parameters.real_time_layout.intervals*parameters.real_time_layout.components,parameters.takagi_tolerance,parameters.check_gaussian_reconstruction);
         const auto mean=parameters.uses_harmonic_bath()?std::vector<C>((parameters.num_RealTimeSteps+1)*model.operators.size()):mfm::mean_field(model,magnetization);
         std::seed_seq seed{static_cast<unsigned>(parameters.generated_seed),static_cast<unsigned>(parameters.generated_seed>>32),
             static_cast<unsigned>(rank),static_cast<unsigned>(runtime.real_time.num_Iterations),1u};

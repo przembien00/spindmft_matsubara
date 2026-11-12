@@ -1,4 +1,5 @@
 #pragma once
+#include <Complex_Gaussian/Complex_Gaussian.h>
 #include "../Contour/Contour_Types.h"
 #include "../Parameter_Space/Parameter_Space.h"
 namespace CspinDMFT::Mean_Field_Models {
@@ -22,6 +23,9 @@ Correlations prescribed_bath(const Model&,const ParameterSpace&,const Correlatio
 template<class Correlations>
 Matrix self_consistent_equations(const Model&,const ParameterSpace&,const Correlations&,
     const MagnetizationFor<Correlations>&,const Contour::Layout&);
+template<class Correlations>
+spinDMFT::Functions::SymmetricCovarianceSource covariance_source(const Model&,const ParameterSpace&,
+    const Correlations&,const MagnetizationFor<Correlations>&,const Contour::Layout&);
 template<class Magnetization>
 std::vector<C> mean_field(const Model&,const Magnetization&);
 

@@ -1,0 +1,26 @@
+[
+  {
+    "sites": 2,
+    "symmetry": "A",
+    "compared": 61,
+    "max_absolute_difference": 8.275150895768414e-28
+  },
+  {
+    "sites": 2,
+    "symmetry": "C",
+    "compared": 61,
+    "max_absolute_difference": 3.1262557673908698e-27
+  },
+  {
+    "sites": 4,
+    "symmetry": "A",
+    "compared": 85,
+    "max_absolute_difference": 3.34477023813709e-28
+  },
+  {
+    "sites": 4,
+    "symmetry": "C",
+    "compared": 85,
+    "max_absolute_difference": 3.1425063020384226e-26
+  }
+]

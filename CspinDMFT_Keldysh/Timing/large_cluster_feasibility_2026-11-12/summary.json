@@ -1,0 +1,62 @@
+[
+  {
+    "sites": 7,
+    "symmetry": "A",
+    "measured_peak_gb": 0.750338048,
+    "extra_32_block_payload_gb": 0.0484464,
+    "peak_plus_32_block_payload_gb": 0.798784448,
+    "real_sample_seconds": 14.677225,
+    "preparation_sample_seconds": 2.951375,
+    "real_setup_seconds": 6.42751,
+    "samples_per_rank_with_20_percent_reserve": 74,
+    "preparation_samples_per_rank": 6,
+    "inflated_total_hours": 6.266908807222221,
+    "samples_per_rank_without_reserve": 94,
+    "minimum_four_sample_inflated_hours": 0.4935129738888889
+  },
+  {
+    "sites": 7,
+    "symmetry": "C",
+    "measured_peak_gb": 2.282422272,
+    "extra_32_block_payload_gb": 0.19407456,
+    "peak_plus_32_block_payload_gb": 2.476496832,
+    "real_sample_seconds": 28.3715,
+    "preparation_sample_seconds": 5.835425,
+    "real_setup_seconds": 52.8536,
+    "samples_per_rank_with_20_percent_reserve": 36,
+    "preparation_samples_per_rank": 4,
+    "inflated_total_hours": 6.227879746111111,
+    "samples_per_rank_without_reserve": 46,
+    "minimum_four_sample_inflated_hours": 1.1840575238888889
+  },
+  {
+    "sites": 8,
+    "symmetry": "A",
+    "measured_peak_gb": 1.526235136,
+    "extra_32_block_payload_gb": 0.05216736,
+    "peak_plus_32_block_payload_gb": 1.578402496,
+    "real_sample_seconds": 110.05375,
+    "preparation_sample_seconds": 24.365175,
+    "real_setup_seconds": 14.6918,
+    "samples_per_rank_with_20_percent_reserve": 8,
+    "preparation_samples_per_rank": 4,
+    "inflated_total_hours": 6.058112175444444,
+    "samples_per_rank_without_reserve": 10,
+    "minimum_four_sample_inflated_hours": 3.6124732865555553
+  },
+  {
+    "sites": 8,
+    "symmetry": "C",
+    "measured_peak_gb": 3.036741632,
+    "extra_32_block_payload_gb": 0.20903136,
+    "peak_plus_32_block_payload_gb": 3.245772992,
+    "real_sample_seconds": 211.10275,
+    "preparation_sample_seconds": 49.89525,
+    "real_setup_seconds": 123.297,
+    "samples_per_rank_with_20_percent_reserve": 0,
+    "preparation_samples_per_rank": null,
+    "inflated_total_hours": null,
+    "samples_per_rank_without_reserve": 4,
+    "minimum_four_sample_inflated_hours": 7.596282322222223
+  }
+]

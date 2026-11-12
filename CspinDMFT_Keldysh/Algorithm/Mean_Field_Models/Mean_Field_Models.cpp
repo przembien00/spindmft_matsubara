@@ -96,8 +96,8 @@ Correlations prescribed_bath(const Model& model,const ParameterSpace& p,const Co
     return out;
 }
 template<class Correlations>
-Matrix self_consistent_equations(const Model& model,const ParameterSpace& p,
-    const Correlations& correlations,const MagnetizationFor<Correlations>& moments,const Contour::Layout& layout) {
+Correlations field_primitive(const Model& model,const ParameterSpace& p,
+    const Correlations& correlations,const MagnetizationFor<Correlations>& moments) {
     auto field_correlations=p.uses_harmonic_bath()?prescribed_bath(model,p,correlations)
         :bath_primitive(model,correlations,moments);
     if(p.noise.m_name!="none") for(size_t i=0;i<model.sites;++i)
@@ -105,8 +105,26 @@ Matrix self_consistent_equations(const Model& model,const ParameterSpace& p,
             for(size_t k=0;k<field_correlations.imaginary_points;++k)
                 set_correlation(field_correlations,t,3*i+2,3*i+2,k,
                     correlation(field_correlations,t,3*i+2,3*i+2,k)+p.noise.m_variance_in(2,2));
-    return Contour::covariance(field_correlations,layout,p.real_time_substeps);
+    return field_correlations;
 }
+template<class Correlations>
+Matrix self_consistent_equations(const Model& model,const ParameterSpace& p,
+    const Correlations& correlations,const MagnetizationFor<Correlations>& moments,const Contour::Layout& layout) {
+    return Contour::covariance(field_primitive(model,p,correlations,moments),layout,p.real_time_substeps);
+}
+template<class Correlations>
+spinDMFT::Functions::SymmetricCovarianceSource covariance_source(const Model& model,const ParameterSpace& p,
+    const Correlations& correlations,const MagnetizationFor<Correlations>& moments,const Contour::Layout& layout) {
+    auto primitive=std::make_shared<Correlations>(field_primitive(model,p,correlations,moments));
+    return {layout.dimension(),[primitive,layout,q=p.real_time_substeps](size_t i,size_t j) {
+        if(i>j) std::swap(i,j);
+        return Contour::kernel(*primitive,layout.decode(i),layout.decode(j),q);
+    }};
+}
+template spinDMFT::Functions::SymmetricCovarianceSource covariance_source(const Model&,const ParameterSpace&,
+    const MatsubaraCorrelations&,const ClusterMagnetization&,const Contour::Layout&);
+template spinDMFT::Functions::SymmetricCovarianceSource covariance_source(const Model&,const ParameterSpace&,
+    const ContourCorrelations&,const TimeMagnetization&,const Contour::Layout&);
 template Matrix self_consistent_equations(const Model&,const ParameterSpace&,const MatsubaraCorrelations&,const ClusterMagnetization&,const Contour::Layout&);
 template Matrix self_consistent_equations(const Model&,const ParameterSpace&,const ContourCorrelations&,const TimeMagnetization&,const Contour::Layout&);
 template MatsubaraCorrelations connected(const MatsubaraCorrelations&,const ClusterMagnetization&);

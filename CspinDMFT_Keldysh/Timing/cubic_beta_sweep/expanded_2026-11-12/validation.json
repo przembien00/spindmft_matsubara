@@ -1,0 +1,29 @@
+{
+  "dry_run_commands": 264,
+  "submission_arrays": 4,
+  "jobs_per_array": 66,
+  "memory_per_cpu": "4G",
+  "sizes": [
+    2,
+    4,
+    7,
+    8
+  ],
+  "reserve_using_jobs": 44,
+  "executable_sha256": "2ae372d7f3d5454e603e1f6bcf2dcc73429040de22ed31f0e3bb6c1e11eb1eb7",
+  "maximum_planning_rss_bytes": 3245772992,
+  "slurm_jobs_submitted": 0,
+  "checked": [
+    "unique concise names",
+    "field conventions",
+    "sample counts and time estimates",
+    "four submission arrays and memory",
+    "explicit subset",
+    "Slurm spool path",
+    "invalid task indices",
+    "solver exit handling",
+    "production block-memory allowance"
+  ],
+  "deterministic_plan_regeneration": true,
+  "default_plan_sha256": "d6505e56d56bade1826760edf5f28c476684a7f14417c9b162f6f4a75c01dfb5"
+}

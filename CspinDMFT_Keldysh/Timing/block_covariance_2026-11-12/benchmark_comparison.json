@@ -1,0 +1,30 @@
+[
+  {
+    "sites": 2,
+    "symmetry": "A",
+    "compared": 59,
+    "skipped_reconstruction_histories": 2,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "sites": 2,
+    "symmetry": "C",
+    "compared": 59,
+    "skipped_reconstruction_histories": 2,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "sites": 4,
+    "symmetry": "A",
+    "compared": 83,
+    "skipped_reconstruction_histories": 2,
+    "max_absolute_difference": 0.0
+  },
+  {
+    "sites": 4,
+    "symmetry": "C",
+    "compared": 83,
+    "skipped_reconstruction_histories": 2,
+    "max_absolute_difference": 0.0
+  }
+]

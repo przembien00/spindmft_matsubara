@@ -45,6 +45,7 @@ public:
     size_t mh_burn_in=100;
     std::string iteration_error_mode="relative",absolute_iteration_error_option="conservative";
     double absolute_iteration_error_tolerance=0.,iteration_error_sigma_threshold=5.;
+    bool check_gaussian_reconstruction=false;
     double covariance_tolerance=1e-10,takagi_tolerance=1e-8,minimum_phase_magnitude=1e-6;
     std::string init_corr_mode="generate",initial_correlations_src_file,init_diag_corr="imagtime",init_nondiag_corr="zero";
     bool extrapolate_initial_spin_correlations=false;

@@ -17,7 +17,7 @@ ctest --test-dir build --output-on-failure
 Requires C++17, MPI, HDF5, LAPACK/BLAS, Boost program_options and the repository's
 Blaze headers. The executable is `CspinDMFT_Keldysh/executable_DOUBLE.out`.
 The Gaussian and joint-Matsubara row-space implementations are compiled from
-`spinDMFT_Keldysh_staged`; fixes to those implementations are shared.
+`cpp_libs/Complex_Gaussian`; fixes are shared with `spinDMFT_Keldysh_staged`.
 
 ## Two-spin AFM cluster in a cubic lattice
 
@@ -124,7 +124,7 @@ Cluster-specific names follow `CspinDMFT`; contour-specific names follow
 | Sampling | `numSamplesPerCore`, `preparationSamplesPerCore`, `numSamplesPerSet`, `numBlocks`, `seed` |
 | Joint pCN | `samplingStrategy=pcn`, `jointMatsubaraPCN`, `mhStepSize`, `mhBurnIn` |
 | Iteration | `reliterror`, `iterlimit`, `preparationIterlimit`, `itermode`, `absiterror` |
-| Contour diagnostics | `covarianceTolerance`, `takagiTolerance`, `minimumPhaseMagnitude` |
+| Contour diagnostics | `checkGaussianReconstruction`, `covarianceTolerance`, `takagiTolerance`, `minimumPhaseMagnitude` |
 | Feedback constraints | `constantMagnetization`, `noselfcons` |
 | Initialization | `initmode`, `initdcorr`, `initndcorr`, `corrperiods`, `loadinit`, `initcorrfile`, `impcorrfile`, `extrapolate` |
 | Prescribed harmonic bath | `bath=harmonic`, `bathOmega`, `bathCoupling`, `bathComponent` |
@@ -164,15 +164,22 @@ The immutable run parameters contain the preparation and real-time contour
 layouts, constructed once from the configuration's cluster size and time grids.
 Both sampling and pCN reuse these layouts.
 
-`self_consistent_equations` takes the cluster correlations and magnetizations
-and returns the joint contour covariance, including embedding couplings and
-static noise. The sampler factorizes that covariance to draw the fields.
+`covariance_source` takes the cluster correlations and magnetizations and
+provides joint contour covariance entries from the bath primitive, including
+embedding couplings and static noise. Production does not allocate a full
+D-by-D covariance. The sampler discovers exact connected components, constructs
+one complex block at a time, converts it to a real lift and releases the block
+before the eigensolve. The dense `self_consistent_equations` helper remains for
+reference comparisons.
 
 `numBlocks` is a requested count: an equal-sized divisor of the sample count
 is selected automatically, with at least two blocks per rank. For pCN the
 count is a power of two and errors take the largest paired-ratio jackknife
 error under within-chain block coarsening. Use even sample counts.
-Independent blocks are pooled over MPI ranks. Sample counts are fixed by
+Blocks stay on their originating MPI ranks. Global numerator/denominator
+sums, delete-block ratio means, and centered variances are reduced across ranks;
+this preserves the pooled jackknife estimator without replicating block arrays.
+Sample counts are fixed by
 `numSamplesPerCore` and `preparationSamplesPerCore`; there is no adaptive
 retry loop. The `adaptive` and `staterrtolerance` options have been removed.
 
@@ -202,6 +209,30 @@ The cluster solver reports `complex-weight N_eff` for both sampling modes;
 this quantity does not measure pCN autocorrelation. It is not relabeled as
 the staged solver's `minimum autocorrelation N_eff`.
 
+Exact connected blocks are scaled during extraction, identical blocks share
+factors, and one real lift is overwritten by the symmetric eigensolver. Only
+blocks with exactly zero coupling between them are separated; the sampled
+joint Gaussian law and global singular-value cutoff are unchanged.
+
+Gaussian reconstruction checking is off by default. Enable it with
+`--checkGaussianReconstruction` (or `--checkGaussianReconstruction=true`). It
+computes the final physical unweighted `L L^T` residual and applies
+`takagiTolerance`; disabling it skips both reconstruction allocation and work.
+Input finiteness checks and eigensolver failure handling remain active. HDF5
+records `parameters/check_gaussian_reconstruction` as a yes/no attribute.
+Skipped entries in `gaussian_factor_reconstruction_errors` are NaN, and the
+unchecked residual does not enter convergence.
+
+Measurements reuse adjacent response propagators and transformed spin operators, and build only requested Matsubara insertions. Partition-only
+pCN proposals retain a running imaginary-time product without observable arrays.
+Generated initialization skips isolated correlations unless requested.
+
+`numSamplesPerSet` still defaults to one. Larger batches can reduce Gaussian
+draw time, with additional memory proportional to batch size; tune them for the
+actual cluster workload. Matched measurements and validation are recorded in
+[the efficiency implementation report](Timing/efficiency_fixes_2026-11-12/REPORT.md)
+and [the covariance-provider follow-up](Timing/block_covariance_2026-11-12/REPORT.md).
+
 ## Convergence
 
 The default `itermode=relative` uses the staged solver's rules:
@@ -211,8 +242,8 @@ The default `itermode=relative` uses the staged solver's rules:
 - Real time compares the largest real/imaginary update in current-standard-error
   units to `reliterror`. It also requires the complex absolute update to stay
   below `max_i(max(S_i,S_i²))`.
-- Phase magnitude, covariance/factor reconstruction, and imaginary origin
-  magnetization diagnostics must pass.
+- Phase magnitude, covariance symmetry, and imaginary origin magnetization
+  diagnostics must pass. Gaussian factor reconstruction must pass when enabled.
 
 The prepared origin is excluded from real-time residuals. With
 `constantMagnetization`, measured magnetizations are saved, but feedback
@@ -401,11 +432,15 @@ MPI from this folder:
 
 ```sh
 python3 Algorithm/Tests/test_solver.py ./executable_DOUBLE.out mpirun -n 2
+mpirun -n 2 Algorithm/build/test_sampling
 ```
 
 The solver assumes equilibrium bath time-translation invariance. Dense field
-dimension is `3*N*(N_tau+1+2*N_t*q+1)`; matrix storage and factorization grow
-quadratically/cubically. The interacting cluster Hilbert space grows as
+dimension is `3*N*(N_tau+1+2*N_t*q+1)`. Discovering exact blocks still scans
+covariance entries, with quadratic work in that dimension, but no full matrix
+storage. Eigensolver memory/time grow quadratically/cubically in the largest
+connected block size; a fully connected covariance can still be one D-by-D
+block. The interacting cluster Hilbert space grows as
 `product_i(2*S_i+1)`, capped at 4096 states with substantially lower practical
 limits. Standard errors describe the current Monte Carlo iteration; they do
 not propagate feedback uncertainty. pCN blocking diagnostics require enough

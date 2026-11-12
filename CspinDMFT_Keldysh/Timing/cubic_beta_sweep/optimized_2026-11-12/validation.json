@@ -1,0 +1,49 @@
+{
+  "executable_sha256": "2ae372d7f3d5454e603e1f6bcf2dcc73429040de22ed31f0e3bb6c1e11eb1eb7",
+  "completed_probes": 16,
+  "dry_run_commands": 132,
+  "existing_filename_matches": 83,
+  "slurm_jobs_submitted": 0,
+  "summary": [
+    {
+      "sites": 2,
+      "symmetry": "A",
+      "samples_per_rank": 1066900,
+      "preparation_samples_per_rank": 106690,
+      "estimated_total_hours": 6.3998333333333335,
+      "measured_real_sample_seconds": 0.00105018359375,
+      "measured_real_setup_seconds": 0.207799,
+      "peak_rss_upper_bound_bytes": 318046208
+    },
+    {
+      "sites": 2,
+      "symmetry": "C",
+      "samples_per_rank": 454400,
+      "preparation_samples_per_rank": 45440,
+      "estimated_total_hours": 6.398722222222222,
+      "measured_real_sample_seconds": 0.0024941875,
+      "measured_real_setup_seconds": 1.51691,
+      "peak_rss_upper_bound_bytes": 388841472
+    },
+    {
+      "sites": 4,
+      "symmetry": "A",
+      "samples_per_rank": 30000,
+      "preparation_samples_per_rank": 3000,
+      "estimated_total_hours": 6.379611111111111,
+      "measured_real_sample_seconds": 0.0371313671875,
+      "measured_real_setup_seconds": 1.85038,
+      "peak_rss_upper_bound_bytes": 1139392512
+    },
+    {
+      "sites": 4,
+      "symmetry": "C",
+      "samples_per_rank": 15900,
+      "preparation_samples_per_rank": 1590,
+      "estimated_total_hours": 6.393805555555556,
+      "measured_real_sample_seconds": 0.06959140625,
+      "measured_real_setup_seconds": 15.6569,
+      "peak_rss_upper_bound_bytes": 1171963904
+    }
+  ]
+}

@@ -250,7 +250,8 @@ with tempfile.TemporaryDirectory(prefix='cluster-native-') as directory:
         with h5py.File(bath) as f:
             assert np.all(np.isfinite(correlations(f['results'])))
             assert np.max(f['runtimedata/Re_correlation_sample_stds/1-1'][:])>1e-8
-            assert f['runtimedata'].attrs['gaussian_factor_reconstruction_errors'][-1]<1e-8
+            assert text(f['parameters'].attrs['check_gaussian_reconstruction'])=='no'
+            assert np.all(np.isnan(f['runtimedata'].attrs['gaussian_factor_reconstruction_errors']))
             assert 0<f['runtimedata'].attrs['average_phase_magnitudes'][-1]<=1+1e-12
             assert 0<=f['runtimedata'].attrs['mh_acceptance_rates'][-1]<=1
             assert f['preparation'].attrs['samples_per_block']==6
@@ -262,6 +263,22 @@ with tempfile.TemporaryDirectory(prefix='cluster-native-') as directory:
             for i in range(2):
                 diagonal=f['preparation/Re_correlation'][f'{i+1}-{i+1}'][:]
                 np.testing.assert_allclose(diagonal[[0,4,8],0],.25,atol=1e-12)
+    for strategy in ['independent','pcn']:
+        base=['--samplingStrategy='+strategy,'--reliterror=100','--absiterror=1',
+            '--numSamplesPerCore=48','--mhBurnIn=8','--preparationSamplesPerCore=24','--numSamplesPerSet=3']
+        unchecked=run(root,'unchecked_'+strategy,base)
+        checked=run(root,'checked_'+strategy,base+['--checkGaussianReconstruction'])
+        with h5py.File(unchecked) as f,h5py.File(checked) as g:
+            assert text(g['parameters'].attrs['check_gaussian_reconstruction'])=='yes'
+            for stage in ['preparation','runtimedata']:
+                assert np.all(np.isnan(f[stage].attrs['gaussian_factor_reconstruction_errors']))
+                assert np.all(g[stage].attrs['gaussian_factor_reconstruction_errors']<1e-8)
+                assert f[stage].attrs['termination']==g[stage].attrs['termination']
+                assert f[stage].attrs['num_Iterations']==g[stage].attrs['num_Iterations']
+            for stage in ['preparation','results']:
+                for part in ['Re','Im']:
+                    for pair in f[stage+'/'+part+'_correlation']:
+                        np.testing.assert_array_equal(f[stage+'/'+part+'_correlation/'+pair][:],g[stage+'/'+part+'_correlation/'+pair][:])
     reduced_config=conf.with_name('representatives.hdf5')
     with h5py.File(conf) as source,h5py.File(reduced_config,'w') as target:
         target.attrs['num_Spins']=2

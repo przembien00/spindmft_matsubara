@@ -1,0 +1,102 @@
+[
+  {
+    "tag": "N2_A",
+    "command": [
+      "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_audit_2026-11-12/probe.out",
+      "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+      "--project=CubicLattice",
+      "--dstproject=Efficiency_audit_2026-11-12",
+      "--cstype=A",
+      "--unifield=0",
+      "--beta=5",
+      "--numImagTimeSteps=50",
+      "--numRealTimeSteps=150",
+      "--Tmax=10",
+      "--realTimeSubsteps=1",
+      "--numSamplesPerCore=4",
+      "--preparationSamplesPerCore=4",
+      "--numBlocks=2",
+      "--noselfcons",
+      "--seed=613",
+      "--fileext=N2_A"
+    ],
+    "returncode": 0,
+    "elapsed_seconds": 0.7731403750367463,
+    "executable_sha256": "3f125e1ef13c22838651137523dc0f3db5f8fdebfbb62690c0e1a22138bba959"
+  },
+  {
+    "tag": "N2_C",
+    "command": [
+      "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_audit_2026-11-12/probe.out",
+      "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=2_NN_J=-0.40825.hdf5",
+      "--project=CubicLattice",
+      "--dstproject=Efficiency_audit_2026-11-12",
+      "--cstype=C",
+      "--unifield=0.5",
+      "--beta=5",
+      "--numImagTimeSteps=50",
+      "--numRealTimeSteps=150",
+      "--Tmax=10",
+      "--realTimeSubsteps=1",
+      "--numSamplesPerCore=4",
+      "--preparationSamplesPerCore=4",
+      "--numBlocks=2",
+      "--noselfcons",
+      "--seed=613",
+      "--fileext=N2_C"
+    ],
+    "returncode": 0,
+    "elapsed_seconds": 10.762669750023633,
+    "executable_sha256": "3f125e1ef13c22838651137523dc0f3db5f8fdebfbb62690c0e1a22138bba959"
+  },
+  {
+    "tag": "N4_A",
+    "command": [
+      "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_audit_2026-11-12/probe.out",
+      "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=4_NN_J=-0.40825.hdf5",
+      "--project=CubicLattice",
+      "--dstproject=Efficiency_audit_2026-11-12",
+      "--cstype=A",
+      "--unifield=0",
+      "--beta=5",
+      "--numImagTimeSteps=50",
+      "--numRealTimeSteps=150",
+      "--Tmax=10",
+      "--realTimeSubsteps=1",
+      "--numSamplesPerCore=4",
+      "--preparationSamplesPerCore=4",
+      "--numBlocks=2",
+      "--noselfcons",
+      "--seed=613",
+      "--fileext=N4_A"
+    ],
+    "returncode": 0,
+    "elapsed_seconds": 3.904152457951568,
+    "executable_sha256": "3f125e1ef13c22838651137523dc0f3db5f8fdebfbb62690c0e1a22138bba959"
+  },
+  {
+    "tag": "N4_C",
+    "command": [
+      "/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Timing/efficiency_audit_2026-11-12/probe.out",
+      "--config=/Users/przembien/Projects/spindmft_matsubara/CspinDMFT_Keldysh/Configuration_Data/CubicLattice/Cubic_3D_N=4_NN_J=-0.40825.hdf5",
+      "--project=CubicLattice",
+      "--dstproject=Efficiency_audit_2026-11-12",
+      "--cstype=C",
+      "--unifield=0.5",
+      "--beta=5",
+      "--numImagTimeSteps=50",
+      "--numRealTimeSteps=150",
+      "--Tmax=10",
+      "--realTimeSubsteps=1",
+      "--numSamplesPerCore=4",
+      "--preparationSamplesPerCore=4",
+      "--numBlocks=2",
+      "--noselfcons",
+      "--seed=613",
+      "--fileext=N4_C"
+    ],
+    "returncode": 0,
+    "elapsed_seconds": 91.1050579160219,
+    "executable_sha256": "3f125e1ef13c22838651137523dc0f3db5f8fdebfbb62690c0e1a22138bba959"
+  }
+]

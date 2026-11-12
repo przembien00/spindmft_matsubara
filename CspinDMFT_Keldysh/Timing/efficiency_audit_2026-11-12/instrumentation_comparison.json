@@ -1,0 +1,26 @@
+[
+  {
+    "first": "CspinDMFT_Keldysh/Data/Efficiency_audit_2026-11-12/spinmodel=ISO__config=Cubic_3D_N=2_NN_J=-0.40825__beta=5__unifield=0.5_N2_C.hdf5",
+    "instrumented": "CspinDMFT_Keldysh/Data/Efficiency_audit_2026-11-12/spinmodel=ISO__config=Cubic_3D_N=2_NN_J=-0.40825__beta=5__unifield=0.5_N2_CX.hdf5",
+    "datasets_compared": 25,
+    "different_datasets": []
+  },
+  {
+    "first": "CspinDMFT_Keldysh/Data/Efficiency_audit_2026-11-12/spinmodel=ISO__config=Cubic_3D_N=2_NN_J=-0.40825__beta=5__unifield=0_N2_A.hdf5",
+    "instrumented": "CspinDMFT_Keldysh/Data/Efficiency_audit_2026-11-12/spinmodel=ISO__config=Cubic_3D_N=2_NN_J=-0.40825__beta=5__unifield=0_N2_AX.hdf5",
+    "datasets_compared": 25,
+    "different_datasets": []
+  },
+  {
+    "first": "CspinDMFT_Keldysh/Data/Efficiency_audit_2026-11-12/spinmodel=ISO__config=Cubic_3D_N=4_NN_J=-0.40825__beta=5__unifield=0.5_N4_C.hdf5",
+    "instrumented": "CspinDMFT_Keldysh/Data/Efficiency_audit_2026-11-12/spinmodel=ISO__config=Cubic_3D_N=4_NN_J=-0.40825__beta=5__unifield=0.5_N4_CX.hdf5",
+    "datasets_compared": 49,
+    "different_datasets": []
+  },
+  {
+    "first": "CspinDMFT_Keldysh/Data/Efficiency_audit_2026-11-12/spinmodel=ISO__config=Cubic_3D_N=4_NN_J=-0.40825__beta=5__unifield=0_N4_A.hdf5",
+    "instrumented": "CspinDMFT_Keldysh/Data/Efficiency_audit_2026-11-12/spinmodel=ISO__config=Cubic_3D_N=4_NN_J=-0.40825__beta=5__unifield=0_N4_AX.hdf5",
+    "datasets_compared": 49,
+    "different_datasets": []
+  }
+]

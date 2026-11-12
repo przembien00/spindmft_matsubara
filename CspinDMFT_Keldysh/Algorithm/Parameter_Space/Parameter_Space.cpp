@@ -86,6 +86,7 @@ ParameterSpace::ParameterSpace(int argc,char* const argv[],int world_size,int ra
       ("preparationIterlimit",po::value(&preparation_limit)->default_value(0),"preparation limit; 0 uses iterlimit")
       ("constantMagnetization","use prepared m(0) in real-time feedback; retain measured m(t)")
       ("covarianceTolerance",po::value(&covariance_tolerance)->default_value(covariance_tolerance),"transpose symmetry tolerance")
+      ("checkGaussianReconstruction",po::value(&check_gaussian_reconstruction)->default_value(false)->implicit_value(true),"compute and validate Gaussian reconstruction residuals (off by default)")
       ("takagiTolerance",po::value(&takagi_tolerance)->default_value(takagi_tolerance),"Takagi reconstruction tolerance")
       ("minimumPhaseMagnitude",po::value(&minimum_phase_magnitude)->default_value(minimum_phase_magnitude),"minimum resolved |sum Z|/sum |Z|")
       ("initmode",po::value(&init_corr_mode)->default_value(init_corr_mode),"generate or import")
@@ -314,6 +315,7 @@ std::string ParameterSpace::create_essentials_string(const Mean_Field_Models::Mo
     line("num_PreparationSamplesPerCore",std::to_string(num_PreparationSamplesPerCore));
     line("sampling_strategy",sampling_strategy);
     line("staged_field_sampling","full-contour Takagi");
+    line("check_gaussian_reconstruction",check_gaussian_reconstruction?"true":"false");
     if(sampling_strategy=="pcn") {
         line("pcn_target","p0(a)|Z_M(L_M U a)|; fresh joint null-space draws");
         line("mh_step_size",number(mh_step_size));

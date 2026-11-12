@@ -1,0 +1,29 @@
+{
+  "executable_sha256": "2ae372d7f3d5454e603e1f6bcf2dcc73429040de22ed31f0e3bb6c1e11eb1eb7",
+  "checks": [
+    {
+      "case": "N7_A",
+      "numeric_datasets_checked": 84,
+      "actual_blocks": 2,
+      "output": "N7_A/Data/Results/spinmodel=ISO__config=Cubic_3D_N=7_NN_J=-0.40825__beta=5X.hdf5"
+    },
+    {
+      "case": "N7_C",
+      "numeric_datasets_checked": 84,
+      "actual_blocks": 2,
+      "output": "N7_C/Data/Results/spinmodel=ISO__config=Cubic_3D_N=7_NN_J=-0.40825__beta=5__unifield=0.5.hdf5"
+    },
+    {
+      "case": "N8_A",
+      "numeric_datasets_checked": 90,
+      "actual_blocks": 2,
+      "output": "N8_A/Data/Results/spinmodel=ISO__config=Cubic_3D_N=8_NN_J=-0.40825__beta=5.hdf5"
+    },
+    {
+      "case": "N8_C",
+      "numeric_datasets_checked": 90,
+      "actual_blocks": 2,
+      "output": "N8_C/Data/Results/spinmodel=ISO__config=Cubic_3D_N=8_NN_J=-0.40825__beta=5__unifield=0.5.hdf5"
+    }
+  ]
+}

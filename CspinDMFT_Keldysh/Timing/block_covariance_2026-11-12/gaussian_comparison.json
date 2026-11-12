@@ -1,0 +1,23 @@
+{
+  "objectives": [
+    "unweighted",
+    "explicit weights",
+    "contour weights"
+  ],
+  "fixtures": "dense complex, repeated blocks, global cutoff, zero modes, tolerated asymmetry",
+  "compared": [
+    "real-linear factor",
+    "E[z z^T]",
+    "E[z z^dagger]",
+    "19 fixed-seed draws"
+  ],
+  "cases": 18,
+  "source_and_disabled_checks_compared": true,
+  "underflow_rejection_checked": true,
+  "exactly_equal": true,
+  "max_absolute_difference": 0.0,
+  "source_sha256": {
+    "before": "e67f0dcbc8498a73a1644848ec7fa1ef3003abbd8c5e1e9d65abad745c2c41ef",
+    "after": "cda25079ababeee3560daccd5bca3bf859a8ad69fb935a79d4017463cffe674f"
+  }
+}

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# 4 configurations x 3 field cases x 11 beta values = 132 independent jobs.
+# 8 configurations x 3 field cases x 11 beta values = 264 independent jobs.
 # Recommended submission (creates logs before Slurm opens its output files):
 #   bash CspinDMFT_Keldysh/slurm_cubic_beta_sweep.sh --submit
 # Inspect a command without running it:
 #   bash CspinDMFT_Keldysh/slurm_cubic_beta_sweep.sh --dry-run 0
 #SBATCH --job-name=cluster_keldysh_cubic
-#SBATCH --array=0-131
+#SBATCH --array=0-263
 #SBATCH --nodes=1
 #SBATCH --ntasks=16
 #SBATCH --cpus-per-task=1
 #SBATCH --partition=med
-#SBATCH --mem-per-cpu=5G
-#SBATCH --time=6:00:00
+#SBATCH --mem-per-cpu=4G
+#SBATCH --time=8:00:00
 #SBATCH --output=logs/slurm_%x_%A_%a.out
 #SBATCH --error=logs/slurm_%x_%A_%a.err
 
@@ -34,15 +34,14 @@ if [[ "${1:-}" == --submit ]]; then
     cd "${script_dir}"
     plan="${SAMPLE_PLAN:-${script_dir}/Timing/cubic_beta_sweep/sample_plan.tsv}"
     [[ -r "$plan" ]] || { echo "Missing sample plan: $plan" >&2; exit 1; }
-    # An explicit array selection uses the script's conservative memory default.
-    # Otherwise reserve 2 GB/rank for N=2 and 5 GB/rank for N=4.
+    # Every size uses 4 GB/core; explicit subsets use the same directive.
     for option in "$@"; do
         if [[ "$option" == --array || "$option" == --array=* || "$option" == -a || "$option" == -a* ]]; then
             exec sbatch "$@" "${script_dir}/slurm_cubic_beta_sweep.sh"
         fi
     done
     total_cases=$(( $(wc -l < "$plan") - 1 ))
-    for size in 2 4; do
+    for size in 2 4 7 8; do
         case_indices=()
         index=0
         while IFS=$'\t' read -r configuration rest; do
@@ -60,9 +59,7 @@ if [[ "${1:-}" == --submit ]]; then
             done
         done
         array_spec="$(IFS=,; echo "${indices[*]}")"
-        memory=5G
-        [[ "$size" != 2 ]] || memory=2G
-        sbatch --array="$array_spec" --mem-per-cpu="$memory" \
+        sbatch --array="$array_spec" --mem-per-cpu=4G \
             --job-name="cluster_keldysh_cubic_N${size}" "$@" \
             "${script_dir}/slurm_cubic_beta_sweep.sh"
     done
@@ -115,16 +112,22 @@ export VECLIB_MAXIMUM_THREADS=1 BLIS_NUM_THREADS=1
 export BLAZE_NUM_THREADS=1
 args=(
     --config="$config" --project=CubicLattice --dstproject="$project"
-    --spinspinmodel=ISO --beta="$beta" --cstype="$symmetry" "--${field}=${amplitude}"
+    --spinspinmodel=ISO --beta="$beta" --cstype="$symmetry"
     --numImagTimeSteps=50 --numRealTimeSteps=150 --Tmax=10
     --realTimeSubsteps=1 --timeTranslationInvariant=true
     --samplingStrategy=independent --numSamplesPerSet=1 --numBlocks=32
     --numSamplesPerCore="$samples" --preparationSamplesPerCore="$prep_samples"
     --iterlimit=10 --preparationIterlimit="$prep_limit" --reliterror=5
-    --fileext="cubic_sweep__ni=50__nr=150__case=${physical_case}__samples=${samples}__prep=${prep_samples}"
 )
+# Match existing data names: no run suffix or redundant zero-field tag.
+if [[ "$physical_case" != zero ]]; then
+    args+=("--${field}=${amplitude}")
+fi
 echo "Task ${task_id}: ${config}, beta=${beta}, ${physical_case}; samples/rank=${samples}, preparation/rank=${prep_samples}"
 echo "Conservative timing estimate for up to ${prep_limit} preparation + 10 real-time iterations: ${estimate} seconds."
+if awk -v seconds="$estimate" 'BEGIN { exit !(seconds > 23040) }'; then
+    echo 'This case uses part of the additional 20% time reserve; its doubled-cost estimate remains within eight hours.'
+fi
 if "$dry_run"; then
     printf '%q ' mpirun -n "$ranks" "$executable" "${args[@]}"
     printf '\n'
