@@ -332,7 +332,12 @@ std::string ParameterSpace::create_filename_string() const {
     const auto number=[&](double v) { std::ostringstream os; os<<std::setprecision(num_PrintDigits)<<v; return os.str(); };
     std::string name=spinspin_cmodel.compact_info(num_PrintDigits);
     if(spinspin_cmodel!=spinmf_cmodel) name+="__mf"+spinmf_cmodel.compact_info(num_PrintDigits);
-    name+="__config="+std::filesystem::path(config_file).stem().string()+"__beta="+number(beta);
+    const auto config_filename = std::filesystem::path(config_file).filename();
+    const auto extension = config_filename.extension();
+    const auto config_name = (extension == ".hdf5" || extension == ".h5")
+        ? config_filename.stem().string()
+        : config_filename.string();
+    name+="__config="+config_name+"__beta="+number(beta);
     if(uniform_field) name+="__unifield="+number(*uniform_field);
     else if(staggered_field) name+="__stagfield="+number(*staggered_field);
     else if(chemical_shift!="none") name+="__chemshift="+chemical_shift;
