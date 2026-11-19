@@ -16,7 +16,7 @@
 #SBATCH --ntasks=16
 #SBATCH --cpus-per-task=1
 #SBATCH --partition=med
-#SBATCH --mem-per-cpu=4G
+#SBATCH --mem-per-cpu=3G
 #SBATCH --time=8:00:00
 #SBATCH --output=logs/slurm_%x_%A_%a.out
 #SBATCH --error=logs/slurm_%x_%A_%a.err
